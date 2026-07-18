@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "feature.schema.json",
+  "title": "Feature matrix (array file)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "domain", "confidence"],
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+      "name": { "type": "string", "minLength": 1 },
+      "domain": { "type": "string", "minLength": 1 },
+      "ground_truth": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "entities": { "type": "array", "items": { "type": "string" } },
+          "routes": { "type": "array", "items": { "type": "string" } },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "jobs": { "type": "array", "items": { "type": "string" } },
+          "events": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "flows": { "type": "array", "items": { "type": "string" } },
+      "history": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "first_shipped": { "type": "string" },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "evidence": { "type": "array", "items": { "type": "string" } },
+      "status": { "enum": ["planned", "covered", "partial", "missing", "upstream-candidate"] },
+      "confidence": { "enum": ["high", "medium", "low"] }
+    }
+  }
+}

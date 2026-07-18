@@ -1,0 +1,18 @@
+# Subagent briefing format
+
+Every dispatch is self-contained — subagents share no conversational context. Include:
+
+1. **Role file**: point at the agent definition (miner / adr-drafter / spec-writer).
+2. **Inputs** (absolute paths): the exact workbench files to read. Never "the matrix" —
+   always `workbench/matrix/features.yaml`. For miners: the `sources.yaml` entries in
+   scope and the pinned reference commit.
+3. **Output contract**: the exact output path and schema file. One output file per run.
+4. **Boundaries**: what the agent must NOT do — no edits outside its output path, no
+   fetching outside `sources.yaml`, no restructuring locked artifacts, no invented
+   evidence. Ambiguity resolves by flagging `confidence: low`, never by guessing.
+5. **Done means**: a checkable condition (validates against schema X; covers files Y).
+
+Parallelism: dispatch independent lanes/modules in the same turn. Route model tiers if
+the environment supports it: extraction → low tier; merge/spec → mid; ADR drafting →
+high. On subagent output failing validation, send it back with the validator error —
+do not hand-fix, the fix must come from a run that could have produced it.

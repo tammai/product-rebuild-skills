@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "finding.schema.json",
+  "title": "Raw mining finding (array file)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "lane", "name", "summary", "evidence", "confidence"],
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+      "lane": { "enum": ["ground-truth", "feature", "nfr", "flow"] },
+      "name": { "type": "string", "minLength": 1 },
+      "summary": { "type": "string", "minLength": 1 },
+      "evidence": {
+        "type": "array", "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string", "format": "uri" },
+            "path": { "type": "string" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "note": { "type": "string" }
+          },
+          "anyOf": [ { "required": ["url"] }, { "required": ["path", "commit"] } ]
+        }
+      },
+      "signals": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "pricing_tier": { "type": "string" },
+          "first_shipped": { "type": "string" },
+          "mentioned_in_reviews": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "flow": {
+        "type": "object",
+        "required": ["trigger", "steps", "outcome"],
+        "additionalProperties": false,
+        "properties": {
+          "trigger": { "type": "string" },
+          "steps": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "outcome": { "type": "string" },
+          "verified_by_user": { "type": "boolean" }
+        }
+      },
+      "confidence": { "enum": ["high", "medium", "low"] }
+    }
+  }
+}

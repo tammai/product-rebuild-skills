@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "slice.schema.json",
+  "title": "Slice plan (array file)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "features", "depends_on", "learning_goals", "done_means"],
+    "additionalProperties": false,
+    "properties": {
+      "id": { "type": "string", "pattern": "^S[0-9]+$" },
+      "name": { "type": "string", "minLength": 1 },
+      "features": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+      "depends_on": { "type": "array", "items": { "type": "string" } },
+      "learning_goals": { "type": "array", "items": { "type": "string" } },
+      "done_means": { "type": "string", "minLength": 10 },
+      "status": { "enum": ["pending", "in-progress", "deployed", "done"] }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "lock.schema.json",
+  "title": "Gate lock file",
+  "type": "object",
+  "required": ["gate", "title", "status", "protects"],
+  "additionalProperties": false,
+  "properties": {
+    "gate": { "type": "string", "pattern": "^gate-[1-5]$" },
+    "title": { "type": "string" },
+    "status": { "enum": ["open", "locked"] },
+    "locked_at": { "type": "string" },
+    "locked_by": { "type": "string" },
+    "protects": { "type": "array", "items": { "type": "string" } },
+    "artifact_hashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "at", "reason"],
+        "properties": {
+          "action": { "enum": ["locked", "reopened"] },
+          "at": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}
