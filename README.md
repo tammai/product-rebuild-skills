@@ -38,10 +38,11 @@ Two ideas carry everything:
 ## Install
 
 ```bash
-# from a marketplace that includes this repo
-/plugin install product-rebuild-skills
+# add this repo as a marketplace, then install the plugin from it
+/plugin marketplace add tammai/product-rebuild-skills
+/plugin install product-rebuild-skills@product-rebuild-skills
 
-# or for local development, add this repo as a marketplace in Claude Code:
+# or for local development, point at your working copy instead:
 /plugin marketplace add /path/to/product-rebuild-skills
 ```
 
