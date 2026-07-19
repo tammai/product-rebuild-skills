@@ -1,0 +1,22 @@
+[
+  {"query": "i want to rebuild something like twenty crm in go + nuxt to actually learn the whole lifecycle, where do i start", "should_trigger": true},
+  {"query": "where are we on the openproject rebuild? i think we locked taxonomy last week", "should_trigger": true},
+  {"query": "chạy tiếp slice S2 đi, hôm qua deploy xong S1 rồi", "should_trigger": true},
+  {"query": "the hook just blocked me editing matrix/features.yaml, what do i do", "should_trigger": true},
+  {"query": "run the parity check on the workbench, i want the coverage diff against the matrix", "should_trigger": true},
+  {"query": "lock gate 3 — we're going with diverge on multi-tenancy, mirror everything else", "should_trigger": true},
+  {"query": "can you scaffold the workbench for a webstudio-style page builder rebuild?", "should_trigger": true},
+  {"query": "reopen gate 2, the slice order needs to change now that the auth adr changed", "should_trigger": true},
+  {"query": "what's the license posture we recorded for this rebuild, can we read the reference's source for the billing module?", "should_trigger": true},
+  {"query": "kick off the miner agents for the reference's ground truth lane, we haven't mined permissions yet", "should_trigger": true},
+  {"query": "help me set up a new nuxt 4 project with pinia colada", "should_trigger": false},
+  {"query": "write an ADR comparing kafka vs sqs for our notification service", "should_trigger": false},
+  {"query": "clone this github repo and run the tests", "should_trigger": false},
+  {"query": "compare openproject vs jira for my team of 12", "should_trigger": false},
+  {"query": "spec gate is blocking my PLAN.md, how do i get task-workflow to let me proceed", "should_trigger": false},
+  {"query": "slice this array into chunks of 5 in javascript", "should_trigger": false},
+  {"query": "review this PR before i merge, check for n+1 queries and error handling gaps", "should_trigger": false},
+  {"query": "what's the parity in exchange rates between USD and VND today", "should_trigger": false},
+  {"query": "build me a feature comparison matrix for three pricing plans in excel", "should_trigger": false},
+  {"query": "our postgres migration locked the table, how do i unblock the deploy", "should_trigger": false}
+]

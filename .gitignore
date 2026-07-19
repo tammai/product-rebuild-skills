@@ -1,3 +1,5 @@
 .claude/settings.local.json
 .DS_Store
 node_modules/
+skills/rebuild-pipeline/eval/runs/
+skills/rebuild-pipeline/eval/run.log
