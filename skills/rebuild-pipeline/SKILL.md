@@ -98,6 +98,12 @@ logged event; require the user to state the reason.
 
 ## Conventions (apply everywhere)
 
+- Checkpoint discipline: write in-progress, unlocked work to disk in the workbench
+  proactively — a partial ADR, a draft matrix, in-flight findings — without waiting to be
+  asked. Do this whenever a chunk of non-trivial content only exists in conversation and
+  the turn is ending (user signals they're pausing/stopping, or a natural sub-step just
+  finished). Draft files on disk survive a new session; chat text does not. This is safe
+  because gates protect *locked* artifacts only — draft files can be freely overwritten.
 - Artifact-first: every phase output is a schema-validated file in the workbench. If it
   isn't validated, the phase isn't done.
 - Evidence rule: no finding without an evidence pointer (URL, or path+commit for lane D).
@@ -110,6 +116,8 @@ logged event; require the user to state the reason.
 
 ## Failure modes to actively prevent
 
+- Leaving non-trivial in-progress work only in chat when a session is ending — persist
+  it as a draft file first (see checkpoint discipline above).
 - Skipping state detection and acting on stale conversational memory.
 - Doing lane work inline that should fan out to parallel subagents.
 - Nudging the user toward locking a gate to "make progress" — gates gain value from
