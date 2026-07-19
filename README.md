@@ -19,7 +19,7 @@ G0  Reference + license posture          you decide
 G1  Parallel mining (4 lanes)            agents, parallel
 G2  Feature matrix        ── GATE 1      you lock the taxonomy
 G3  Milestone slicing     ── GATE 2      you lock the slice order
-G4a System design (ADRs)  ── GATE 3      you decide mirror-or-diverge, per concern
+G4a System design (ADRs)  ── GATE 3      starts from the org-default architecture; you decide any divergence
 G4b Data model+contracts  ── GATE 4      you lock the interfaces
 G5  Build, per slice                     agents, parallel; every slice ends DEPLOYED
 G6  Parity loop                          automated: tests + matrix diff + upstream re-mine
@@ -89,12 +89,19 @@ and locks only on your explicit yes: `npm run gate -- lock gate-N` under the hoo
 
 ### 4. Gates 3–4: the learning core
 
-- **Gate 3 (architecture):** for each concern (decomposition, auth, tenancy, events,
-  storage, ...) agents draft an ADR stating what the reference does and the case for
-  **mirroring vs. diverging**. You decide each one. Diverging is where the learning is;
-  *undocumented* divergence is the failure mode the format prevents. Only after this
-  gate do code repos get created — their count is an output of your decomposition
-  decision. Each pins the workbench as a read-only submodule at gate tags.
+- **Gate 3 (architecture):** decomposition, auth, events, storage, background workers,
+  and observability start from the org's default architecture
+  ([`references/architecture-default.md`](skills/rebuild-pipeline/references/architecture-default.md)
+  — Go + Nuxt modular monolith, API-first, by default). Agents draft an ADR per concern
+  proposing to mirror that default, and only argue for diverging from it when this
+  product's shape gives a concrete reason — the reference's own architecture is recorded
+  for the learning record, but doesn't drive this decision. Tenancy, search, and backend
+  caching have no org default at all, though, and stay fully open — mirror-or-diverge
+  against the reference, decided from scratch like everything else in the pipeline. You
+  decide each ADR. *Undocumented* divergence — from the default where one exists, from
+  the reference otherwise — is the failure mode the format prevents. Only after this gate
+  do code repos get created — their count is an output of your decomposition decision.
+  Each pins the workbench as a read-only submodule at gate tags.
 - **Gate 4 (contracts):** data model first, then three interface layers (public API,
   internal, async/events). Locking cuts the tag your code repos build against.
 

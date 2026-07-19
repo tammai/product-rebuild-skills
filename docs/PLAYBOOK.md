@@ -9,7 +9,7 @@
 1. Every phase reads and writes machine-readable artifacts with fixed schemas, so agents can run every automatable step without human glue work.
 2. Human judgment is concentrated into five explicit gates. Everything between gates is parallelizable.
 3. Nothing downstream of a gate may contradict what the gate locked. Changing a locked decision means formally reopening the gate, not patching around it.
-4. Divergence from the reference is welcome — that is where the learning is — but only *documented* divergence. Every architectural departure gets an ADR; undocumented drift is the failure mode.
+4. Divergence from the reference is welcome — that is where the learning is — but only *documented* divergence. Every architectural departure gets an ADR; undocumented drift is the failure mode. (Exception, scoped to G4a only: architecture/stack decisions default to the org playbook in `architecture-default.md` — see section 6. This goal governs everywhere else, and still governs the *reference*-divergence axis within G4a, plus the three G4a concerns the org playbook doesn't cover at all.)
 5. "Full features" is the declared end state, so scoping decisions are about *sequence*, never about cutting the destination.
 
 ---
@@ -204,16 +204,37 @@ The slice sequence is locked. New ideas and upstream reference changes (from G6)
 
 ## 6. Phase G4a — System design → GATE 3: architecture lock
 
-**Goal:** decide the system's shape as an explicit **mirror-or-diverge** exercise against the reference. This phase is where most of the lifecycle learning concentrates, and it is the most expensive layer to change later — hence its own gate, before any contract exists.
+**Goal:** decide the system's shape against the **org-default architecture**
+(`skills/rebuild-pipeline/references/architecture-default.md` — default Go + Nuxt modular
+monolith, API-first; Fastify + Next.js alternate) where a default exists, with the
+reference product's own architecture (lane D) recorded as informational context rather
+than the decision driver for those concerns. This is a deliberate, scoped exception to
+design goal 4 above: for decomposition/stack and most cross-cutting concerns, there *is*
+a default answer, and the ADR exists to justify departing from it — not to derive it from
+scratch each time. The org default doesn't cover everything, though (see 6.1 step 4):
+tenancy, search, and backend/cross-cutting caching have no org-default answer at all, and
+stay fully blank-slate, mirror-or-diverge-against-the-reference decisions, exactly as
+every G4a concern worked before this default existed. (Taxonomy, slicing, and contracts
+stay per-product, blank-slate decisions too.) This phase is still the most expensive layer
+to change later — hence its own gate, before any contract exists.
 
-Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`, and the reference's observed architecture from lane D.
+Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`, the
+reference's observed architecture from lane D, and `architecture-default.md`.
 
 ### 6.1 Decision sequence
 
+0. **Applicability check (once, before any ADR is drafted):** confirm
+   `architecture-default.md`'s own "when this does NOT apply" criteria (team under ~10
+   engineers, no PMF, no concrete decoupled-API-first driver) don't describe this rebuild.
+   If they do, skip the org-default mechanism entirely for this project — every ADR below
+   reverts to the pipeline's original blank-slate model. Record the outcome as a one-line
+   note carried into the Gate 3 review.
 1. **Bounded contexts:** confirm/adjust taxonomy domains into contexts. Each context owns its data and vocabulary.
-2. **Decomposition:** monolith, modular monolith, or services — decided per product by ADR. The playbook mandates *how* to decide, never the answer. Note that the reference's own choice is evidence, not a verdict.
-3. **Mirror-or-diverge, per concern:** for every architectural concern, the ADR must state whether you are mirroring the reference or diverging, and why. Divergence (e.g. reference is a Rails monolith, rebuild is Go + a SPA) is where learning happens; mirroring is legitimate when the concern isn't a learning goal. Undocumented divergence is the failure mode — it silently invalidates ground-truth assumptions from lane D.
-4. **Cross-cutting concerns**, one ADR each as applicable: authn/authz, tenancy strategy, events/queues, storage engines, search, file/media processing, background workers, caching, observability.
+2. **Decomposition:** default is **modular monolith** per the org default. Before drafting this ADR, ask the human directly whether any team-composition fact (stack familiarity, existing React/Node investment) favors the Fastify + Next.js alternate — this is the one fact the pipeline never persists elsewhere, so it's asked here every time, and recorded inline in this ADR's rationale. Otherwise propose modular monolith / Go+Nuxt as the baseline; diverging requires a concrete reason from this product's NFR profile or shape — e.g. a hard scaling/isolation requirement, or an architectural-shape mismatch (e.g. the reference is fundamentally event-sourced with no queryable current-state table) — not just "the reference did it differently." Note the reference's own choice for the record; it's evidence about the *product domain*, not a vote on the rebuild's architecture.
+3. **Mirror-or-diverge, two axes per concern with a default:** every such ADR states (a) mirror-or-diverge **the org default** — the actionable axis, gated — and (b) mirror-or-diverge **the reference's own approach** — informational, for the learning record and for tracking which lane-D ground-truth facts a *behavioral* reference-divergence invalidates (a pure tech-stack/language swap forced by the fixed org-default stack doesn't count). These are independent: an ADR can mirror the org default while diverging from the reference (the common case), or diverge from the org default for a documented reason. Undocumented divergence from the org default is the primary failure mode this gate enforces against, for the concerns that have a default.
+4. **Cross-cutting concerns** — coverage is uneven, cite the exact section rather than assuming one section covers every concern:
+   - authn/authz → §7; background workers → §7+§8+§10 (decide **before** events/queues); events/queues → §7+§8 (decide **after** background workers, citing it for the job-queue substrate the outbox relay runs on); storage → §8; files/media → §8; observability → §10.
+   - **tenancy, search, backend/cross-cutting caching → no org default exists.** These three have no org-default axis (`org-default: N/A`) and are decided the original way: mirror-or-diverge against the reference only.
 5. **Infra topology:** deployment units, environments, CI/CD shape — derived from the decomposition.
 
 ### 6.2 ADR format
@@ -221,20 +242,25 @@ Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`
 ```markdown
 # ADR-007: <decision>
 status: accepted | superseded-by-ADR-0XX
-reference-approach: <what the reference does, lane-D evidence>
-decision: mirror | diverge — <one paragraph>
-rationale: <incl. learning goal if diverging>
-consequences: <trade-offs accepted; lane-D facts invalidated by divergence>
+org-default: <cited section(s) of architecture-default.md, or N/A for tenancy/search/caching>
+decision: mirror-default | diverge-from-default | silent-default   (or mirror | diverge, for N/A concerns)
+reference-approach: <what the reference does, lane-D evidence — informational unless org-default is N/A>
+rationale: <required in depth when diverging from the org default — name the NFR/shape fact, the rejected mirror-default alternative, and any prior ADR depended on; incl. learning goal if also diverging from the reference>
+consequences: <trade-offs accepted; lane-D facts invalidated by any behavioral divergence from the reference>
 reversal-condition: <observable fact that would reopen this>
 ```
 
-Agents draft ADRs in parallel; the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it.
+`silent-default` is for a concern the org default addresses in general but not this
+specific sub-question: propose a policy, flag it as newly introduced rather than sourced,
+skip the depth requirement (nothing to diverge from), but still explain the choice.
+
+Agents draft ADRs in parallel (except background workers before events/queues) — always with `architecture-default.md` as a fixed input, with the exact applicable section(s) or `N/A` named per concern so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
 
 ### 6.3 GATE 3 — architecture lock
 
-Locks the context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, or queue downstream without reopening.
+Locks the applicability-check outcome, context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, or queue downstream without reopening.
 
-**Exit criteria:** every context has a decomposition ADR; every cross-cutting concern decided or marked N/A; every ADR states mirror-or-diverge with reference evidence; topology diagram exists.
+**Exit criteria:** applicability check recorded; every context has a decomposition ADR; every cross-cutting concern decided (org-default-based or, for tenancy/search/caching, reference-based) or marked N/A within its own axis; every ADR with an org default states mirror/diverge/silent-default against it with evidence; the three N/A concerns state mirror/diverge against the reference; topology diagram exists.
 
 ---
 
@@ -332,7 +358,7 @@ Serialization points, by design: the five gates, the data model draft, the migra
 ## 12. Failure modes to watch
 
 - **Reading code instead of running the product** — lane D without lanes B/C produces a rebuild of the schema, not the product. Mitigation: running instance is a G1 exit requirement.
-- **Undocumented divergence** — the rebuild silently departs from the reference, invalidating ground-truth assumptions. Mitigation: mirror-or-diverge field mandatory in every ADR; review enforces it.
+- **Undocumented divergence** — from the org-default architecture, for decomposition and the six cross-cutting concerns that have one (section 6, the gated axis there); from the reference, for tenancy/search/caching (no org default exists for these — they keep the original reference-mirror-or-diverge gate) and everywhere outside G4a. Mitigation: the applicable mirror-or-diverge field(s) are mandatory in every G4a ADR; review enforces it.
 - **Horizontal slicing** — "all backend first" delays every lifecycle lesson to the end. Mitigation: slice schema requires `done_means` phrased as user-visible behavior on a deployment.
 - **Taxonomy churn after Gate 1 / architecture by accident in G5** — same as ever: gate reopening is formal and logged; new infra requires an ADR.
 - **AC theater** — vague criteria that always pass. Mitigation: each AC names one observable behavior and maps to exactly one test; when ambiguous, the reference instance arbitrates.

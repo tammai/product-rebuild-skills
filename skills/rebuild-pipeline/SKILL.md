@@ -60,7 +60,7 @@ per-phase by design to keep context lean:
 | G1 | `references/g1-mining.md` | Dispatch miner subagents per lane |
 | G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
-| G4a | `references/g4a-architecture.md` | Dispatch ADR drafts, Gate 3 review |
+| G4a | `references/g4a-architecture.md` (+ `references/architecture-default.md`, the org default every ADR mirrors or diverges from) | Dispatch ADR drafts, Gate 3 review |
 | G4b | `references/g4b-contracts.md` | Data model, three contract layers, Gate 4 |
 | G5 | `references/g5-build.md` | Per-slice fan-out to build subagents |
 | G6 | `references/g6-parity.md` | Parity report, upstream re-mine |
