@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-23
+
+### Fixed
+
+- **`gate.mjs`'s `yamlStr()` quoted values containing a newline without escaping it** —
+  `needsQuoting()` flagged an embedded `\n` as needing quotes, but the escaper only handled
+  `\` and `"`, so a multi-line title/reason/locked_by produced a quoted value spanning two
+  physical lines. `get()`'s single-line regex then captured only the first line and
+  `unquote()` found no closing quote, silently truncating the value and corrupting the line
+  that followed. Added `\n` ↔ literal-`\n`-escape handling alongside the backslash/quote
+  escaping so a quoted value always stays on one physical line.
+- **`pause-check.mjs` read gate titles through its own un-synced copy of `parseLock`/`get`** —
+  it never picked up `gate.mjs`'s `unquote()`, so once a title needed quoting its "reopened
+  but not re-locked" message printed the raw quoted/escaped form (e.g.
+  `gate-4 ("Contract lock: v2 revision")`) instead of the plain title. Added the matching
+  `unquote()` to pause-check.mjs.
+
 ## [0.3.2] - 2026-07-23
 
 ### Fixed

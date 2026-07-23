@@ -31,10 +31,10 @@ if (!existsSync(join(LOCKS, "pipeline.yaml"))) {
 // (not "always double-quote") so pre-existing simple values round-trip unchanged.
 const needsQuoting = (s) => /: |:$|^[-?:,[\]{}#&*!|>'"%@`]|\n/.test(s);
 const yamlStr = (s) => needsQuoting(s)
-  ? `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+  ? `"${String(s).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/"/g, '\\"')}"`
   : s;
 const unquote = (s) => s !== undefined && /^".*"$/.test(s)
-  ? s.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+  ? s.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\")
   : s;
 
 const parseLock = (id) => {

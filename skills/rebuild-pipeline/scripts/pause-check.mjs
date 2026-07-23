@@ -72,11 +72,16 @@ for (const { name, path } of repoEntries) {
 }
 
 // --- 2. Gates left mid-decision: reopened but not re-locked ---
+// unquote mirrors gate.mjs's yamlStr/unquote — title may have been quoted there
+// (e.g. it contains ": ") and must be unescaped the same way when read back here.
+const unquote = (s) => s !== undefined && /^".*"$/.test(s)
+  ? s.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\")
+  : s;
 const parseLock = (id) => {
   const p = join(LOCKS, `${id}.yaml`);
   if (!existsSync(p)) return null;
   const text = readFileSync(p, "utf8");
-  const get = (k) => (text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim();
+  const get = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
   const historyBlock = text.match(/history:[\s\S]*$/)?.[0] || "";
   const actions = [...historyBlock.matchAll(/^\s*-\s*action:\s*(\S+)/gm)].map((m) => m[1]);
   const lastAction = actions[actions.length - 1];
