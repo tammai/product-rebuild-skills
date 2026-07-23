@@ -7,9 +7,10 @@
 // This is NOT one of the pipeline's five hash-pinned gates (gate-1..gate-5) — it locks
 // nothing and has no protects:/PreToolUse enforcement. It's a repeatable, advisory readiness
 // check: git cleanliness across the workbench and every repo in repos.yaml, any gate left
-// mid-decision (reopened but not re-locked), and docker-compose stacks left running. Exits
-// 0 always; "unsafe" is communicated in the report, not a process-failure exit code, since
-// nothing here should ever block a tool call the way the gate-guard hook does.
+// mid-decision (reopened but not re-locked), docker-compose stacks left running, and
+// host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
+// is communicated in the report, not a process-failure exit code, since nothing here should
+// ever block a tool call the way the gate-guard hook does.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.
 
 import { readFileSync, existsSync } from "node:fs";
@@ -113,6 +114,31 @@ const checkCompose = (label, dir) => {
 checkCompose("workbench", ".");
 for (const { name, path } of repoEntries) {
   checkCompose(name, resolve(path));
+}
+
+// --- 4. Host-native dev servers left running (pnpm dev, go run, etc.) ---
+// Port/command conventions vary per repo, so this doesn't guess either — it looks for any
+// running process whose command line references the repo's own absolute path (true for
+// `pnpm dev`/`nuxt dev`/`go run` alike, since node_modules/.bin, cli entrypoints, or the
+// working directory itself all resolve under it).
+const checkDevProcess = (label, dir) => {
+  const abs = resolve(dir);
+  const escaped = abs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    const out = execSync(`pgrep -f "${escaped}"`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const pids = out.split("\n").filter(Boolean);
+    if (pids.length) {
+      issues.push(`${label}: ${pids.length} process(es) still running under ${abs} (e.g. a dev server) — pid(s) ${pids.join(", ")}`);
+    } else {
+      notes.push(`${label}: no host-native process running.`);
+    }
+  } catch (e) {
+    if (e.status === 1) notes.push(`${label}: no host-native process running.`);
+    else notes.push(`${label}: could not check for running processes (pgrep unavailable).`);
+  }
+};
+for (const { name, path } of repoEntries) {
+  checkDevProcess(name, resolve(path));
 }
 
 // --- Report ---

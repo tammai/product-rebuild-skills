@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-23
+
+### Fixed
+
+- **`pause-check.mjs` missed host-native dev servers left running** — it only checked
+  docker-compose stacks, so a `pnpm dev`/`go run`-style process (exactly the shape this
+  same session's deployment-topology ADR made the frontend's normal deploy path) went
+  undetected while still bound to its port. Added a per-repo check that looks for any
+  running process whose command line references the repo's own absolute path — works
+  for any dev command/port convention without needing to know either one. Caught live:
+  a `pnpm dev` frontend server was still running on `localhost:3000` after the pipeline
+  had already reported "safe to pause."
+
 ## [0.3.1] - 2026-07-23
 
 ### Fixed
