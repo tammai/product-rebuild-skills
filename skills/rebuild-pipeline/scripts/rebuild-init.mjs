@@ -76,6 +76,11 @@ status: draft   # draft | decided
 write("repos.yaml", `
 # Code repos consuming this workbench (fill after Gate 3).
 # Each pins the workbench as a read-only submodule at a gate-4 tag.
+# Populate as each repo is created — scripts/pause-check.mjs reads this to know which
+# repos to check for uncommitted work before a session pauses. Format:
+#   repos:
+#     - name: <repo-name>
+#       path: ../<repo-name>   # relative to this workbench's own root
 repos: []
 `);
 

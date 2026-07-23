@@ -144,6 +144,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
   scripts/validate.mjs          schema + lock-integrity validation (also runs in CI)
   scripts/parity.mjs            G6 coverage report
+  scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
 agents/                         miner, adr-drafter, spec-writer subagents
 hooks/                          PreToolUse guard: blocks edits to locked artifacts
 docs/PLAYBOOK.md                the full methodology

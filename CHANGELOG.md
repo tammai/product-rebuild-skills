@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-23
+
+### Added
+
+- **Pause-safety check** (`skills/rebuild-pipeline/scripts/pause-check.mjs`, orchestrator
+  Step 6 in `SKILL.md`) — a repeatable, advisory readiness check for whether it's safe to
+  pause the pipeline and resume in a new session. Reports git-dirty state across the
+  workbench and every repo registered in `repos.yaml`, any gate left mid-decision
+  (reopened but not re-locked), and docker-compose stacks left running, plus a reminder to
+  confirm nothing non-trivial exists only in conversation. Deliberately NOT a sixth
+  hash-pinned gate — it locks nothing and has no PreToolUse enforcement, since "is it safe
+  to pause" is a live, repeatable question, not an artifact to protect. `repos.yaml`'s
+  format is now documented (`name`/`path` entries) in both `rebuild-init.mjs`'s generated
+  stub and `g5-build.md`, which now also instructs registering each code repo there as
+  it's created — previously the file was generated but never referenced again, so real
+  projects were leaving it as an empty stub indefinitely.
+
 ## [0.2.1] - 2026-07-19
 
 ### Added

@@ -96,6 +96,22 @@ Gates are human decisions. When a phase's exit criteria are met:
 Reopening (`gate.mjs reopen <gate-id> --reason "..."`) is allowed but is a formal,
 logged event; require the user to state the reason.
 
+### Step 6 — Pause safety check (before ending a session)
+
+When the user signals they're pausing, stopping, or ending the session — or you notice a
+natural stopping point (a slice just finished, a gate review just landed) — run:
+`node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/pause-check.mjs`
+
+This is NOT one of the five hash-pinned gates — it locks nothing, has no PreToolUse
+enforcement, and is safe to run any number of times. It reports, across the workbench and
+every repo registered in `repos.yaml`: uncommitted/untracked git changes, any gate left
+mid-decision (reopened but not re-locked), and docker-compose stacks left running. Report
+its verdict to the user plainly. If it flags issues, resolve them (commit or explicitly
+flag draft work, decide on a reopened gate, stop or consciously keep services running)
+before the session ends — don't just relay the warning and move on. It also can't check
+one thing by itself: confirm out loud that nothing non-trivial exists only in this
+conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't reached disk.
+
 ## Conventions (apply everywhere)
 
 - Checkpoint discipline: write in-progress, unlocked work to disk in the workbench
@@ -124,3 +140,5 @@ logged event; require the user to state the reason.
   being deliberate.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
+- Ending a session without running the pause safety check (Step 6), or running it but not
+  acting on what it flags.

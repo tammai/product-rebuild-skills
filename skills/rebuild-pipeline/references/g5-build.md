@@ -4,6 +4,11 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 3, not a constant. Work happens in code repos; the workbench is read-only input
 (submodule pinned to gate tags).
 
+**The first time a code repo is created**, add it to the workbench's `repos.yaml`
+(`name` + `path` relative to the workbench root) — `scripts/pause-check.mjs` reads this
+list to know which repos to check for uncommitted work before a session pauses. An
+unregistered repo is invisible to that check.
+
 ## Per-slice sequence
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice. Spec inputs: the
    module's matrix features + flows + ground truth + contracts. Every spec ends with
