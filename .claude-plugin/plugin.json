@@ -1,6 +1,6 @@
 {
   "name": "product-rebuild-skills",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Rebuild an existing product end-to-end to learn the full product development lifecycle. A gated, agent-orchestrated pipeline: mine a reference product, build a feature matrix, slice milestones, decide architecture via mirror-or-diverge ADRs, lock contracts, build in parallel per slice, and finish at a verified production-readiness gate.",
   "author": { "name": "Tam Mai" }
 }

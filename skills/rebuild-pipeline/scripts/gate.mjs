@@ -25,9 +25,21 @@ if (!existsSync(join(LOCKS, "pipeline.yaml"))) {
   process.exit(1);
 }
 
+// Free-text fields (title, reason, locked_by) go through here before being written —
+// unquoted plain scalars break as soon as the value contains a colon-space, a leading
+// indicator char, a trailing colon, or a "#" (comment start). Quoting is conditional
+// (not "always double-quote") so pre-existing simple values round-trip unchanged.
+const needsQuoting = (s) => /: |:$|^[-?:,[\]{}#&*!|>'"%@`]|\n/.test(s);
+const yamlStr = (s) => needsQuoting(s)
+  ? `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+  : s;
+const unquote = (s) => s !== undefined && /^".*"$/.test(s)
+  ? s.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+  : s;
+
 const parseLock = (id) => {
   const text = readFileSync(join(LOCKS, `${id}.yaml`), "utf8");
-  const get = (k) => (text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim();
+  const get = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
   const protects = [...text.matchAll(/^  - (.+)$/gm)].map((m) => m[1].trim())
     .filter((p) => !p.startsWith("action:"));
   return { id, title: get("title"), status: get("status"), locked_at: get("locked_at"), text, protects };
@@ -75,14 +87,14 @@ if (cmd === "lock") {
   if (!hashes.length) { console.error(`Nothing to lock: no files under ${lock.protects.join(", ")}`); process.exit(1); }
   const by = argAfter("--by") || process.env.USER || "unknown";
   const history = lock.text.includes("history: []")
-    ? `history:\n  - action: locked\n    at: ${now}\n    reason: gate review approved`
-    : lock.text.match(/history:[\s\S]*$/)[0].trimEnd() + `\n  - action: locked\n    at: ${now}\n    reason: gate review approved`;
+    ? `history:\n  - action: locked\n    at: ${now}\n    reason: ${yamlStr("gate review approved")}`
+    : lock.text.match(/history:[\s\S]*$/)[0].trimEnd() + `\n  - action: locked\n    at: ${now}\n    reason: ${yamlStr("gate review approved")}`;
   writeFileSync(join(LOCKS, `${id}.yaml`),
 `gate: ${id}
-title: ${lock.title}
+title: ${yamlStr(lock.title)}
 status: locked
 locked_at: ${now}
-locked_by: ${by}
+locked_by: ${yamlStr(by)}
 protects:
 ${lock.protects.map((p) => `  - ${p}`).join("\n")}
 artifact_hashes:
@@ -103,7 +115,7 @@ if (cmd === "reopen") {
     .replace(/^status: locked$/m, "status: open")
     .replace(/^locked_at: .*$\n/m, "").replace(/^locked_by: .*$\n/m, "")
     .replace(/^artifact_hashes:[\s\S]*?(?=history:)/m, "")
-    .trimEnd() + `\n  - action: reopened\n    at: ${now}\n    reason: ${reason}\n`;
+    .trimEnd() + `\n  - action: reopened\n    at: ${now}\n    reason: ${yamlStr(reason)}\n`;
   writeFileSync(join(LOCKS, `${id}.yaml`), body);
   console.log(`${id} reopened: ${reason}\nRemember: downstream artifacts built on this gate may now be stale.`);
   process.exit(0);

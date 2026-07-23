@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-23
+
+### Fixed
+
+- **`gate.mjs reopen` wrote invalid YAML whenever `--reason` contained a colon** (e.g.
+  `"Add ADR-0011: deployment topology..."`) — a very likely shape for a real reason,
+  since it broke on the very first real reopen this pipeline did. The hand-rolled writer
+  interpolated the raw string as an unquoted YAML plain scalar; a colon-space inside it
+  reads as a nested mapping, and `validate.mjs`'s real YAML parser then fails the file.
+  `title` and `locked_by` had the same latent bug, just not yet triggered. Added a
+  `yamlStr()` helper that conditionally double-quotes (only when a value actually needs
+  it, so existing simple values keep round-tripping byte-for-byte) and a matching
+  `unquote()` on the read side. Caught by, and fixed via, the linear rebuild project's own
+  ADR-0011 gate-3 reopen.
+
 ## [0.3.0] - 2026-07-23
 
 ### Added
