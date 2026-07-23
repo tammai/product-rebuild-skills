@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-07-23
+
+### Added
+
+- **Ground-truth graph step for G1 lane D** (`skills/rebuild-pipeline/references/g1-mining.md`) — before dispatching lane-D miners, clone the pinned reference commit and run `/graphify` on it once (code-only corpus, AST extraction, no LLM cost) to produce a navigable knowledge graph of entities, routes, permission checks, and job classes. Miner briefs now carry the graph path (`subagent-briefs.md`) so miners query it with `graphify query`/`path`/`explain` instead of grepping raw source cold — findings still cite path + pinned commit as evidence, the graph is a navigation aid only. Skipped entirely under clean-room license posture, where the reference repo is already deny-listed.
+
 ## [0.3.3] - 2026-07-23
 
 ### Fixed

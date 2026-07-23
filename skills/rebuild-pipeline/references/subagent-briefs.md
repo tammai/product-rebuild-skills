@@ -5,7 +5,10 @@ Every dispatch is self-contained — subagents share no conversational context. 
 1. **Role file**: point at the agent definition (miner / adr-drafter / spec-writer).
 2. **Inputs** (absolute paths): the exact workbench files to read. Never "the matrix" —
    always `workbench/matrix/features.yaml`. For miners: the `sources.yaml` entries in
-   scope and the pinned reference commit. For adr-drafter (G4a): always include
+   scope and the pinned reference commit. For lane-D miners specifically, also include the
+   reference checkout's `graphify-out/graph.json` path when it exists (see
+   `g1-mining.md`'s ground-truth graph step) so the miner queries it instead of grepping
+   raw source cold. For adr-drafter (G4a): always include
    `references/architecture-default.md` as a fixed input alongside the per-ADR brief, and
    name the exact section(s) of it that apply to this concern (or `N/A` for tenancy,
    search, and backend caching, which have no org default — see

@@ -19,6 +19,27 @@ no evidence, no entry.
   features. Agents draft from tours/docs; the USER verifies against the live instance —
   schedule that verification explicitly with them.
 
+## Ground-truth graph (lane D, source-access postures only)
+
+Before dispatching lane-D miners, build a knowledge graph of the reference source so they
+navigate it instead of grepping cold. Skip this whole section under clean-room posture
+(`license-posture.md` restricts lane D to no-code sources) — the repo is on the deny list,
+there is nothing to graph.
+
+1. Clone the pinned reference: `graphify clone <sources.yaml reference.repo>`, then
+   `git -C <local-path> checkout <sources.yaml reference.pinned_commit>` so the tree on
+   disk matches the commit every finding will cite.
+2. Run `/graphify <local-path>` once on that checkout to produce
+   `<local-path>/graphify-out/graph.json` (code-only corpus — AST extraction, no LLM cost).
+3. Include the graph path in every lane-D miner brief (see `subagent-briefs.md`). Miners
+   use `graphify query "<question>"` / `graphify path` / `graphify explain` against it as
+   the primary way to locate entities, routes, permission checks, job classes, and their
+   relationships — faster than raw grep and it surfaces connections (e.g. which guard
+   gates which route) a linear read can miss.
+4. The graph is a navigation aid, not the evidence — findings still cite path + the pinned
+   commit hash directly, same as before. If `pinned_commit` changes later (re-pin), re-run
+   `graphify update <local-path>` before re-mining rather than rebuilding from scratch.
+
 ## Orchestration
 - Dispatch miners with the brief format in `subagent-briefs.md`; one output file per run
   under `findings/<lane>/`.
