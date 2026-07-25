@@ -55,5 +55,32 @@ Structure (all sections mandatory):
   which lane-D ground-truth facts it invalidates (the rebuild can no longer copy those
   behaviors 1:1).
 - `reversal-condition:` an observable fact that would reopen this decision.
+- `contract changes this implies:` the concrete OpenAPI paths, AsyncAPI channels,
+  `contracts/data-model/*` entities and fields, and `contracts/internal/*` interface
+  methods this decision would require. This section is what a later Gate 4 reopen is
+  assembled from, so be specific and complete — "the integrations module needs endpoints"
+  is useless; a path table is not.
+
+  **Include the callees, not just the module this ADR is about.** The failure this section
+  exists to prevent is a caller whose dependency does not expose what it needs: your module
+  calls `issues.Service`, that interface has reads only, and nothing notices until a spec
+  writer stops mid-sentence or — worse — a build does. So enumerate every module your
+  decision makes a *caller* of, and for each one state the method it needs and whether that
+  method exists today. Two cases produce most of these:
+
+  - **A field your decision adds needs a writer.** Some module has to set it. If the only
+    entry point is a `Params` struct that does not carry the field, the column can never be
+    populated — and a required column or unique index on it reads as enforcement while
+    enforcing nothing.
+  - **A cross-module write.** Module boundaries forbid writing another module's schema, so
+    it goes through that module's `Service`, which may be read-only today.
+
+  Naming a needed method you may not add is not scope creep — it is the whole point. Write
+  it as "X requires `Y.Method`, which does not exist; adding it is a PR against Y's file by
+  its owner." Silence here becomes a gate reopen later.
+
+  Also state anything you are deliberately NOT changing, so its absence reads as a decision
+  rather than an oversight — and never claim a capability is owned by two modules; if your
+  decision moves a responsibility, say which file's existing wording becomes wrong.
 
 Status is always `proposed`; only the human flips it to `accepted`.
