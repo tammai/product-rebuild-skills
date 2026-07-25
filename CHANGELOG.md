@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The callee check at G4b** (`skills/rebuild-pipeline/references/g4b-contracts.md`) — an explicit pass before every Gate 4 lock, including reopens: for each module the slice touches, which modules does it *call*, and does each callee's `internal/` contract actually expose the method being called? Found the hard way on the Linear rebuild's S9, where seven gaps all had this shape and cost a second gate-4 reopen after the specs were already written. The mismatch is invisible from inside the phase — every artifact is internally consistent, and the gap exists only *between* a caller's assumption and a callee's surface. Names the two patterns that produce most of them (a field added this phase whose only writer is a `Params` struct that doesn't carry it; a cross-module write through a read-only `Service`) plus a duplicate-ownership grep, since two contract files claiming the same job ships as a runtime bug rather than a merge conflict.
 
+### Known issue (found 2026-07-25, not yet fixed)
+
+- **`gate.mjs lock` can leave its tag pointing at content the lock never hashed.** It computes
+  `artifact_hashes` from the **working tree**, then commits with `git add <lockfile> && git commit`
+  — staging only the lock file. Any artifact edited but not yet committed is therefore hashed into
+  the lock while the `gate-N/vN` commit still contains the *previous* text, and code repos pin that
+  tag as a submodule. Hit twice in one session on the Linear rebuild (gate-3 and gate-4), both
+  times caught only by hand-comparing `shasum` against the lock and re-pointing the tag with
+  `git tag -f`. The script's own fallback message already anticipates the situation ("Commit and
+  tag manually (git unavailable or dirty tree)") but nothing detects it. Suggested fix: refuse to
+  lock when the tree is dirty beyond the lock file, and tell the caller to commit first — sweeping
+  everything in with `git add -A` would be worse, since unrelated work would land in a
+  "gate-N: locked" commit. Until then: **verify the tag by hand after every lock.**
+
 ### Changed
 
 - **`adr-drafter` now emits a `contract changes this implies` section** (`agents/adr-drafter.md`) — previously not part of the agent's structure at all, so its coverage depended on whatever the orchestrator happened to put in the brief. Now a standard section, required to enumerate the modules the decision makes the ADR's module a *caller* of — naming methods that don't exist yet, as "adding it is a PR against Y's file by its owner" — plus what is deliberately unchanged, and which existing file's wording a moved responsibility makes wrong.
