@@ -11,19 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The callee check at G4b** (`skills/rebuild-pipeline/references/g4b-contracts.md`) — an explicit pass before every Gate 4 lock, including reopens: for each module the slice touches, which modules does it *call*, and does each callee's `internal/` contract actually expose the method being called? Found the hard way on the Linear rebuild's S9, where seven gaps all had this shape and cost a second gate-4 reopen after the specs were already written. The mismatch is invisible from inside the phase — every artifact is internally consistent, and the gap exists only *between* a caller's assumption and a callee's surface. Names the two patterns that produce most of them (a field added this phase whose only writer is a `Params` struct that doesn't carry it; a cross-module write through a read-only `Service`) plus a duplicate-ownership grep, since two contract files claiming the same job ships as a runtime bug rather than a merge conflict.
 
-### Known issue (found 2026-07-25, not yet fixed)
+### Fixed
 
-- **`gate.mjs lock` can leave its tag pointing at content the lock never hashed.** It computes
-  `artifact_hashes` from the **working tree**, then commits with `git add <lockfile> && git commit`
-  — staging only the lock file. Any artifact edited but not yet committed is therefore hashed into
-  the lock while the `gate-N/vN` commit still contains the *previous* text, and code repos pin that
-  tag as a submodule. Hit twice in one session on the Linear rebuild (gate-3 and gate-4), both
-  times caught only by hand-comparing `shasum` against the lock and re-pointing the tag with
-  `git tag -f`. The script's own fallback message already anticipates the situation ("Commit and
-  tag manually (git unavailable or dirty tree)") but nothing detects it. Suggested fix: refuse to
-  lock when the tree is dirty beyond the lock file, and tell the caller to commit first — sweeping
-  everything in with `git add -A` would be worse, since unrelated work would land in a
-  "gate-N: locked" commit. Until then: **verify the tag by hand after every lock.**
+- **`gate.mjs lock` no longer lets its tag point at content the lock never hashed** (found
+  2026-07-25). It computes `artifact_hashes` from the **working tree**, then commits with
+  `git add <lockfile> && git commit` — staging only the lock file. Any artifact edited but not
+  yet committed was therefore hashed into the lock while the `gate-N/vN` commit still contained
+  the *previous* text, and code repos pin that tag as a submodule. Hit twice in one session on
+  the Linear rebuild (gate-3 and gate-4), both times caught only by hand-comparing `shasum`
+  against the lock and re-pointing the tag with `git tag -f`. `lock` now runs `git status
+  --porcelain` before hashing and refuses if anything outside the lock file itself is dirty,
+  telling the caller to commit or stash first — rather than `git add -A`, which would sweep
+  unrelated in-progress work into the "gate-N: locked" commit uninvited.
+
+- **Gate tags are now immutable and versioned (`gate-N/v1`, `v2`, ...) instead of a force-moved
+  `gate-N/v1`.** Code repos consume the workbench as a submodule pinned by commit, and resolve
+  that pin's name with `git describe --exact-match`. A submodule clone that had already fetched
+  `gate-4/v1` kept resolving it to the OLD commit after a reopen, so the consumer's contract-sync
+  reported success while still pinning the previous contract — the exact drift the ceremony
+  exists to make impossible. Found during S9 stage 4 (`plan/backlog.md`); nothing was mis-synced
+  only because neither reopen that day touched `openapi.yaml`. A moving `latest` alias was
+  rejected for the same reason: any mutable ref reintroduces "the name resolves differently
+  depending on when you last fetched." `lock` now mints the next `vN` and never moves an existing
+  one, printing a re-pin reminder (`git fetch --tags && git checkout --detach <tag>`) whenever a
+  gate is locked again after a reopen.
 
 ### Changed
 

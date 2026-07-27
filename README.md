@@ -14,17 +14,10 @@ The full methodology and its rationale live in [`docs/PLAYBOOK.md`](docs/PLAYBOO
 
 ## The pipeline in one picture
 
-```
-G0  Reference + license posture          you decide
-G1  Parallel mining (4 lanes)            agents, parallel
-G2  Feature matrix        ── GATE 1      you lock the taxonomy
-G3  Milestone slicing     ── GATE 2      you lock the slice order
-G4a System design (ADRs)  ── GATE 3      starts from the org-default architecture; you decide any divergence
-G4b Data model+contracts  ── GATE 4      you lock the interfaces
-G5  Build, per slice                     agents, parallel; every slice ends DEPLOYED
-G6  Parity loop                          automated: tests + matrix diff + upstream re-mine
-GP  Production readiness  ── GATE 5      you perform the drills; terminal gate
-```
+![Rebuild pipeline: G0 reference/license posture, into G1 parallel mining (ground truth, features, NFR, UX flows), into G2 feature matrix, Gate 1 taxonomy lock, G3 milestone slicing, Gate 2 slice-plan lock, G4a system design, Gate 3 architecture lock, G4b data model + contracts, Gate 4 contract lock, into G5 parallel build per slice (specs+AC, backend, frontend, infra) repeating per slice, into G6 parity loop, into GP production readiness, Gate 5 prod-ready lock.](docs/img/pipeline.png)
+
+Green is parallel or automated work; amber is a gate — a human decision. Grey phases
+are yours to drive with the skill's help.
 
 Two ideas carry everything:
 

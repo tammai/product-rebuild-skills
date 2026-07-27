@@ -83,6 +83,26 @@ if (cmd === "lock") {
     console.error(`Cannot lock ${id}: earlier gate(s) still open: ${prevOpen.map((l) => l.id).join(", ")}`);
     process.exit(1);
   }
+  // artifact_hashes below is computed from the WORKING TREE, but the lock commit further
+  // down stages only the lock file itself. If any protected (or other) file is dirty, the
+  // hash recorded here describes content that never lands in the gate-tagged commit — a
+  // code repo pinning that tag then gets the OLD file while the lock claims the NEW hash.
+  // Refuse rather than let that drift through silently. (Not `git add -A`: sweeping in
+  // unrelated in-progress work would land it in a "gate-N: locked" commit uninvited.)
+  const lockPath = join(LOCKS, `${id}.yaml`);
+  try {
+    const dirty = execSync("git status --porcelain", { encoding: "utf8" })
+      .split("\n").filter(Boolean).map((l) => l.slice(3).trim())
+      .filter((f) => f !== lockPath);
+    if (dirty.length) {
+      console.error(`Cannot lock ${id}: working tree has uncommitted changes outside ${lockPath}:\n` +
+        dirty.map((f) => `  ${f}`).join("\n") +
+        `\nCommit or stash these first, then lock — otherwise the hashes recorded would not match ` +
+        `what the gate tag actually points at.`);
+      process.exit(1);
+    }
+  } catch { /* git unavailable — same fallback as the commit/tag step below */ }
+
   const hashes = lock.protects.flatMap(filesUnder).map((f) => `  ${f}: ${sha(f)}`);
   if (!hashes.length) { console.error(`Nothing to lock: no files under ${lock.protects.join(", ")}`); process.exit(1); }
   const by = argAfter("--by") || process.env.USER || "unknown";
@@ -102,8 +122,36 @@ ${hashes.join("\n")}
 ${history}
 `);
   try {
-    execSync(`git add ${LOCKS}/${id}.yaml && git commit -qm "${id}: locked" && git tag -f ${id}/v1`, { stdio: "pipe" });
-    console.log(`${id} locked, committed, tagged ${id}/v1.`);
+    // Gate tags are IMMUTABLE and versioned: each lock mints the next vN and never moves
+    // an existing one.
+    //
+    // This used to be `git tag -f ${id}/v1`, and force-moving it was a real hazard rather
+    // than a tidiness question. Code repos consume this workbench as a submodule pinned by
+    // COMMIT, and resolve that pin's name with `git describe --exact-match`. A submodule
+    // clone that had already fetched `gate-4/v1` kept resolving it to the OLD commit after
+    // a reopen, so the consumer's contract-sync reported success while pinning the previous
+    // contract — the exact drift that ceremony exists to make impossible. Found during S9
+    // stage 4 (plan/backlog.md); nothing was mis-synced only because neither reopen that
+    // day touched openapi.yaml.
+    //
+    // A moving `latest` alias was rejected for the same reason: any mutable ref reintroduces
+    // "the name resolves differently depending on when you last fetched".
+    const existing = execSync(`git tag -l "${id}/v*"`, { encoding: "utf8" })
+      .split("\n").map((t) => t.trim()).filter(Boolean);
+    const next = 1 + existing.reduce((max, t) => {
+      const n = Number(t.slice(`${id}/v`.length));
+      return Number.isInteger(n) && n > max ? n : max;
+    }, 0);
+    const tag = `${id}/v${next}`;
+    execSync(`git add ${LOCKS}/${id}.yaml && git commit -qm "${id}: locked" && git tag ${tag}`, { stdio: "pipe" });
+    console.log(`${id} locked, committed, tagged ${tag}.`);
+    if (next > 1) {
+      console.log(`NOTE: ${tag} is a NEW tag — ${id}/v${next - 1} still points at the previous lock.`);
+      console.log(`      Every code repo pinning this gate must re-pin deliberately:`);
+      console.log(`        git -C <submodule> fetch --tags && git -C <submodule> checkout --detach ${tag}`);
+      console.log(`      A repo that does not re-pin keeps building against the older contract,`);
+      console.log(`      which is now visible rather than silent.`);
+    }
   } catch { console.log(`${id} locked. Commit and tag manually (git unavailable or dirty tree).`); }
   process.exit(0);
 }
