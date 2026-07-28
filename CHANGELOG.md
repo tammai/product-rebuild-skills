@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-28
+
+0.6.0 told you to enforce the frontend boundary with `eslint-plugin-boundaries` and stopped
+there. Following that instruction literally, on the first real codebase to try it, produced a
+lint that reported **zero errors while enforcing nothing** — and a green CI check saying so. §5.3
+had replaced one precondition (`imports.scan: false`, which layers needed) without naming the
+precondition the folder shape needs. Found while migrating `linear-rebuild-frontend` to 0.6.0's
+§5; caught only because a deliberate cross-feature import was injected and *did not fail*.
+
+### Fixed
+
+- **§5.3 now requires an import resolver, and requires watching the rule fail once.**
+  `eslint-plugin-boundaries` can only judge a dependency it can resolve to a file; an unresolved
+  specifier is left unclassified, no policy matches, and the rule **passes**. Path-aliased and
+  extensionless imports — `~~/app/features/…`, `@/features/…`, essentially every import in a real
+  Nuxt or Next codebase — resolve to nothing by default, so the rule is inert on precisely the
+  imports it exists to police. The failure mode is the worst available shape: `eslint` exits 0.
+  The section now names `eslint-import-resolver-typescript` and the tsconfig to point it at
+  (`.nuxt/tsconfig.app.json` for Nuxt 4, root `tsconfig.json` for Next), and makes the one-time
+  inject-a-violation check part of setup rather than optional diligence — a boundary lint nobody
+  has watched fail is indistinguishable from no boundary lint.
+- §17 checklist gains the resolver-plus-verification item, and §15 gains the matching
+  anti-pattern row: boundary lint added without a resolver and never watched to fail.
+
 ## [0.6.1] - 2026-07-28
 
 A repo-root `package.json` pinned `ajv`/`ajv-formats`/`yaml` that `rebuild-init.mjs` already
