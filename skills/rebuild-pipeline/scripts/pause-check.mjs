@@ -29,6 +29,10 @@ if (!existsSync(join(LOCKS, "pipeline.yaml"))) {
 
 const issues = [];
 const notes = [];
+// Set whenever a durability question could not be answered (a remote was unreachable). The
+// final verdict has to weaken when this is true: "all work pushed to a remote" is a claim,
+// and an indeterminate check does not support it.
+let unverified = false;
 
 // --- 1. Git cleanliness: workbench + every repo in repos.yaml ---
 const isGitRepo = (dir) => {
@@ -50,8 +54,15 @@ const hasOrigin = (dir) => {
   try { execSync("git remote get-url origin", { cwd: dir, stdio: "pipe" }); return true; }
   catch { return false; }
 };
-// Refs are named explicitly rather than using `--branches` or `--all`, and both halves of
-// that matter:
+// Shell-quote a path for the remediation commands printed below. `repos.yaml` only forbids
+// spaces in the *relative* path, and resolve() prepends the workbench's parent directory,
+// which is nobody's choice and routinely contains one (`My Drive`, `Mobile Documents`). An
+// unquoted `-C /…/My Drive/code` hands the user a command that dies on
+// `cannot change to '/…/My'` — i.e. tells them work is unpushed and gives them no way to push it.
+const shq = (p) => (/^[A-Za-z0-9@%+=:,./_-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
+
+// Which refs this walk names is the whole design, and every inclusion and exclusion here is
+// load-bearing:
 //   - `--branches` alone walks refs/heads only, so a commit made on a DETACHED HEAD is
 //     invisible and the repo reports as fully pushed. Not exotic here — gate.mjs hands out
 //     `git checkout --detach <gate-tag>` for submodule syncing, so this pipeline actively
@@ -60,11 +71,26 @@ const hasOrigin = (dir) => {
 //     pushed by any `git push`, so counting it here produces a warning whose suggested fix
 //     does nothing and which therefore never clears. Stashes are real risk, but they are a
 //     different problem with a different remedy — counted separately below.
-// `--tags` stays in: gate-N/vN tags are consumed as submodule pins, so a tag on an unpushed
-// commit is genuinely unpushed work.
+//   - `--tags` is left out for that same never-clears reason, which is easy to get wrong:
+//     the exclusion set `--not --remotes` covers refs/remotes/* — remote-tracking BRANCHES —
+//     and pushing a tag creates no remote-tracking ref at all. So a gate tag that IS on
+//     origin (on a commit no surviving branch reaches, exactly what a reopen or a
+//     squash-merge leaves behind) would contribute to this count on every future run with no
+//     command that ever clears it. Tags are compared by name against the remote instead
+//     (unpushedTags, below), and pushing an unpushed tag carries its commits with it, so
+//     dropping `--tags` here loses no coverage.
+// HEAD is verified before being named, rather than trusted: on an unborn HEAD (a fresh repo,
+// or `git checkout --orphan`) naming it makes git abort with "ambiguous argument 'HEAD'",
+// which would take the whole walk down and turn real unpushed commits into an indeterminate
+// result — the failure direction that matters here.
 const unpushedCount = (dir) => {
+  let refs = "--branches";
   try {
-    const out = execSync("git log --branches --tags HEAD --not --remotes --oneline",
+    execSync("git rev-parse --verify -q HEAD", { cwd: dir, stdio: "pipe" });
+    refs += " HEAD";
+  } catch { /* unborn HEAD — there is no HEAD commit to name, and --branches still walks */ }
+  try {
+    const out = execSync(`git log ${refs} --not --remotes --oneline`,
       { cwd: dir, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     return out ? out.split("\n").filter(Boolean).length : 0;
   } catch { return null; }
@@ -83,6 +109,26 @@ const stashCount = (dir) => {
 const detachedHead = (dir) => {
   try { execSync("git symbolic-ref -q HEAD", { cwd: dir, stdio: "pipe" }); return false; }
   catch { return true; }
+};
+// ...and a detached HEAD *mid-rebase* changes it again. A conflicted rebase is the most
+// ordinary way a session ends detached, and there `git switch -c <branch>` does not work at
+// all: git answers `fatal: cannot switch branch while rebasing`. Printing a command that
+// cannot run in the state being reported is the same dead end this check exists to remove, so
+// detect the in-progress operation and give advice that works while it is running
+// (`git branch <name>` records the current HEAD without touching the rebase).
+const inProgressOp = (dir) => {
+  for (const [rel, name] of [
+    ["rebase-merge", "rebase"], ["rebase-apply", "rebase"],
+    ["CHERRY_PICK_HEAD", "cherry-pick"], ["REVERT_HEAD", "revert"], ["BISECT_LOG", "bisect"],
+  ]) {
+    try {
+      // --git-path resolves the layout (worktrees, separate git dirs) and returns a path
+      // relative to the repo's cwd, so it has to be resolved against dir before testing.
+      const p = execSync(`git rev-parse --git-path ${rel}`, { cwd: dir, encoding: "utf8" }).trim();
+      if (p && existsSync(resolve(dir, p))) return name;
+    } catch { /* try the next marker */ }
+  }
+  return null;
 };
 // Tags are refs, not commits, so the walk above structurally cannot see them: a gate tag
 // pointing at an already-pushed commit is itself still local-only. It matters because code
@@ -108,7 +154,15 @@ const unpushedTags = (dir) => {
 };
 
 const checkRepo = (label, dir) => {
-  if (!existsSync(dir)) { notes.push(`${label}: path does not exist (${dir}) — skipped.`); return; }
+  // A registered path that does not exist is a misconfiguration, not a benign absence: the
+  // repo is listed as covered and nothing about it is actually checked, silently, for the rest
+  // of the project. A one-character typo in `path:` is enough. That is an issue, not a note.
+  if (!existsSync(dir)) {
+    issues.push(`${label}: registered in repos.yaml but this path does not exist (${dir}) — ` +
+      `nothing about this repo was checked. Fix its \`path:\` (relative to the workbench root) ` +
+      `or remove the entry; a repo that is silently uncovered is worse than one that is absent.`);
+    return;
+  }
   if (!isGitRepo(dir)) { notes.push(`${label}: not a git repo — skipped.`); return; }
   const dirty = gitDirty(dir);
   if (dirty === null) { notes.push(`${label}: git unavailable — skipped.`); return; }
@@ -119,21 +173,30 @@ const checkRepo = (label, dir) => {
     notes.push(`${label}: clean.`);
   }
 
-  if (!hasOrigin(dir)) {
-    issues.push(`${label}: no git remote — this repo exists only on this machine (${dir}). ` +
-      `Give it one: \`gh repo create <name> --private --source . --push\` (visibility follows ` +
-      `license-posture.md).`);
-    return;
-  }
-  const at = dir === "." ? "" : ` -C ${dir}`;
+  const at = dir === "." ? "" : ` -C ${shq(dir)}`;
+
+  // Stashes are local-only whether or not a remote exists, so this has to run BEFORE the
+  // no-remote bail-out below rather than after it. A repo still waiting for its remote is
+  // exactly where stashed work hides, and the user's next move there is the printed
+  // `gh repo create --push`, which succeeds and ends the session — the stash never gets
+  // mentioned to anyone, because `git status` calls the tree clean.
   const stashes = stashCount(dir);
   if (stashes) {
     issues.push(`${label}: ${stashes} stash entr${stashes === 1 ? "y" : "ies"} — a stash is ` +
       `local-only and no push sends it, so this work dies with the machine (${dir}). ` +
       `Review \`git${at} stash list\`, then pop and commit what matters or drop what doesn't.`);
   }
+
+  if (!hasOrigin(dir)) {
+    issues.push(`${label}: no git remote — every commit, branch and tag here exists only on ` +
+      `this machine (${dir}). Give it one: \`gh repo create <name> --private --source . --push\` ` +
+      `(visibility follows license-posture.md), then re-run this check — with no remote to ` +
+      `compare against, nothing below could be established.`);
+    return;
+  }
   const staleTags = unpushedTags(dir);
   if (staleTags === null) {
+    unverified = true;
     notes.push(`${label}: could not reach origin to check tags — if you locked a gate this ` +
       `session, confirm \`git${at} push --tags\` landed.`);
   } else if (staleTags.length) {
@@ -144,13 +207,33 @@ const checkRepo = (label, dir) => {
   }
 
   const ahead = unpushedCount(dir);
-  if (ahead === null) { notes.push(`${label}: could not compare against remotes — skipped.`); return; }
+  // This walk reads local refs only, so reaching git at all is enough to answer it — a failure
+  // here is unexplained rather than expected, and "we could not tell" must not read as "fine".
+  if (ahead === null) {
+    issues.push(`${label}: could not determine whether this repo's commits have left the ` +
+      `machine (${dir}) — the ref walk failed. Check by hand: ` +
+      `\`git${at} log --branches HEAD --not --remotes --oneline\`.`);
+    return;
+  }
   if (ahead > 0) {
-    issues.push(detachedHead(dir)
-      ? `${label}: ${ahead} commit(s) not on any remote, and HEAD is DETACHED — they are on ` +
-        `no branch, so a plain push will not send them (${dir}). Land them first: ` +
-        `\`git${at} switch -c <branch>\` then \`git${at} push -u origin <branch>\`.`
-      : `${label}: ${ahead} commit(s) not on any remote — \`git${at} push\`.`);
+    const op = detachedHead(dir) ? inProgressOp(dir) : null;
+    issues.push(op
+      // Mid-rebase/cherry-pick: `git switch` refuses outright, `git branch` does not.
+      ? `${label}: ${ahead} commit(s) not on any remote, and a ${op} is in progress with HEAD ` +
+        `detached (${dir}). \`git switch\` refuses mid-${op}, so either finish or abort it ` +
+        `(\`git${at} ${op} --continue\` / \`--abort\`) and push after, or park the current HEAD ` +
+        `without disturbing it: \`git${at} branch wip/<name>\` then ` +
+        `\`git${at} push origin wip/<name>\`.`
+      : detachedHead(dir)
+        ? `${label}: ${ahead} commit(s) not on any remote, and HEAD is DETACHED — they are on ` +
+          `no branch, so a plain push will not send them (${dir}). Land them first: ` +
+          `\`git${at} switch -c <branch>\` then \`git${at} push -u origin <branch>\`.`
+        // Not `git push`: this count spans every local branch, and a bare push sends only the
+        // current one — or fails outright when it has no upstream, which every fresh slice
+        // branch lacks. Either way the user is told the work is off-machine when it is not.
+        : `${label}: ${ahead} commit(s) not on any remote — \`git${at} push --all origin\` ` +
+          `(a bare \`git push\` sends only the current branch, and nothing at all if it has no ` +
+          `upstream; this count covers every local branch).`);
   } else {
     notes.push(`${label}: pushed to origin.`);
   }
@@ -263,6 +346,16 @@ if (issues.length) {
   console.log("\nCommit/persist draft work, push it off-machine, " +
     "resolve any reopened gate (re-lock or explicitly leave it open with the reason noted to " +
     "the user), and stop or consciously keep running services before ending the session.");
+} else if (unverified) {
+  // Only the tag comparison needs the network, and it degrades to a note so a dead VPN never
+  // blocks a session end. But the verdict cannot keep asserting what that note failed to
+  // establish: local `refs/remotes/*` survive going offline, so a gate tag that was never
+  // pushed looks identical here to one that was.
+  console.log("\n🟡 Safe to pause as far as could be checked — git clean everywhere checked, " +
+    "no unpushed commits, no gate mid-decision, no services left running.\n" +
+    "   But a remote was unreachable, so unpushed TAGS could not be ruled out (see the notes " +
+    "above). If you locked a gate this session, confirm `git push --tags` landed once you are " +
+    "back online — a gate tag that never left the machine breaks every code repo pinning it.");
 } else {
   console.log("\n✅ Safe to pause — git clean everywhere checked, all work pushed to a remote, " +
     "no gate mid-decision, no services left running.");

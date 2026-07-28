@@ -31,9 +31,12 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   gh api -X PUT repos/<owner>/<name>-workbench/actions/permissions -F enabled=false
   ```
   Pushing stays manual and stays your job: `npm run pause-check` flags anything that has not
-  left the machine before a session ends, but nothing pushes on your behalf.
+  left the machine before a session ends, but nothing pushes on your behalf. That includes
+  **gate tags** — every `gate.mjs lock` mints a `gate-N/vN` tag that code repos consume as a
+  submodule pin, and `git push` sends no tags (nor does `--follow-tags`: these are
+  lightweight). After every lock: `git push && git push --tags`.
   Ask which the remote is for — durability only, or durability *and* hosted CI — and record the
-  answer. It decides that last line here and step 3 of G5's repo checklist. The scaffold ships
+  answer. It decides that last line here and step 4 of G5's repo checklist. The scaffold ships
   a `validate.yml` that does pass on a hosted runner, but the code repos' workflows will not
   (see G5's private-submodule trap), so "we push to GitHub" and "GitHub runs our CI" need to be
   separate decisions rather than one assumption.

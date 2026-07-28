@@ -166,6 +166,10 @@ gh repo create ${name}-workbench --private --source . --push
 
 Pushing is manual. \`npm run pause-check\` tells you when something has not left the machine;
 run it before you stop for the day.
+
+After every \`npm run gate -- lock <gate-id>\`, push the tag too: \`git push && git push --tags\`.
+\`git push\` sends no tags, and gate tags are submodule pins that code repos check out by name —
+one that stays local either breaks their checkout or leaves them on the previous contract.
 `);
 
 try { execSync("git init -q && git add -A && git commit -qm 'workbench: scaffold'", { cwd: root }); }

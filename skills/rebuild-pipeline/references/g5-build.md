@@ -4,7 +4,7 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 3, not a constant. Work happens in code repos; the workbench is read-only input
 (submodule pinned to gate tags).
 
-**The first time a code repo is created**, do all three of these — the repo is not set up
+**The first time a code repo is created**, do all four of these — the repo is not set up
 until they are:
 
 1. **Register it** in the workbench's `repos.yaml` (`name` + `path` relative to the
@@ -13,7 +13,13 @@ until they are:
 2. **Give it a remote**, visibility per `license-posture.md` — private unless the posture is
    `permissive-reference`:
    `gh repo create <repo-name> --private --source . --push`
-3. **Decide what the remote is for, and say it out loud.** Two different things get called
+3. **Confirm it is actually covered**: run `npm run pause-check` from the workbench and check
+   the new repo appears by name in the report. Registering is not the same as being checked —
+   a one-character typo in `path:` (or a path relative to the wrong directory) shows up as
+   `registered in repos.yaml but this path does not exist … — nothing about this repo was
+   checked`. Without this confirmation nothing else ever catches it, and the repo goes
+   unchecked for uncommitted and unpushed work for the rest of the project.
+4. **Decide what the remote is for, and say it out loud.** Two different things get called
    "the repo has a remote":
    - *Durability only* — CI runs locally or on your own infrastructure. Then **disable Actions
      on the remote**, or every push emails you a failure:

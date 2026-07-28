@@ -91,7 +91,12 @@ Gates are human decisions. When a phase's exit criteria are met:
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, and what becomes immutable afterward.
 3. Only after explicit user approval, run `node .../scripts/gate.mjs lock <gate-id>`.
-4. Never lock a gate on your own initiative, and never edit files under a locked gate's
+4. **Push the lock commit *and* its tag**: `git push && git push --tags`. Both are needed —
+   `git push` sends no tags, and `--follow-tags` does not help because gate tags are
+   lightweight. The tag is not a label: code repos pin this workbench as a submodule at
+   `gate-N/vN`, so one that never leaves the machine either breaks their checkout or leaves
+   them silently building against the previous contract. Nothing pushes on your behalf.
+5. Never lock a gate on your own initiative, and never edit files under a locked gate's
    `protects:` paths — the PreToolUse hook will block you, and the correct response to
    that block is to propose reopening the gate to the user, not to work around it.
 

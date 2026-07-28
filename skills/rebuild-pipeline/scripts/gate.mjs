@@ -145,9 +145,21 @@ ${history}
     const tag = `${id}/v${next}`;
     execSync(`git add ${LOCKS}/${id}.yaml && git commit -qm "${id}: locked" && git tag ${tag}`, { stdio: "pipe" });
     console.log(`${id} locked, committed, tagged ${tag}.`);
+    // The commit and the tag are both local until pushed, and nothing in this pipeline pushes
+    // on anyone's behalf. Two traps make it worth spelling out here, at the moment of locking,
+    // rather than trusting a doc step:
+    //   - `git push` alone sends no tags at all, so the commit lands and the pin does not. A
+    //     code repo then gets `pathspec '${tag}' did not match` from its submodule checkout —
+    //     or, worse, silently stays on the previous vN and keeps building against the old
+    //     contract, which is exactly the drift the immutable-tag scheme exists to prevent.
+    //   - `--follow-tags` looks like the fix and is not: it pushes annotated tags only, and
+    //     these are lightweight (`git tag ${tag}`). Naming a command that quietly does nothing
+    //     would be worse than naming none.
+    console.log(`      Push both now — the tag is a submodule pin, not a label:`);
+    console.log(`        git push && git push --tags`);
     if (next > 1) {
       console.log(`NOTE: ${tag} is a NEW tag — ${id}/v${next - 1} still points at the previous lock.`);
-      console.log(`      Every code repo pinning this gate must re-pin deliberately:`);
+      console.log(`      Every code repo pinning this gate must re-pin deliberately (after the push above):`);
       console.log(`        git -C <submodule> fetch --tags && git -C <submodule> checkout --detach ${tag}`);
       console.log(`      A repo that does not re-pin keeps building against the older contract,`);
       console.log(`      which is now visible rather than silent.`);

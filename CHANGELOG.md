@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-28
+
+A review of 0.5.0 found that the durability logic it shipped fails in both directions — it
+could call genuinely unpushed work safe, *and* raise issues no command could ever clear — and
+that most of its printed remediations do not run in the state being reported, which is the one
+property that release set out to establish. 0.5.0's section below is left as tagged; this is
+what was wrong with it.
+
+### Fixed
+
+- **The unpushed-commit walk no longer fails open.** 0.5.0 named `HEAD` without verifying it,
+  so on an unborn HEAD (a fresh repo, or `git checkout --orphan`) `git log` aborted with
+  `ambiguous argument 'HEAD'` — and the failure path filed a *note* ("could not compare against
+  remotes — skipped") under an overall `✅ Safe to pause — all work pushed to a remote`, while a
+  whole branch of commits existed only on that disk. The pre-0.5.0 walk reported those.
+  `rev-parse --verify` now guards the ref before it is named, and a walk that fails anyway is an
+  issue, not a note: it reads local refs only, so failing is unexplained rather than expected.
+- **`--tags` is out of that walk — it created a warning that could never clear.** The exclusion
+  set `--not --remotes` covers remote-tracking *branches*, and pushing a tag creates no
+  remote-tracking ref. So a `gate-N/vN` tag that **is** on origin, sitting on a commit no
+  surviving branch reaches (what a reopen or a squash-merge leaves behind), counted as unpushed
+  on every run forever, with the suggested `git push` answering "Everything up-to-date" — the
+  exact failure 0.5.0's own comment claimed to have avoided by excluding `--all`. Tags are
+  compared by name against the remote instead, and pushing an unpushed tag carries its commits,
+  so no coverage is lost.
+- **The remedy for unpushed commits is `git push --all origin`.** The count spans every local
+  branch; a bare `git push` sends only the current one — and nothing at all on a branch with no
+  upstream, which every fresh slice branch is (`fatal: The current branch … has no upstream
+  branch`). Either way the user was told their work was off-machine when it had never left. The
+  deleted `backup.mjs` ran `push --all` + `push --tags`, which is why it was the command 0.5.0
+  replaced.
+- **The detached-HEAD remedy works mid-rebase.** A conflicted rebase is the most ordinary way a
+  session ends detached, and there `git switch -c <branch>` answers `fatal: cannot switch branch
+  while rebasing`. The check now detects an in-progress rebase / cherry-pick / revert / bisect
+  and says either to finish or abort it, or to park the current HEAD with
+  `git branch wip/<name>`, which works without disturbing it.
+- **Every printed `git -C <path>` is shell-quoted.** `repos.yaml` only forbids spaces in the
+  *relative* path, and the absolute path is prefixed by the workbench's parent directory — no
+  one's choice, and routinely `My Drive` or `Mobile Documents`. An unquoted `-C` produced
+  `cannot change to '/…/My'`: work reported as unpushed, with no working command to push it.
+- **Stashes are checked before the no-remote bail-out, not after.** 0.5.0 put both new checks
+  after `if (!hasOrigin(dir)) { …; return; }`, so a repo still waiting for its remote — exactly
+  where stashed work hides — reported only "no git remote". The user runs the printed
+  `gh repo create --push`, it succeeds, the session ends, and the stash is never mentioned to
+  anyone, because `git status` calls the tree clean.
+- **The success verdict weakens when a check was indeterminate.** The tag comparison degrades to
+  a note when the remote is unreachable (by design — a dead VPN must not block a session end),
+  but the verdict still asserted "all work pushed to a remote". Local `refs/remotes/*` survive
+  going offline, so a gate tag that was never pushed looked identical to one that was. An
+  unreachable remote now ends the run `🟡 Safe to pause as far as could be checked`, naming what
+  it could not rule out.
+- **Something pushes gate tags again.** `backup.mjs` was the only caller of `git push --tags`,
+  and 0.5.0 deleted it without adding a step anywhere, so `gate.mjs lock` could mint a
+  `gate-N/vN` submodule pin that never left the machine — a code repo then gets
+  `pathspec 'gate-4/v2' did not match`, or silently keeps building against the previous
+  contract. `gate.mjs` now prints `git push && git push --tags` at the moment of locking, and
+  G0, G5, SKILL.md Step 5 and the scaffolded README say the same. Not `--follow-tags`: it pushes
+  annotated tags only and gate tags are lightweight, so it would quietly push nothing.
+- **A registered repo whose path does not exist is an issue.** It was a note
+  (`path does not exist … — skipped`) under `✅ Safe to pause`, so one typo in `repos.yaml`
+  silently left a repo unchecked for uncommitted and unpushed work for the rest of the project.
+  G5's repo checklist also regains the confirmation step (removed in 0.5.0 along with its
+  `npm run backup -- status` command) that catches it at registration time.
+
+### Migration
+
+**If you upgraded an existing workbench to 0.5.0, re-copy its scripts now.** `rebuild-init.mjs`
+copies `validate.mjs`, `gate.mjs`, `parity.mjs` and `pause-check.mjs` into the workbench at
+scaffold time and nothing ever re-syncs them, while `npm run pause-check` resolves to that
+frozen copy. So a workbench that followed 0.5.0's migration note — delete `scripts/backup.mjs`
+— now runs an old `pause-check.mjs` whose remediations invoke the file just deleted
+(`Cannot find module`), and none of 0.5.0's or 0.5.1's fixes reach it.
+
+```sh
+# from the workbench root
+for s in validate.mjs gate.mjs parity.mjs pause-check.mjs; do
+  cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/$s" "scripts/$s"
+done
+```
+
 ## [0.5.0] - 2026-07-28
 
 ### Removed
