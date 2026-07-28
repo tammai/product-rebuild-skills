@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-07-28
+
+### Fixed
+
+- **Recording slice progress no longer requires reopening a gate.** `parity.mjs` read feature and
+  slice status out of `matrix/features.yaml` and `plan/slices.yaml`, which gate-1 and gate-2 hash
+  *whole*. So marking a finished slice — bookkeeping, not a decision — cost a formal gate reopen
+  and rewrote the very hash that code repos pin the workbench at as a submodule, once per slice.
+  A live workbench hit this with its first slice complete: the report read `0/209 covered` with
+  six lanes built, deployed, and every acceptance criterion covered by an observed test. Worse
+  than the wrong percentage, **scope-creep detection was inert**: it fires only for features in a
+  slice marked `done`, and no slice could ever be marked `done`, so the check silently never ran.
+
+  Progress moves to **`plan/progress.yaml`** — ungated, validated against the new
+  `progress.schema.json`, and overlaid onto the locked artifacts at report time (an entry there
+  wins; anything absent falls back to the locked `status:`). Gates go back to protecting decisions
+  only: the feature taxonomy and the slice boundaries. Workbenches scaffolded before this keep
+  working — `parity.mjs` warns that a built slice will read as `planned` and falls back.
+
+- **A re-run on the same date no longer destroys the hand-written half of a parity report.** A G6
+  run is part generated, part authored: the AC-suite result and the upstream re-mine writeup are
+  prose. `parity.mjs` rewrote the file wholesale, so running it twice in one day silently ate
+  them. It now preserves every `## ` section it does not generate, and is idempotent.
+
+- **Scope-creep detection counts `deployed` as shipped, alongside `done`.** A slice that ships
+  with a `done_means` clause knowingly unmet stays out of `done` on purpose — the honest status,
+  and previously the one that switched the check off. Both now trigger it.
+
+### Added
+
+- `validate.mjs` validates `plan/progress.yaml` and cross-references every feature and slice id
+  against the locked artifacts, so a typo'd id fails loudly instead of silently never matching.
+
 ## [0.4.8] - 2026-07-28
 
 ### Fixed
