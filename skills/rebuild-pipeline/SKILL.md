@@ -133,6 +133,11 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   to gate tags.
 - Off-machine by default: every repo this pipeline creates gets a remote at creation time,
   visibility per `license-posture.md` (private unless the posture is `permissive-reference`).
+  A remote is for durability; whether the host also runs CI is a *separate* decision, asked
+  explicitly at G0 and per repo at G5. For a backup-only remote, disable the host's CI — these
+  repos' workflows are written for local or self-hosted execution and fail on a hosted runner
+  (private-submodule checkout, unset secrets, gitignored paths), so leaving them enabled just
+  emails a failure on every push.
   The pipeline's output is months of decisions that re-mining cannot reproduce, so a
   single-disk copy is a real risk, not a hypothetical one. `scripts/backup.mjs install`
   schedules a daily push of the workbench and every repo in `repos.yaml`; uncommitted work

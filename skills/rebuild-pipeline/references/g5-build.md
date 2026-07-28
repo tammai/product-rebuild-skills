@@ -16,6 +16,26 @@ until they are:
 3. **Confirm it is covered**: `npm run backup -- status` from the workbench should list the
    new repo as pushed. If the backup schedule was installed at G0, it picks the repo up from
    `repos.yaml` automatically — no reinstall needed.
+4. **Decide what the remote is for, and say it out loud.** Two different things get called
+   "the repo has a remote":
+   - *Backup only* — CI runs locally or on your own infrastructure. Then **disable Actions on
+     the remote**, or every push emails you a failure:
+     `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=false`
+   - *Also running CI on the host* — then the workflow has to actually work there, which for
+     this pipeline's repos it does not by default. See the trap below.
+
+**The private-submodule trap.** A code repo that checks out with `submodules: true` will fail
+on GitHub Actions the first time it is pushed, with `fatal: repository '...workbench' not
+found`. That is not a missing repo and not a bad token — `GITHUB_TOKEN` is scoped to its own
+repository, so a private sibling reads as 404. Fixing it properly means a read-only deploy key
+on the workbench plus a manual `git submodule update` over SSH (which preserves the gate-tag
+pin; a second `actions/checkout` of the workbench does not). Only worth doing if CI on the host
+is actually wanted — for a backup-only remote, disabling Actions is the honest answer.
+
+Two more reasons a workflow written for local execution fails on a hosted runner: it needs
+secrets that were never set there, and it reads paths that `.gitignore` keeps out of the repo
+(deploy state files are the usual culprit). Check both before assuming a green CI is one fix
+away.
 
 If the repo pins the workbench as a submodule with a **relative** URL (`../<name>-workbench`),
 push the workbench remote first and keep both repos under the same owner: the relative URL

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-07-28
+
+### Added
+
+- **"Has a remote" and "the host runs our CI" are now separate decisions.** v0.4.0 told the
+  pipeline to give every repo a remote and said nothing about the host's CI, so pushing five
+  repos to GitHub started three failing workflows within minutes. G0 now asks what the remote
+  is *for*, and G5's repo checklist gained a fourth item: backup-only means disabling the
+  host's CI, because leaving it on emails a failure on every push.
+
+- **The private-submodule trap is documented where repos get created** (`g5-build.md`). A code
+  repo checking out with `submodules: true` fails on GitHub Actions the first time it is pushed
+  — `fatal: repository '...workbench' not found`, which is not a missing repo and not a bad
+  token: `GITHUB_TOKEN` is scoped to its own repository, so a private sibling reads as a 404.
+  Fixing it properly needs a read-only deploy key plus a manual `git submodule update` over SSH
+  (which preserves the gate-tag pin — a second `actions/checkout` of the workbench does not),
+  and that is only worth doing if hosted CI is actually wanted. The reference also names the
+  two other reasons these workflows fail on a hosted runner: secrets that were never set there,
+  and paths `.gitignore` keeps out of the repo, deploy state files being the usual culprit.
+
+- **`backup.mjs` documents its own interaction with CI.** A workflow triggering on `push` with
+  no branch filter fires on the `auto-backup/<host>` snapshot as well, so a repo whose CI
+  cannot pass on the host emails a failure *every day the backup runs*. Found the direct way:
+  of the three code repos pushed, the one with a bare `on: push` was set to do exactly that
+  daily, while the two filtered to `main` would have been quiet.
+
 ## [0.4.2] - 2026-07-28
 
 ### Fixed

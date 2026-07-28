@@ -26,6 +26,12 @@
 // Deliberately NOT backed up: the reference checkout. It is an upstream clone, reproducible
 // from the pins in sources.yaml — which this script pushes.
 //
+// One interaction to know about: a workflow triggering on `push` with no branch filter fires
+// on the `auto-backup/<host>` snapshot too, so a repo whose CI cannot pass on the host emails
+// a failure every day this runs. If the remote is backup-only, disable the host's CI —
+// `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=false`. G5's repo
+// checklist covers why those workflows usually cannot pass there.
+//
 // Exits 0 even when a repo fails, matching pause-check.mjs: a backup job should not turn a
 // broken remote into a failed build step. Failures are reported in the output and the log.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.

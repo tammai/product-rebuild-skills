@@ -28,7 +28,14 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   ```sh
   gh repo create <name>-workbench --private --source . --push
   npm run backup -- install      # daily + at login; picks up code repos from repos.yaml later
+  # Backup-only remote? Turn the host's CI off so pushes stay silent:
+  gh api -X PUT repos/<owner>/<name>-workbench/actions/permissions -F enabled=false
   ```
+  Ask which the remote is for — backup only, or backup *and* hosted CI — and record the
+  answer. It decides that last line here and step 4 of G5's repo checklist. The scaffold ships
+  a `validate.yml` that does pass on a hosted runner, but the code repos' workflows will not
+  (see G5's private-submodule trap), so "we push to GitHub" and "GitHub runs our CI" need to be
+  separate decisions rather than one assumption.
   **Visibility follows the posture just decided.** `private-learning` or
   `possible-closed-distribution` → private, non-negotiable: pushing the rebuild to a public
   remote is distribution, which neither posture covers, and would need a G0 reopen. The
