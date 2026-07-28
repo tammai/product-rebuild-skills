@@ -2,10 +2,7 @@
   "name": "product-rebuild-skills",
   "private": true,
   "type": "module",
-  "description": "Dev-only manifest: the regression suite for this plugin's scripts. Not published, and not part of the plugin the marketplace installs.",
-  "scripts": {
-    "test": "node tests/regress.mjs"
-  },
+  "description": "Dev-only manifest. Not published, and not part of the plugin the marketplace installs.",
   "devDependencies": {
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",

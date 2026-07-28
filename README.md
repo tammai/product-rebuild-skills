@@ -144,7 +144,6 @@ skills/rebuild-pipeline/        THE skill you interact with
 agents/                         miner, adr-drafter, spec-writer subagents
 hooks/                          PreToolUse guard: blocks edits to locked artifacts
 docs/PLAYBOOK.md                the full methodology
-tests/regress.mjs               `npm test` — regression suite for the scripts above
 ```
 
 ## Design rules the plugin enforces (so you don't have to)
