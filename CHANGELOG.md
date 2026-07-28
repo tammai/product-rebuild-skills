@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-07-28
+
+State detection was lying. `gate.mjs status` derives the current phase from the first unlocked
+gate, and G5 (build) and G6 (parity) are gated by neither gate-4 nor gate-5 — so from the moment
+contracts lock it reported **GP production readiness**, through every slice of the build, which is
+where a project spends most of its life. SKILL.md's orchestration protocol tells the model to trust
+this script over its memory of the conversation, so the one step designed to catch stale
+assumptions was the step supplying them.
+
+The second fix is the sharp edge on 0.6.x's own progress overlay. `plan/progress.yaml` has
+independent `slices:` and `features:` maps, and filling in only the first is the natural thing to
+do — it is all a slice close needs. Every feature then falls through to `matrix/features.yaml`,
+whose `status:` is gate-1 MINING output: how well the REFERENCE covered each feature, not how far
+the rebuild has got. The two vocabularies share the words `covered`, `partial` and `missing`, so
+nothing looks wrong. Observed: a ten-slice project reported **23%**, wrong in both directions at
+once — mined `covered` for unbuilt features inflating it, mined `missing` for built ones deflating
+it — which is why sanity-checking the total cannot catch it.
+
+Both fixes were run before being written down: the phase derivation against five fixtures (no
+slice plan, plan only, overlay wins, `deployed` counts as finished, and a `features:` key the
+block must not swallow), and the overlay warning against a two-feature fixture built to show the
+double error.
+
+### Fixed
+
+- **`gate.mjs status` names G5 with the slice it is on**, e.g. `G5 build — next unfinished slice
+  S11 (pending), 10/17 slices done`, and only says GP once every slice is `done` or `deployed`.
+  Reads `plan/progress.yaml` with `plan/slices.yaml` as the fallback, matching `parity.mjs`'s
+  overlay precedence. A workbench with no slice plan still falls back to the old table.
+- **`parity.mjs` warns when a shipped slice's features carry no progress entry** — on stderr and
+  in the report body, because the report is what gets read a week later. It names the count, a
+  sample, and the reason the fall-back numbers are not coverage.
+
+### Changed
+
+- **`g4b-contracts.md` — the callee check now covers a read with no writer ANYWHERE**, not only
+  fields added in the current phase. The dangerous case is a field an existing module already
+  reads that no phase gave a writer: everything validates, every test passes, and the feature is
+  absent while looking present in review. Carries the detector that catches it — *a field only a
+  test writes is a field nothing writes* — and the evidence for running it as a step: four
+  instances in nine slices on one project, the fourth costing a mid-slice Gate 4 reopen, found by
+  asking what a deploy criterion needed rather than by any test.
+- **`g5-build.md` — price a deploy criterion's prerequisites when WRITING it.** A criterion nobody
+  can execute is indistinguishable from a passing one until the slice is built.
+- **`g5-build.md` — a new section on the first slice whose deploy criterion needs the outside
+  world to reach in.** Public origin as configuration (never defaulted to localhost), a tunnel
+  that is not the outbound loopback switch, a provider-side registration path, and a warning that
+  a CI-presented credential is usually not a bearer token.
+- **`g5-build.md` — a verification script names only what it ran.** Skip modes must not print a
+  banner covering criteria they skipped; a blocked step is PENDING, not omitted.
+
+
 ## [0.6.3] - 2026-07-28
 
 0.6.2 fixed the resolver that `eslint-plugin-boundaries` needs. This release removes the need for

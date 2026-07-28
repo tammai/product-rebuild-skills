@@ -51,6 +51,15 @@ then resolves against the code repo's own remote, so a fresh
    acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration
    test. Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
    never guess. Specs pass user review (propose-before-act) before any code.
+
+   **Price the DEPLOY criterion's prerequisites while writing it, not when running it.**
+   For each deploy AC, name what has to exist for it to run at all — which operation
+   creates the state it asserts on, which credential, which network path — and check each
+   one is reachable through the locked contract. A criterion nobody can execute is
+   indistinguishable from a passing one right up to the end of the slice, and by then the
+   code is written: one project found its two hardest deploy ACs unrunnable *after* the
+   whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
+   reopen. Both were answerable in a minute at spec time.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
    Scaffolding + codegen from contracts first.
 3. **Frontend** — against the generated typed client; may split per feature area.
@@ -67,5 +76,32 @@ then resolves against the code repo's own remote, so a fresh
   and record it in `plan/progress.yaml`, never in the gate-locked `plan/slices.yaml` —
   see `g6-parity.md`. Use `deployed` rather than `done` when a `done_means` clause is
   knowingly unmet, so the status stays honest without switching off creep detection.
+- **A verification script names only what it RAN.** Skip modes, partial runs and
+  human-blocked steps must not print a banner covering criteria they skipped, and a
+  criterion whose step could not execute is reported PENDING rather than silently omitted
+  from the tally. This is the same failure as a vacuous test: the artifact a human reads
+  afterwards is the banner, and one that overclaims is worse than no script.
+
+## The first slice whose deploy criterion needs the OUTSIDE WORLD to reach in
+
+Every deploy criterion up to that point is outbound — the rebuild calls a provider — and
+`localhost` serves it fine. The first inbound one (a webhook delivery, an OAuth redirect
+that must resolve, a CI runner posting a result) needs something structurally different,
+and it is worth naming before the slice rather than discovering mid-verification:
+
+- **A public origin, as configuration.** The URL a provider is told to call has to be
+  built from a configured base, not assembled from a request or defaulted to localhost. A
+  plausible-looking default is worse than an absent one: registration succeeds and the
+  silence afterwards has to be debugged.
+- **A tunnel for local verification**, and it is not the same switch as any
+  "allow loopback" flag the outbound side has. That one governs where *we* deliver to;
+  this is where a *third party* delivers to, and loopback is never a valid answer.
+- **A provider-side registration path.** Something must create the subscription and store
+  whatever verifies its deliveries. Check it exists — this is the read-with-no-writer trap
+  in `g4b-contracts.md`, and the inbound leg is where it hides best, because the receiver
+  looks complete on its own.
+- **Watch the credential's shape.** A machine credential presented by CI usually is not a
+  bearer token, and sending it as one produces a 401 that reads like an infrastructure
+  problem from inside a CI job. Check the scheme before blaming the tunnel.
 
 Between slices: run G6 parity, then return here for the next slice.

@@ -17,7 +17,58 @@ const ORDER = ["gate-1", "gate-2", "gate-3", "gate-4", "gate-5"];
 const PHASE_BEFORE = {
   "gate-1": "G2 feature matrix", "gate-2": "G3 milestone slicing",
   "gate-3": "G4a system design", "gate-4": "G4b data model + contracts",
+  // NOT "GP production readiness" — see phaseBeforeGate5 below. Kept as the fallback for a
+  // workbench with no slice plan at all.
   "gate-5": "GP production readiness",
+};
+
+// Slice states, for the one phase the gate sequence alone cannot name.
+//
+// G5 (build) and G6 (parity) sit BETWEEN gate-4 and gate-5 and are gated by neither, so deriving
+// the phase from "first unlocked gate" reports GP production readiness the moment contracts lock —
+// through every slice of the build, which is where a project spends most of its life. That is not
+// a cosmetic slip: SKILL.md's orchestration protocol tells the model to trust this script's output
+// over its memory of the conversation, so a wrong answer here is a wrong answer at the one step
+// designed to catch stale assumptions.
+//
+// Zero-dependency by the same rule as the lock files: a fixed YAML subset, parsed here.
+// plan/progress.yaml's `slices:` map wins over plan/slices.yaml's own `status:`, matching
+// parity.mjs's overlay precedence.
+const sliceStates = () => {
+  const read = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
+  const overlay = {};
+  const progress = read("plan/progress.yaml");
+  // Indented lines OR blank ones: a hand-written progress file groups its entries with blank
+  // lines and comments, and a pattern that stops at the first blank line silently reads only the
+  // first group — which is a wrong phase rather than an error. The block still ends at the next
+  // top-level key, because that line is neither indented nor empty.
+  const slicesBlock = progress.match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
+  if (slicesBlock) {
+    for (const m of slicesBlock[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)) overlay[m[1]] = m[2];
+  }
+  const plan = read("plan/slices.yaml");
+  const out = [];
+  // One entry per `- id: SN`, carrying the nearest following `status:` before the next entry.
+  const entries = plan.split(/^- id: /m).slice(1);
+  for (const e of entries) {
+    const id = (e.match(/^(S\d+)/) || [])[1];
+    if (!id) continue;
+    const own = (e.match(/^\s{2}status:\s*([a-z-]+)/m) || [])[1] || "pending";
+    out.push({ id, status: overlay[id] || own });
+  }
+  return out;
+};
+
+// What to call the phase when contracts are locked and prod-ready is not.
+const phaseBeforeGate5 = () => {
+  const slices = sliceStates();
+  if (!slices.length) return null; // no slice plan — fall back to the table above
+  const done = slices.filter((s) => s.status === "done" || s.status === "deployed");
+  const next = slices.find((s) => s.status !== "done" && s.status !== "deployed");
+  const count = `${done.length}/${slices.length} slices`;
+  return next
+    ? `G5 build — next unfinished slice ${next.id} (${next.status}), ${count} done`
+    : `GP production readiness (${count} done)`;
 };
 
 if (!existsSync(join(LOCKS, "pipeline.yaml"))) {
@@ -62,9 +113,12 @@ if (cmd === "status" || !cmd) {
     console.log(`${l.id}  [${mark}]  ${l.title}${l.locked_at ? `  (${l.locked_at})` : ""}`);
   }
   const current = locks.find((l) => l.status !== "locked");
-  console.log(current
-    ? `\nCurrent phase: ${PHASE_BEFORE[current.id]} (working toward ${current.id})`
-    : "\nAll gates locked — pipeline complete.");
+  if (!current) {
+    console.log("\nAll gates locked — pipeline complete.");
+    process.exit(0);
+  }
+  const phase = (current.id === "gate-5" && phaseBeforeGate5()) || PHASE_BEFORE[current.id];
+  console.log(`\nCurrent phase: ${phase} (working toward ${current.id})`);
   process.exit(0);
 }
 

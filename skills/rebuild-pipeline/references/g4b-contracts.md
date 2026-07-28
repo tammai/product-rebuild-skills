@@ -37,6 +37,23 @@ Two patterns that produce these, both worth checking by name:
   module has to set it. A required column whose only writer is a `Params` struct that
   does not carry it is a constraint that can never be satisfied — and a unique index on
   it will sit permanently unpopulated while reading as enforcement.
+- **A read with no writer ANYWHERE — not only for fields added this phase.** The dangerous
+  version is a field an *existing* module already reads that no phase ever gave a writer:
+  every artifact validates, every test passes, and the feature is absent while looking
+  present in every code review.
+
+  **The detector is one grep and it works: a field only a test writes is a field nothing
+  writes.** Grep each field the phase depends on across the whole tree and look at what the
+  write sites actually are. Raw SQL in a fixture reads as reasonable test setup, which is
+  precisely why it survives review — the fixture supplies by hand what production never
+  supplies at all.
+
+  One project hit this four times in nine slices: two provenance columns, a connection's
+  repository selection, then the two values its inbound webhook receiver reads to
+  authenticate a delivery. That fourth one cost a Gate 4 reopen mid-slice, and it was found
+  by someone asking what a deploy criterion needed — not by a test. The first three were
+  already written down, and so was the detector. **Run it as a step, not as a habit you
+  intend to have.**
 - **A cross-module write.** Module boundaries forbid writing another module's schema, so
   the write must go through that module's `Service` — which may expose reads only. Check
   every "X's data is created by Y" sentence in the data model against Y's actual

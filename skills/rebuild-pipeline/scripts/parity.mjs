@@ -44,6 +44,31 @@ if (!existsSync("plan/progress.yaml")) {
   console.warn("note: no plan/progress.yaml — reporting locked statuses only, so a built slice will read as planned.");
 }
 
+// THE OVERLAY'S SHARP EDGE: a shipped slice whose features carry no progress entry.
+//
+// `slices:` and `features:` are populated independently, and filling in only the first is the
+// natural thing to do — it is what a slice close needs. But then every feature in that slice falls
+// through to matrix/features.yaml's `status:`, which is GATE-1 MINING OUTPUT: how well the
+// REFERENCE product covered each feature, not how far this rebuild has got. Those two vocabularies
+// share the words `covered`, `partial` and `missing`, so nothing looks wrong.
+//
+// Observed: a ten-slice project reported 23% coverage, with features it had built and verified
+// listed as `missing` because the reference lacked them. The number was wrong in BOTH directions
+// at once — mined `covered` for unbuilt features inflated it, mined `missing` for built ones
+// deflated it — which is why it cannot be spotted by sanity-checking the total.
+const unrecorded = [...doneSliceFeatures].filter((id) => !featureProgress[id]);
+let overlayWarning = "";
+if (unrecorded.length) {
+  const sample = unrecorded.slice(0, 5).join(", ") + (unrecorded.length > 5 ? ", …" : "");
+  overlayWarning = `> **${unrecorded.length} feature(s) in a shipped slice have no \`plan/progress.yaml\` entry**, so the `
+    + `figures below fall back to \`matrix/features.yaml\` — which records how well the REFERENCE `
+    + `covered each feature (gate-1 mining), not this rebuild's progress. Record them under `
+    + `\`features:\` before reading these numbers as coverage: ${sample}\n`;
+  console.warn(`warning: ${unrecorded.length} feature(s) in a shipped slice have no progress entry `
+    + `(${sample}).\n  Their status falls back to matrix/features.yaml, which is MINING output — how `
+    + `well the reference covered each feature, not how far this rebuild has got. The report says so too.`);
+}
+
 const date = new Date().toISOString().slice(0, 10);
 const pct = features.length ? Math.round((buckets.covered.length / features.length) * 100) : 0;
 const list = (arr) => arr.length ? arr.map((f) => `- ${f.id} ${f.name}`).join("\n") : "- none";
@@ -71,6 +96,8 @@ mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
+
+${overlayWarning}
 
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
