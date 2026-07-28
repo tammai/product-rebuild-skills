@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-28
+
+The org-default playbook no longer prescribes Nuxt Layers for frontend feature boundaries. §5
+had been recommending a *merging* mechanism to do *isolation* work, then requiring
+`imports.scan: false` in every feature layer to undo the framework default it had just opted
+into — and the section said so out loud ("Layers are a merging mechanism, not an isolation
+mechanism") while recommending them anyway. That contradiction is resolved in favour of plain
+feature folders, which get the same lintable-import property from Nuxt's own scan rules with no
+config to maintain.
+
+### Changed
+
+- **§5.1 — the Nuxt default is `app/features/<feature>/`, not `layers/<feature>/`.** Both stacks
+  now describe one shape (thin route layer that composes, feature folders that own) instead of
+  two. The reasoning is stated rather than asserted: Nuxt auto-imports `app/components/**`
+  recursively but scans `app/composables/` **top level only**, so `app/features/*/composables/`
+  falls outside the scan — shared primitives stay auto-imported while crossing into a feature
+  *requires* a written import, which is the artifact §5.3's lint analyzes. Layers reach the same
+  end state only by disabling auto-import per layer. Third reason, independent of imports: pages
+  live in `app/pages/` either way, so splitting them across N layers assembles one URL tree from
+  N directories and turns route-prefix collisions into build-time merge behavior.
+- **§5.1 gained a "When Layers *are* the right tool" clause.** Layers are a superset — a feature
+  folder becomes one by adding a `nuxt.config.ts` and an `extends` entry — so the guidance names
+  the cases that earn them (a second Nuxt app sharing feature code; a base app extended by
+  several product apps; a feature needing its own `nuxt.config`) and the case that looks like one
+  and isn't (Electron/Tauri wrapping the same app is not a second app).
+- **§5.3 — one enforcement setup for both stacks**, three rules: route layer → any feature
+  allow, feature → shared allow, feature → feature block. The Nuxt-specific precondition is now
+  §5.1's folder shape rather than a config flag; the `imports.scan: false` requirement is kept,
+  attached to the layers path where it belongs.
+- §5.4 and the §17 checklist drop "a Nuxt layer or a Next feature folder" phrasing for the single
+  feature-folder shape.
+
+### Added
+
+- **§5.2 — the route layer is a named, sanctioned exception to the no-cross-feature rule**,
+  parallel to `analytics` as §4.2's one sanctioned cross-schema reader. Without it the rule has
+  no escape valve for screens that legitimately compose several features (a work-package list
+  needs teams, members, labels) and gets satisfied by promoting everything to `shared/`, which
+  is indistinguishable from having no boundary. Bounded: thin files, no feature logic, no
+  re-export that would let feature A reach feature B *through* a route file.
+- Two §15 anti-pattern rows: Nuxt Layers used to express feature boundaries, and route files
+  thick with feature logic instead of composing features.
+
 ## [0.5.1] - 2026-07-28
 
 A review of 0.5.0 found that the durability logic it shipped fails in both directions — it

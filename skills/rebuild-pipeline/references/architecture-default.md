@@ -238,31 +238,26 @@ Fastify's plugin encapsulation isolates request-lifecycle state (decorators/hook
 
 ### 5.1 Feature-based Directory Structure
 
-**Nuxt (default) — features are Layers:**
+Both stacks use the same shape: **a thin route layer that composes, feature folders that own.** The route layer is the frontend's composition root — the analog of the Go `cmd/server/main.go` in section 4.1 — and it is the only place allowed to reach into more than one feature.
+
+**Nuxt (default) — features are plain folders:**
 
 ```
-layers/
-  work-packages/
-    nuxt.config.ts
-    app/                      ← Nuxt 4 layout: app code nests under app/
-      pages/
+app/
+  pages/                       ← route shells only, kept thin — delegate into features/
+  features/
+    work-packages/
       composables/             ← query layer (Pinia Colada) over the generated api-client
       components/
-  projects/
-  billing/
-  shared/                      ← itself a layer: cross-feature primitives only
-    app/
-      ...
-    api-client/                ← generated from OpenAPI, NOT hand-written
-nuxt.config.ts                 ← root: extends ['./layers/work-packages', ..., './layers/shared']
+    projects/
+    billing/
+  components/                  ← shared UI primitives only (auto-imported)
+  composables/                 ← shared cross-feature composables only (auto-imported)
+  api-client/                  ← generated from OpenAPI, NOT hand-written
+nuxt.config.ts
 ```
 
-**Be honest about what Layers do and don't give you:** Layers are a *merging* mechanism (config inheritance, override-by-priority) — **not** an isolation mechanism. By default, every extended layer's components and composables are auto-imported into one global namespace, so feature A can call feature B's `useBillingInvoice()` with **no import statement at all** — which means import-based boundary lint is blind to exactly the violations that matter. Therefore this config is **mandatory, not optional**, to make enforcement real:
-
-- Auto-import scanning is restricted to the `shared` layer only: `imports.scan: false` in feature layers (or root `imports.dirs`/`components.dirs` limited to shared paths). Using anything from another feature then requires an explicit import path — which the boundary lint in 5.3 can finally see and block.
-- The trade-off is typed out loud: feature-layer code writes explicit imports for its own composables too. That's the price of a boundary that actually exists; accept it.
-
-**Next.js (alternate) — features are plain folders (no layer mechanism exists):**
+**Next.js (alternate) — the same shape, different names:**
 
 ```
 src/
@@ -277,6 +272,20 @@ src/
     api-client/               ← generated from OpenAPI, NOT hand-written
 ```
 
+**Why feature folders and not Nuxt Layers.** Layers look like the Nuxt-native answer to this and aren't, for three reasons:
+
+- **Layers are a *merging* mechanism (config inheritance, override-by-priority), not an isolation mechanism.** Every extended layer's components and composables land in one global auto-import namespace, so feature A calls feature B's `useBillingInvoice()` with **no import statement at all** — precisely the violation 5.3's lint needs to see. Getting a boundary out of layers means setting `imports.scan: false` in every feature layer to *defeat* the framework's own default, and then maintaining that config forever.
+- **Feature folders get the same property for free.** Nuxt auto-imports `app/components/**` recursively but scans `app/composables/` **top level only** (plus a subdirectory's `index.ts`). `app/features/*/composables/` falls outside both. So shared primitives stay auto-imported while crossing into a feature *requires* a written import path — the import statement the lint analyzes appears on its own, with no config to keep correct.
+- **Pages live in `app/pages/` either way.** Splitting them across N layers assembles one URL tree out of N directories: a shared prefix like `/teams/[teamId]/…` whose children belong to three different features ends up in three places, and prefix collisions surface as build-time merge behavior instead of a directory you can read.
+
+**When Layers *are* the right tool.** They're a superset — a feature folder becomes a layer by adding a `nuxt.config.ts` and one `extends` entry — so nothing here forecloses them. Reach for them when the merging mechanism is what you actually need:
+
+- More than one Nuxt app in the product sharing feature code (a public/unauthenticated site alongside the authenticated app, a separate admin app, a Nuxt-based desktop shell). Note that Electron/Tauri *wrapping the same app* is not a second app and doesn't qualify.
+- A base app extended by several product apps (a company starter/template layer) — layers used for config inheritance across repos, which is what they were built for.
+- A feature that genuinely needs its own `nuxt.config`: own modules, own `routeRules`, own build target.
+
+Absent one of those, layers cost a `nuxt.config.ts` per feature plus a root `extends` array to buy config inheritance a single-app product never uses.
+
 ### 5.2 Hard Rules for Feature Boundaries
 
 Same principle as section 4.2, applied to the frontend:
@@ -284,18 +293,19 @@ Same principle as section 4.2, applied to the frontend:
 - Feature A does **not** import feature B's components/composables/hooks directly (e.g. `projects` importing `billing`'s `InvoiceRow` component). Reuse goes through `shared/` — the generated `api-client` and anything deliberately promoted to a shared UI-primitives folder.
 - A feature's `composables/` (Nuxt) or `hooks/` (Next) that call the API are private to that feature. If a second feature needs the same call, either it gets its own thin composable/hook around the shared `api-client`, or the logic gets promoted to `shared/` — it never gets imported cross-feature directly.
 - No feature reaches into another feature's local state store directly. If two features keep needing each other's state, that's the same signal as Conway's Law in section 14 — the boundary is drawn in the wrong place, not a reason to add a cross-import.
+- **The route layer is the one sanctioned exception**, the same way `analytics` is section 4.2's one sanctioned cross-schema reader. `app/pages/` (Nuxt) / `src/app/` (Next) may import from any feature, because composing several features onto one screen is its entire job — a work-package list legitimately needs teams, members, and labels. Keep those files thin: data wiring and layout only, no feature logic, and no re-export that would let feature A reach feature B *through* a route file. Without this exception the rule above has no escape valve and gets satisfied by dumping everything into `shared/`, which is the same as having no boundary.
 
 ### 5.3 Enforcing the Boundary (stack-specific)
 
-- **Nuxt:** enforcement is `eslint-plugin-boundaries` blocking cross-layer imports in CI — **but it only works after 5.1's auto-import scoping is applied**, because the lint analyzes import statements and Nuxt's default auto-imports produce none. Layers themselves organize and compose; they do not isolate. Without the scoping config, "boundaries" here are exactly the folder convention section 1 promises this isn't.
-- **Next.js:** same tool, no precondition needed (Next has no auto-import magic to defuse): `eslint-plugin-boundaries` or `dependency-cruiser` against `src/features/*`, identical setup to the Fastify backend case in 4.3.
+- **Both stacks, same setup:** `eslint-plugin-boundaries` (or `dependency-cruiser`) in CI against `app/features/*` (Nuxt) / `src/features/*` (Next), with three rules — route layer → any feature **allow**, feature → shared **allow**, feature → feature **block**. Identical to the Fastify backend case in 4.3.
+- **The Nuxt precondition is 5.1's folder shape, not a config flag.** The lint analyzes import statements, and Nuxt's auto-imports normally produce none — feature folders sit outside the composables scan (5.1) so a boundary crossing shows up as a real import. If you later move to Layers for one of 5.1's stated reasons, the `imports.scan: false` requirement comes back with them: layers organize and compose, they do not isolate, and without that flag "boundaries" are exactly the folder convention section 1 promises this isn't.
 - Either way, treat a failing frontend boundary-lint check with the same severity as the backend's: it blocks the merge. Only the Go backend gets a compiler-enforced boundary; every frontend boundary is lint-plus-config, so the lint step is non-negotiable on both stacks.
 
 ### 5.4 Principles
 
 - SSR for public/SEO pages (landing, docs), SPA/CSR for the authenticated app area — both Nuxt and Next support this hybrid per-route; don't force the entire app into one rendering mode.
 - Frontend validation is **optimistic UI only**, never the source of truth — the source of truth is always the backend.
-- One team/module owns one feature (a Nuxt layer or a Next feature folder), reducing code conflicts when multiple teams work in parallel.
+- One team/module owns one feature folder, reducing code conflicts when multiple teams work in parallel.
 - The default is Nuxt; reach for Next.js only when there's a specific reason (existing React team, a library only available in the React ecosystem, etc.) — everything above applies to either.
 
 ---
@@ -492,6 +502,8 @@ All error responses share one JSON shape, defined once as a reusable OpenAPI sch
 | Module B changes its event schema without notifying module A | Runtime breakage with no code review ever having caught it |
 | Frontend feature importing another feature's components/composables directly | Same spaghetti-coupling risk as backend module A/B, just relabeled "frontend" |
 | Frontend has no boundary-lint step, treated as "just the backend's problem" | Feature isolation exists only until the first deadline-driven shortcut |
+| Nuxt Layers used to express feature boundaries | A config-inheritance mechanism doing namespace work — auto-imports make every cross-feature call invisible to lint, so the boundary exists on the folder chart and nowhere else |
+| Route files thick with feature logic instead of composing features | The one sanctioned cross-feature importer (5.2) becomes the place all the coupling hides |
 | Events published outside the DB transaction (no outbox) | Commit succeeds, publish fails — event silently lost, and the DLQ never sees it |
 | Event consumers without event-ID dedup (no inbox table) | At-least-once delivery double-sends notifications and double-counts billing — guaranteed, not hypothetical |
 | JWT stored in localStorage or otherwise readable by browser JS | One XSS = stolen session; the sealed httpOnly cookie via the BFF exists for exactly this |
@@ -527,7 +539,7 @@ Sections 1–15 apply unchanged regardless of which stack is chosen. For the act
 - [ ] Confirm there's a real API-first driver (decoupled backend/frontend releases, or a second client on the roadmap) — not just "might need it later"
 - [ ] Repo setup decided: polyrepo (default) unless the monorepo alternate is justified — with the OpenAPI publish/pin mechanism in place if polyrepo
 - [ ] Set up module boundaries from the start: `internal/` (Go) or a boundary-lint rule (Fastify), enforced in CI
-- [ ] Frontend feature boundaries enforced: auto-import scoping + boundary lint (Nuxt), or lint alone (Next) — not assumed automatic just because it's the frontend
+- [ ] Frontend feature boundaries enforced: `eslint-plugin-boundaries` against the feature folders in CI, route layer as the only cross-feature importer — not assumed automatic just because it's the frontend
 - [ ] Business logic 100% in the `application/` layer, handlers/controllers are a thin layer only
 - [ ] Spec↔code bound by generation: spec-first via per-module oapi-codegen (Go, OpenAPI 3.0.x) or code-first via TypeBox export (Fastify) — CI diff-checks enforce it
 - [ ] CI has a diff-check step between the spec and generated frontend types
