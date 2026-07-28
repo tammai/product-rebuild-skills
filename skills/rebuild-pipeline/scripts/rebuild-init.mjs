@@ -39,7 +39,7 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 // (.../product-rebuild-skills/0.3.5/...), so the next upgrade would silently break the
 // schedule. A path inside the workbench never moves.
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
-for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "backup.mjs"]) {
+for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "backup.mjs", "pause-check.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -123,6 +123,7 @@ write("package.json", JSON.stringify({
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
     backup: "node scripts/backup.mjs",
+    "pause-check": "node scripts/pause-check.mjs",
   },
   devDependencies: { ajv: "^8.17.0", "ajv-formats": "^3.0.0", yaml: "^2.5.0" },
 }, null, 2) + "\n");
@@ -151,6 +152,7 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 
 - \`npm run validate\` — schema-validate all artifacts
 - \`npm run gate -- status\` — pipeline/gate state
+- \`npm run pause-check\` — safe to stop and resume in a new session?
 - \`npm run backup -- status\` — is this project's work off-machine yet?
 - Decision history = \`git log\` on adr/, locks/, matrix/
 

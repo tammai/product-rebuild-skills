@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A regression suite for the executable surface** (`tests/regress.mjs`, `npm test`) — 58
+  tests over the six pipeline scripts, the PreToolUse hook, and the shipped manifests. There
+  was no test infrastructure at all before this: no `package.json`, no CI, and every bug in
+  the 0.3.x/0.4.x line was found by running the pipeline on a real rebuild rather than by a
+  check. Each test tagged `[vX.Y.Z]` reproduces one of those bugs, so a fix coming undone
+  fails loudly instead of resurfacing four gates into someone's project. The tagged set covers
+  the colon-in-reason YAML break (v0.3.1), the host-native dev server (v0.3.2), the
+  newline-quoting gap and pause-check's stale unquote (v0.3.3), the dirty-tree lock and
+  force-moved gate tag (v0.3.5), `pickNode`'s interpreter choice (v0.4.1), and the
+  copyleft-specific visibility warning (v0.4.2).
+
+  The v0.3.5 hash test is the one worth keeping honest: it hashes the blob **inside the gate
+  tag** (`git rev-parse gate-1/v1:matrix/features.yaml`) and compares that against
+  `artifact_hashes`. Checking the working tree instead is precisely the mistake the original
+  bug made, so the assertion is written from the consuming repo's point of view.
+
+  `backup.mjs install`/`uninstall` is deliberately not exercised — it writes a launchd/systemd
+  unit and calls `launchctl`/`systemctl`, which changes the machine running the tests, not a
+  fixture. Its interpreter-selection logic is covered instead by evaluating the real
+  `pickNode` source block with `process.execPath` overridden, so the shipped logic is tested
+  without the side effect. That is the one intentional gap, and it is reported as a skip rather
+  than passed over in silence.
+
+- **CI** (`.github/workflows/test.yml`) — runs `npm test` on pushes to `main` and on PRs.
+  Branch-filtered rather than a bare `on: push`, for the reason v0.4.3 documents: an
+  unfiltered trigger also fires on `auto-backup/<host>` snapshot branches. The suite sets its
+  own `GIT_AUTHOR_*`/`GIT_COMMITTER_*` so fixture commits do not depend on a runner identity,
+  and scaffolds into `mkdtemp` so it never touches the repo tree.
+
+### Fixed
+
+- **`pause-check.mjs` is now shipped into the scaffolded workbench.** `rebuild-init.mjs`
+  copied `validate.mjs`, `gate.mjs`, `parity.mjs` and `backup.mjs`, but not this one — while
+  its own usage header says "Run from the workbench root: `node scripts/pause-check.mjs`" and
+  `g5-build.md` says "Both `scripts/pause-check.mjs` and `scripts/backup.mjs` read this list".
+  Following either gave `MODULE_NOT_FOUND`. The pipeline itself was unaffected, which is why
+  this went unnoticed since v0.3.0: `SKILL.md` invokes the script through
+  `${CLAUDE_PLUGIN_ROOT}`, so the orchestrator always found it and only a human reading the
+  docs hit the wall. Copying it is the honest fix rather than rewriting those two references —
+  unlike `backup.mjs`, which is copied because its scheduled job stores an absolute path,
+  nothing argued against copying this one in the first place. Also adds `npm run pause-check`
+  to the generated workbench's `package.json` and lists it in the generated README.
+
 ## [0.4.3] - 2026-07-28
 
 ### Added
@@ -45,6 +90,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distribution that the recorded posture does not cover, and leaves the mechanism to
   `license-posture.md`, which is where the actual reference licence lives. Same correction in
   `SKILL.md`'s failure-mode list and G0's visibility step.
+
+### Note on the tag
+
+The `v0.4.2` tag points at `c227064` ("Restore plugin.json emptied by a bad in-place edit"),
+not at `26db795`, whose subject line reads `v0.4.2:`. That is deliberate and should stay that
+way: the bad edit left `.claude-plugin/plugin.json` zero-length, so `26db795` is a commit where
+the manifest does not parse and the plugin does not load. `c227064` is its child and restores
+the six-line manifest, nothing else — it is the only commit on this line carrying both the
+0.4.2 content and a loadable manifest. Retagging to make `git log --oneline` read tidier would
+publish a broken tree.
 
 ## [0.4.1] - 2026-07-28
 
