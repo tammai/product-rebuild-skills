@@ -159,7 +159,13 @@ const checkDevProcess = (label, dir) => {
   const abs = resolve(dir);
   const escaped = abs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   try {
-    const out = execSync(`pgrep -f "${escaped}"`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    // pgrep -f is an UNANCHORED regex match, so the bare path also matches any sibling that
+    // merely extends it: `/x/foo` matches `/x/foo.git`, `/x/foo-backup`, `/x/foobar`. That
+    // reported a dev server in repos that had none — and the likeliest false match is the
+    // repo's own bare remote (`<repo>.git`), so the noise landed exactly where backups run.
+    // Require a path boundary: the next character must open a child path, be whitespace (the
+    // path was the whole argument), or end the command line.
+    const out = execSync(`pgrep -f "${escaped}(/|[[:space:]]|$)"`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     const pids = out.split("\n").filter(Boolean);
     if (pids.length) {
       issues.push(`${label}: ${pids.length} process(es) still running under ${abs} (e.g. a dev server) — pid(s) ${pids.join(", ")}`);

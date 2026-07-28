@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pause-check.mjs` no longer reports a dev server in a repo that has none.** The host-native
+  process check ran `pgrep -f "<repo abs path>"`, and `pgrep -f` is an *unanchored* regex match:
+  the bare path also matches any sibling that merely extends it, so `/x/foo` matched
+  `/x/foo.git`, `/x/foo-backup` and `/x/foobar`. The likeliest false match is the repo's own
+  bare remote (`<repo>.git`), which means the noise appeared exactly where backups run — and a
+  pause check that cries "dev server still running" on a clean repo is one people learn to
+  ignore, which costs more than the check was worth. Now requires a path boundary: the next
+  character must open a child path, be whitespace, or end the command line. Same prefix-boundary
+  discipline `gate-guard.mjs` already applies when matching `protects:` directories, where
+  `adr/` must not match `adrenaline.md`.
+
+  Found by v0.4.4's own suite on its first CI run — the fixture pushed to a bare repo named
+  `<repo>.git` beside the repo, and a lingering `git` process from that push matched the prefix.
+  It passed on macOS and failed on the Linux runner purely on timing, which is what the bug
+  looks like in the field too: intermittent, environment-dependent, and easy to dismiss. The
+  regression test now asserts both directions — a sibling sharing the prefix is ignored, and a
+  process genuinely under the repo is still caught — because a boundary check that is merely
+  always-off would have made the original test pass too.
+
 ## [0.4.4] - 2026-07-28
 
 ### Added

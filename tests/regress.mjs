@@ -98,8 +98,12 @@ const workbench = ({ features = false } = {}) => {
   return root;
 };
 // A bare repo standing in for a remote, so "pushed off-machine" is reachable offline.
+// Kept under TMP/remotes/ rather than beside the repo it serves: `<repo>.git` as a sibling
+// shares the repo's path prefix, and a lingering git process from the push would then look
+// like a dev server running inside the repo to any unanchored path match.
 const giveRemote = (dir, label) => {
-  const bare = join(TMP, `${label}.git`);
+  const bare = join(TMP, "remotes", `${label}.git`);
+  mkdirSync(join(TMP, "remotes"), { recursive: true });
   execFileSync("git", ["init", "-q", "--bare", bare], { stdio: "pipe" });
   git(dir, ["remote", "add", "origin", bare]);
   git(dir, ["push", "-q", "origin", "HEAD"]);
@@ -501,6 +505,42 @@ t("pause-check reports a clean code repo with no dev server running", () => {
   const r = run(join(w, "scripts/pause-check.mjs"), [], { cwd: w });
   has(r.out, "code-repo-2: no host-native process running", "no false positive");
   has(r.out, "Safe to pause", `verdict (out: ${r.out})`);
+});
+
+t("a dev server is matched by path boundary, not by prefix", () => {
+  const w = workbench({ features: true });
+  const code = join(TMP, "prefix-repo");
+  mkdirSync(code, { recursive: true });
+  writeFileSync(join(code, "README.md"), "# code\n");
+  execFileSync("git", ["init", "-q", code], { stdio: "pipe" });
+  git(code, ["add", "-A"]); git(code, ["commit", "-qm", "init"]);
+  giveRemote(code, "prefix-repo");
+  writeFileSync(join(w, "repos.yaml"), `repos:\n  - name: prefix-repo\n    path: ${code}\n`);
+  const idle = join(TMP, "idle.mjs");
+  writeFileSync(idle, "setTimeout(() => {}, 120000);\n");
+  const spawnIdle = (...args) => {
+    const c = spawn(process.execPath, [idle, ...args], { detached: true, stdio: "ignore" });
+    c.unref();
+    execFileSync("sh", ["-c", "sleep 1"], { stdio: "pipe" });
+    return c;
+  };
+  const stop = (c) => { try { process.kill(-c.pid); } catch { try { c.kill("SIGKILL"); } catch { /* gone */ } } };
+
+  // Siblings that merely extend the repo path — `<repo>.git` is the repo's own bare remote,
+  // so this is the false positive people actually hit.
+  const sibling = spawnIdle(`${code}.git`, `${code}-backup`, `${code}bar`);
+  try {
+    has(run(join(w, "scripts/pause-check.mjs"), [], { cwd: w }).out,
+      "prefix-repo: no host-native process running",
+      "a path that only shares the prefix is not a process inside the repo");
+  } finally { stop(sibling); }
+
+  // The boundary must still let a genuine child path through, or the check is just disabled.
+  const inside = spawnIdle(join(code, "server.mjs"));
+  try {
+    has(run(join(w, "scripts/pause-check.mjs"), [], { cwd: w }).out,
+      "still running under", "a process under the repo itself is still detected");
+  } finally { stop(inside); }
 });
 
 t("pause-check refuses to run outside a workbench", () => {
