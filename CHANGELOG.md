@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-07-28
+
+0.6.2 fixed the resolver that `eslint-plugin-boundaries` needs. This release removes the need for
+one: §5.3's frontend boundary is now core ESLint `no-restricted-imports`, which matches the import
+specifier *string* and so has nothing to resolve. The bug class 0.6.2 documented — unresolved
+alias, unclassified dependency, no policy match, rule passes, `eslint` exits 0 — cannot occur in a
+rule that never resolves anything. §4.3's Fastify backend guidance is unchanged and still names
+the plugin.
+
+Unlike 0.6.0 and 0.6.2, the config in this section was run before it was written down: a fixture
+of 16 import shapes against ESLint 9.39, asserting both that the 8 violations fail and that the 8
+legitimate imports pass.
+
+### Changed
+
+- **§5.3 — one config block per feature, generated from the feature list, with no plugin and no
+  resolver.** Block every `features/*` path, then re-include your own via gitignore-style negation
+  (`!`, placed last — order matters). §5.2's three rules fall out of that shape rather than being
+  configured: feature → feature blocked; feature → `shared/` allowed because it never matches;
+  route layer → any feature allowed because `app/pages/` gets no config block, so no rule applies
+  to it. The section carries the actual config now, not a description of one.
+- **§17's two checklist items are rewritten**, and the verification item now has a second half:
+  watch the rule fail, *then* watch it not fire on own-feature, nested-relative, `shared/`, and
+  `app/pages/` imports. A boundary rule that blocks legitimate work gets disabled within a week,
+  which fails exactly as open as a rule that catches nothing.
+
+### Added
+
+- **Coverage is now stated rather than assumed, because specifier-string matching has edges.**
+  Caught: aliased and bare-index imports, `export … from`, relative escapes in all three shapes
+  (`../../billing/…`, `../../features/billing/…`, `../../../app/features/billing/…`), and dynamic
+  `import()`. Not caught: `require()` — moot in an ESM Nuxt/Next app, but the table says so instead
+  of leaving it to be discovered.
+- **A `no-restricted-syntax` rule for dynamic `import()`.** `no-restricted-imports` does not see it
+  — verified, not assumed — and a lazily-loaded cross-feature component is the likeliest real
+  violation in a frontend, so the boundary would have leaked at precisely its most-used seam. An
+  esquery selector on `ImportExpression > Literal` closes it with no added dependency.
+- The relative-escape pattern matches sibling features **by name** rather than banning `../../`
+  ascent wholesale. The blanket form was tried first and rejected: it flagged
+  `components/deep/X.vue` importing its own feature's `../../composables/useX`, and a rule with
+  false positives on legitimate code does not survive contact with a deadline.
+- Two §15 anti-pattern rows replace 0.6.2's resolver row: a frontend boundary rule never watched to
+  fail, and one that only covers static `import`.
+
 ## [0.6.2] - 2026-07-28
 
 0.6.0 told you to enforce the frontend boundary with `eslint-plugin-boundaries` and stopped

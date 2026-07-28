@@ -297,9 +297,57 @@ Same principle as section 4.2, applied to the frontend:
 
 ### 5.3 Enforcing the Boundary (stack-specific)
 
-- **Both stacks, same setup:** `eslint-plugin-boundaries` (or `dependency-cruiser`) in CI against `app/features/*` (Nuxt) / `src/features/*` (Next), with three rules — route layer → any feature **allow**, feature → shared **allow**, feature → feature **block**. Identical to the Fastify backend case in 4.3.
-- **Configure an import resolver, and verify the rule fires. This is the step that silently voids the whole boundary.** `eslint-plugin-boundaries` can only judge a dependency it can **resolve to a file**: an unresolved specifier is left unclassified, no policy matches it, and the rule **passes**. Path-aliased and extensionless imports — `~~/app/features/…`, `@/features/…`, i.e. essentially every import in a real Nuxt or Next codebase — resolve to nothing by default. The failure is invisible in exactly the wrong way: `eslint` exits 0, CI is green, and the lint enforces nothing. Install `eslint-import-resolver-typescript` and point `settings['import/resolver'].typescript.project` at the tsconfig carrying the aliases (`.nuxt/tsconfig.app.json` for Nuxt 4; the root `tsconfig.json` for Next). Then **prove it**: add a deliberate cross-feature import, confirm the build fails, and delete it. A boundary lint nobody has watched fail is indistinguishable from no boundary lint — treat that one-time check as part of setting the rule up, not as optional diligence.
-- **The Nuxt precondition is 5.1's folder shape, not a config flag.** The lint analyzes import statements, and Nuxt's auto-imports normally produce none — feature folders sit outside the composables scan (5.1) so a boundary crossing shows up as a real import. If you later move to Layers for one of 5.1's stated reasons, the `imports.scan: false` requirement comes back with them: layers organize and compose, they do not isolate, and without that flag "boundaries" are exactly the folder convention section 1 promises this isn't.
+- **Both stacks, same setup: core ESLint `no-restricted-imports`. No plugin, no resolver.** The rule matches the **import specifier string**, so nothing has to resolve to a file — which removes the entire failure mode a resolver-based boundary plugin brings with it (an unresolved alias is unclassified, no policy matches, the rule passes, `eslint` exits 0, and CI certifies a boundary that isn't there). One config block per feature: block every `features/*` path, then re-include your own with gitignore-style negation (`!`, **placed last — order matters**). 5.2's three rules fall out of that: feature → feature **blocked**; feature → `shared/` **allowed** because it never matches; route layer → any feature **allowed** because `app/pages/` gets no block at all, so no rule applies to it.
+
+```js
+// eslint.config.mjs — Nuxt shown; for Next use 'src/features', '@/features', and (src/)? below
+import fs from 'node:fs'
+
+const DIR = 'app/features'
+const ALIAS = '~~/app/features'
+const features = fs.existsSync(DIR)
+  ? fs.readdirSync(DIR, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)
+  : []
+
+export default withNuxt(...features.map((feature) => {
+  const others = features.filter(f => f !== feature).join('|')
+  // matches a *sibling feature* by name, so a deep own-feature '../../composables/x' stays legal
+  const escape = `^(\\.\\./)+(app/)?(features/)?(${others})(/|$)`
+  const lazy = `^(${ALIAS}/(?!${feature}(/|$))${others ? `|${escape.slice(1)}` : ''})`
+  return {
+    files: [`${DIR}/${feature}/**`],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [
+        {
+          group: [`${ALIAS}/*`, `${ALIAS}/*/**`, `!${ALIAS}/${feature}`, `!${ALIAS}/${feature}/**`],
+          message: 'cross-feature import — reach other features through app/shared/',
+        },
+        ...(others ? [{ regex: escape, message: 'cross-feature import via a relative path' }] : []),
+      ] }],
+      // no-restricted-imports does not see dynamic import() — a lazily-loaded
+      // cross-feature component is the likeliest real violation, so cover it here
+      'no-restricted-syntax': ['error', {
+        selector: `ImportExpression > Literal[value=/${lazy.replace(/\//g, '\\/')}/]`,
+        message: 'cross-feature dynamic import() — reach other features through app/shared/',
+      }],
+    },
+  }
+}))
+```
+
+- **Know what the rule does and does not see**, since it reads specifier strings rather than a module graph. Verified against ESLint 9 on a fixture covering every row:
+
+  | Crossing | Caught by |
+  |---|---|
+  | `import … from '~~/app/features/billing/…'` | `patterns.group` |
+  | `import … from '~~/app/features/billing'` (bare/index) | `patterns.group` |
+  | `export { x } from '~~/app/features/billing/…'` | `patterns.group` |
+  | `'../../billing/…'`, `'../../features/billing/…'`, `'../../../app/features/billing/…'` | `patterns.regex` |
+  | `await import('~~/app/features/billing/…')` | `no-restricted-syntax` |
+  | `require('~~/app/features/billing/…')` | **nothing** — moot in an ESM Nuxt/Next app, but don't assume CJS is policed |
+
+- **Prove it fires, and prove it doesn't over-fire.** Cheap now that there's no resolver to misconfigure, and still the step that separates a real boundary from a decorative one. Add a deliberate `~~/app/features/<other>/…` import plus a lazy `import()` of one, confirm `eslint` exits **1** on both, and delete them. Then confirm these four still pass, because a boundary rule that blocks legitimate work gets disabled within a week: own feature by alias, own feature by relative path **from a nested subfolder** (`components/deep/X.vue` → `../../composables/useX`), `shared/` by either form, and an `app/pages/` file importing several features at once.
+- **The Nuxt precondition is 5.1's folder shape, not a config flag** — and it matters more here, not less. This rule can only judge an import that is *written*; Nuxt auto-imports produce no specifier at all, so an auto-imported cross-feature call is invisible to it. Feature folders sit outside the composables scan (5.1), which is what forces the crossing to appear as a real import. If you later move to Layers for one of 5.1's stated reasons, the `imports.scan: false` requirement comes back with them: layers organize and compose, they do not isolate, and without that flag "boundaries" are exactly the folder convention section 1 promises this isn't.
 - Either way, treat a failing frontend boundary-lint check with the same severity as the backend's: it blocks the merge. Only the Go backend gets a compiler-enforced boundary; every frontend boundary is lint-plus-config, so the lint step is non-negotiable on both stacks.
 
 ### 5.4 Principles
@@ -504,7 +552,8 @@ All error responses share one JSON shape, defined once as a reusable OpenAPI sch
 | Frontend feature importing another feature's components/composables directly | Same spaghetti-coupling risk as backend module A/B, just relabeled "frontend" |
 | Frontend has no boundary-lint step, treated as "just the backend's problem" | Feature isolation exists only until the first deadline-driven shortcut |
 | Nuxt Layers used to express feature boundaries | A config-inheritance mechanism doing namespace work — auto-imports make every cross-feature call invisible to lint, so the boundary exists on the folder chart and nowhere else |
-| Boundary lint added without an import resolver, never watched to fail | Aliased/extensionless imports resolve to nothing, so the rule passes on every violation — a green CI check certifying a boundary that isn't there (5.3) |
+| Frontend boundary lint never watched to fail on a deliberate cross-feature import | The failure mode is silent by construction — a misconfigured rule matches nothing, `eslint` exits 0, and CI certifies a boundary that isn't there (5.3) |
+| Frontend boundary rule that only covers static `import` | `import()` is uncovered by default, so the lazily-loaded cross-feature component — the likeliest real violation in a frontend — is the one that walks through (5.3) |
 | Route files thick with feature logic instead of composing features | The one sanctioned cross-feature importer (5.2) becomes the place all the coupling hides |
 | Events published outside the DB transaction (no outbox) | Commit succeeds, publish fails — event silently lost, and the DLQ never sees it |
 | Event consumers without event-ID dedup (no inbox table) | At-least-once delivery double-sends notifications and double-counts billing — guaranteed, not hypothetical |
@@ -541,8 +590,8 @@ Sections 1–15 apply unchanged regardless of which stack is chosen. For the act
 - [ ] Confirm there's a real API-first driver (decoupled backend/frontend releases, or a second client on the roadmap) — not just "might need it later"
 - [ ] Repo setup decided: polyrepo (default) unless the monorepo alternate is justified — with the OpenAPI publish/pin mechanism in place if polyrepo
 - [ ] Set up module boundaries from the start: `internal/` (Go) or a boundary-lint rule (Fastify), enforced in CI
-- [ ] Frontend feature boundaries enforced: `eslint-plugin-boundaries` against the feature folders in CI, route layer as the only cross-feature importer — not assumed automatic just because it's the frontend
-- [ ] Import resolver configured for that lint **and the rule watched to fail once** on a deliberate cross-feature import (section 5.3) — without a resolver it passes on everything and CI stays green
+- [ ] Frontend feature boundaries enforced: core ESLint `no-restricted-imports` per feature folder in CI (no plugin, no resolver — section 5.3), route layer as the only cross-feature importer — not assumed automatic just because it's the frontend
+- [ ] That rule **watched to fail once** on a deliberate cross-feature import *and* on a lazy `import()` of one, then watched **not** to fire on own-feature, nested-relative, `shared/`, and `app/pages/` imports (section 5.3)
 - [ ] Business logic 100% in the `application/` layer, handlers/controllers are a thin layer only
 - [ ] Spec↔code bound by generation: spec-first via per-module oapi-codegen (Go, OpenAPI 3.0.x) or code-first via TypeBox export (Fastify) — CI diff-checks enforce it
 - [ ] CI has a diff-check step between the spec and generated frontend types
