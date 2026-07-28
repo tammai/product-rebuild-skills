@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-07-28
+
+### Removed
+
+- **`.github/workflows/test.yml`.** Added one release earlier, and wrong for how this repo is
+  actually maintained: a single maintainer on macOS who runs `npm test` on demand. A hosted
+  gate bought nothing here — it can only confirm what a local run already showed — while
+  costing a red X on any commit whose failure was environment-specific rather than real, which
+  is precisely what happened to v0.4.4 (the suite failed on Linux and passed on macOS, on
+  timing). It also made pushes need a `workflow`-scoped token, which is why this repo is on an
+  SSH remote now.
+
+  `npm test` is unchanged and remains the way to check the scripts: 59 tests, run it before
+  tagging. The version/CHANGELOG coupling it asserts is the part of the release ceremony worth
+  automating, and that works locally.
+
+  Note this is *this repo's* CI, not the scaffold's. Workbenches still ship
+  `.github/workflows/validate.yml`, which schema-validates artifacts and gate hashes — that one
+  earns its keep, because a workbench is shared with code repos that pin its gate tags.
+
 ## [0.4.5] - 2026-07-28
 
 ### Fixed
