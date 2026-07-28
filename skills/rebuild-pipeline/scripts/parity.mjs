@@ -60,7 +60,7 @@ const unrecorded = [...doneSliceFeatures].filter((id) => !featureProgress[id]);
 let overlayWarning = "";
 if (unrecorded.length) {
   const sample = unrecorded.slice(0, 5).join(", ") + (unrecorded.length > 5 ? ", …" : "");
-  overlayWarning = `> **${unrecorded.length} feature(s) in a shipped slice have no \`plan/progress.yaml\` entry**, so the `
+  overlayWarning = `\n> **${unrecorded.length} feature(s) in a shipped slice have no \`plan/progress.yaml\` entry**, so the `
     + `figures below fall back to \`matrix/features.yaml\` — which records how well the REFERENCE `
     + `covered each feature (gate-1 mining), not this rebuild's progress. Record them under `
     + `\`features:\` before reading these numbers as coverage: ${sample}\n`;
@@ -96,7 +96,6 @@ mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
-
 ${overlayWarning}
 
 ## Missing (in a done slice but not covered — investigate)
