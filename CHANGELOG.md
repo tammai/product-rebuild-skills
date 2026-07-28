@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-28
+
+### Fixed
+
+- **A scheduled backup no longer dies silently when node moves.** `install` wrote
+  `process.execPath` into the launchd/systemd unit, and on the machine this shipped from that
+  was `~/.nvm/versions/node/v24.14.1/bin/node` — a path the next `nvm install` deletes. The
+  schedule would keep existing, keep reporting nothing, and never run again: the precise
+  failure mode the feature exists to prevent, reintroduced by the feature. `install` now
+  prefers a stable interpreter (`/opt/homebrew/bin/node`, `/usr/local/bin/node`,
+  `/usr/bin/node`, first one that runs and is ≥ 18) and, when only a version-managed node
+  exists, says so instead of pretending the schedule is durable.
+
+- **`status` now flags a stale schedule.** An interpreter that vanished is one of several ways
+  an unattended job goes quiet — an unloaded agent and expired push credentials look identical
+  from the outside — so rather than checking each cause, `status` reports the age of the last
+  completed run and warns at three days. That is the signal that actually distinguishes
+  "backed up daily" from "backed up once, in March".
+
 ## [0.4.0] - 2026-07-28
 
 ### Added

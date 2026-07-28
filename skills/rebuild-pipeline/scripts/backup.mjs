@@ -160,9 +160,26 @@ if (cmd === "status") {
     if (dirty) { bits.push(`${dirty} uncommitted path(s)`); exposed++; }
     console.log(`  ${name}: ${bits.length ? `⚠️  ${bits.join(", ")}` : "✅ fully pushed"} → ${url}`);
   }
-  let last = "never";
-  try { last = readFileSync(LOG, "utf8").trimEnd().split("\n").filter((l) => /backup (OK|FINISHED)/.test(l)).pop() || "never"; } catch {}
-  console.log(`\n  last completed run: ${last}`);
+  // A scheduled backup can die quietly in more ways than one — an unloaded job, an
+  // interpreter removed by a node upgrade, expired push credentials. Rather than check each,
+  // treat the age of the last completed run as the single honest health signal.
+  let last = null;
+  try {
+    last = readFileSync(LOG, "utf8").trimEnd().split("\n")
+      .filter((l) => /backup (OK|FINISHED)/.test(l)).pop() || null;
+  } catch { /* no log yet */ }
+  if (!last) {
+    console.log("\n  last completed run: never — nothing has run yet. `install` schedules it.");
+  } else {
+    const stamp = (last.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/) || [])[1];
+    const days = stamp ? Math.floor((Date.now() - new Date(stamp.replace(" ", "T")).getTime()) / 86_400_000) : null;
+    const stale = days !== null && days >= 3;
+    console.log(`\n  last completed run: ${last}`);
+    if (stale) {
+      console.log(`  ⚠️  that is ${days} days ago — the schedule may have stopped running. ` +
+        "Re-run `install` and check the log.");
+    }
+  }
   console.log(`  log: ${LOG}`);
   console.log(`\n${visibilityAdvice()}`);
   if (exposed) console.log("\nRun `node scripts/backup.mjs` to push now, or `install` to schedule it daily.");
@@ -174,6 +191,32 @@ const LABEL = `vn.bigin.rebuild-backup.${SLUG}`;
 const SERVICE = `rebuild-backup-${SLUG}`;
 const SCRIPT = join(HERE, "backup.mjs");
 const WORKBENCH = resolve(".");
+
+// Schedulers run with a minimal PATH, so the unit has to name an absolute node binary.
+// process.execPath is often inside a version manager, and those paths disappear on the next
+// `nvm install` — the schedule would then fail silently, which is the exact failure mode this
+// script exists to prevent. Prefer a stable interpreter when one is available.
+const versionManaged = (p) => /\/(\.nvm|\.fnm|\.asdf|\.volta|\.nodenv|\.n)\//.test(p);
+const usableNode = (p) => {
+  try {
+    if (!existsSync(p)) return false;
+    const v = execFileSync(p, ["--version"], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    return Number(v.replace(/^v/, "").split(".")[0]) >= 18;   // matches this script's syntax
+  } catch { return false; }
+};
+const pickNode = () => {
+  if (!versionManaged(process.execPath)) return { path: process.execPath, warn: null };
+  const stable = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"].find(usableNode);
+  if (stable) {
+    return { path: stable, warn: `Scheduled with ${stable} rather than ${process.execPath}: ` +
+      "the latter is version-manager-owned and would vanish on your next node upgrade." };
+  }
+  return { path: process.execPath, warn: `⚠️  Scheduled with ${process.execPath}, which is ` +
+    "version-manager-owned. Upgrading or removing that node version breaks this schedule " +
+    "silently — re-run `install` after any node change, and use `status` to confirm the last " +
+    "run is recent." };
+};
+const NODE = pickNode();
 
 if (cmd === "install" || cmd === "uninstall") {
   const uid = typeof process.getuid === "function" ? process.getuid() : 0;
@@ -195,7 +238,7 @@ if (cmd === "install" || cmd === "uninstall") {
     <key>Label</key><string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${process.execPath}</string>
+        <string>${NODE.path}</string>
         <string>${SCRIPT}</string>
         <string>run</string>
     </array>
@@ -215,6 +258,7 @@ if (cmd === "install" || cmd === "uninstall") {
     execFileSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "inherit" });
     console.log(`Scheduled daily (13:00) + at login: ${plistPath}`);
     console.log(`Log: ${LOG}`);
+    if (NODE.warn) console.log(`\n${NODE.warn}`);
     console.log("\nPushes must work with no terminal attached. If the remote is SSH with a\n" +
       "passphrased key, add it to the keychain (`ssh-add --apple-use-keychain <key>`) — then\n" +
       "confirm with: node scripts/backup.mjs status");
@@ -237,7 +281,7 @@ Description=Off-machine backup for the ${PROJECT} rebuild workbench and its code
 [Service]
 Type=oneshot
 WorkingDirectory=${WORKBENCH}
-ExecStart=${process.execPath} ${SCRIPT} run
+ExecStart=${NODE.path} ${SCRIPT} run
 `);
     // Persistent=true is the systemd equivalent of RunAtLoad's safety net: a missed run
     // (machine off at 13:00) fires on the next boot instead of being skipped.
@@ -255,6 +299,7 @@ WantedBy=timers.target
     execFileSync("systemctl", ["--user", "enable", "--now", `${SERVICE}.timer`], { stdio: "inherit" });
     console.log(`Scheduled daily (13:00): ${unitDir}/${SERVICE}.timer`);
     console.log(`Log: ${LOG}`);
+    if (NODE.warn) console.log(`\n${NODE.warn}`);
     console.log("\nUnattended pushes need credentials available with no terminal: an SSH key\n" +
       "with no passphrase, a keyring the user session unlocks, or a git credential helper.\n" +
       "Confirm with: node scripts/backup.mjs status");
@@ -263,7 +308,7 @@ WantedBy=timers.target
 
   console.log(`No built-in scheduler for platform "${platform()}". Run this daily by any means\n` +
     `you already trust (cron, Task Scheduler), from the workbench root:\n\n` +
-    `  cd ${WORKBENCH} && ${process.execPath} ${SCRIPT} run\n`);
+    `  cd ${WORKBENCH} && ${NODE.path} ${SCRIPT} run\n`);
   process.exit(0);
 }
 
