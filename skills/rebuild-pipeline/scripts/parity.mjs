@@ -97,7 +97,6 @@ writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
 ${overlayWarning}
-
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
 
