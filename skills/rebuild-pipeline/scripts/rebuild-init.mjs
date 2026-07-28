@@ -138,9 +138,15 @@ name: validate-workbench
 on:
   push:
     branches-ignore: ['auto-backup/**']
+    # A push trigger carrying only branch filters stops firing on tag pushes, and gate.mjs
+    # mints gate-N/vN tags that code repos consume as submodule pins — keep them validated.
+    tags: ['**']
   pull_request:
 jobs:
   validate:
+    # pull_request branch filters match the *base* branch, so a PR opened from a snapshot
+    # branch would still be rebuilt by every daily force-push; skip on the head ref instead.
+    if: "!startsWith(github.head_ref, 'auto-backup/')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

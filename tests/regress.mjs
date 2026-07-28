@@ -57,6 +57,15 @@ const hasNot = (hay, needle, what) => {
   if (String(hay).includes(needle)) throw new Error(`${what}\n  expected NOT to contain: ${JSON.stringify(needle)}\n  actual: ${String(hay).slice(0, 600)}`);
 };
 
+// GitHub Actions ref-filter glob: `*` and `?` stay inside a path segment, `**` crosses `/`.
+// Substring checks are not enough here — `auto-backup` and `auto-backup-*` both *look* like
+// the pattern under test but match no `auto-backup/<host>` ref.
+const globMatches = (pattern, ref) => {
+  const rx = pattern.replace(/\*\*|[*?]|[.+^${}()|[\]\\]/g, (m) =>
+    m === "**" ? ".*" : m === "*" ? "[^/]*" : m === "?" ? "[^/]" : `\\${m}`);
+  return new RegExp(`^${rx}$`).test(ref);
+};
+
 // Never throws on a non-zero exit — returns {code, out} with stdout+stderr merged, because
 // most of what is under test here IS the non-zero exit and the message that comes with it.
 const run = (script, args, opts = {}) => {
@@ -697,17 +706,38 @@ t("scaffold contains every directory and file the pipeline expects", () => {
 });
 
 t("the generated workflow does not fire on backup snapshot branches", () => {
+  // The ignore pattern in the template and SNAPSHOT_BRANCH in backup.mjs are two copies of
+  // one constant, so derive the ref from backup.mjs — renaming it there must fail here.
+  const backup = readFileSync(join(SCRIPTS, "backup.mjs"), "utf8");
+  const declared = backup.match(/const SNAPSHOT_BRANCH = `([^`]+)`/);
+  if (!declared) throw new Error("no SNAPSHOT_BRANCH literal in backup.mjs — update this test");
+  const snapshotRef = declared[1].replace(/\$\{HOST\}/g, "mymac");
+
   const w = workbench();
   const text = readFileSync(join(w, ".github/workflows/validate.yml"), "utf8");
   const doc = parseYaml(text);
   // YAML 1.1 reads a bare `on` key as boolean true; the 1.2 core schema keeps it a string.
   const on = doc.on ?? doc[true];
-  if (!on?.push) throw new Error(`no push trigger found in:\n${text}`);
-  const ignored = on.push["branches-ignore"] || [];
-  if (!ignored.some((p) => String(p).startsWith("auto-backup"))) {
-    throw new Error("the push trigger does not exclude auto-backup/<host>, which backup.mjs " +
-      `force-pushes on every run: ${JSON.stringify(on.push)}`);
+  // A list-form `on: [push, pull_request]` carries no filters at all — and `on.push` would
+  // then resolve to Array.prototype.push, so check the shape before trusting that key.
+  const push = on && !Array.isArray(on) && typeof on === "object" ? on.push : null;
+  if (!push) throw new Error(`no push trigger with filters found in:\n${text}`);
+  const ignored = push["branches-ignore"] || [];
+  if (!ignored.some((p) => globMatches(String(p), snapshotRef))) {
+    throw new Error(`the push trigger does not exclude ${snapshotRef}, which backup.mjs ` +
+      `force-pushes on every run: ${JSON.stringify(push)}`);
   }
+  // Branch filters alone silently stop a push trigger from firing on tags, and gate.mjs mints
+  // gate-N/vN tags that code repos consume as submodule pins.
+  const tags = push.tags || [];
+  if (!tags.some((p) => globMatches(String(p), "gate-4/v1"))) {
+    throw new Error(`the push trigger no longer covers gate tags: ${JSON.stringify(push)}`);
+  }
+  if (!("pull_request" in on)) throw new Error(`the pull_request trigger is gone from:\n${text}`);
+  // pull_request filters match the base branch, so the snapshot branch is excluded by a
+  // head-ref check on the job instead.
+  const refPrefix = snapshotRef.slice(0, snapshotRef.lastIndexOf("/") + 1) || snapshotRef;
+  has(text, `startsWith(github.head_ref, '${refPrefix}')`, "skips PRs from the snapshot branch");
   has(text, "npm run validate", "still runs the validator");
 });
 

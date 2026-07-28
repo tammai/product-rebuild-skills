@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-07-28
+
+### Fixed
+
+- **The scaffolded `validate.yml` runs on tag pushes again.** A push trigger that carries only
+  branch filters stops firing on tags altogether, so v0.4.7's `branches-ignore` silently took
+  the `gate-N/vN` tags out of CI — the ones `gate.mjs lock` mints and `backup.mjs` publishes
+  with `git push --tags`, and the ones every code repo in `repos.yaml` pins the workbench at as
+  a submodule. Locking a gate on a local branch and pushing just the pin produced no validate
+  run at all, so a gate tag with broken `contracts/` or lock hashes could be consumed with zero
+  signal. Restored with `tags: ['**']` alongside the branch filter.
+
+- **A pull request opened from the snapshot branch no longer rebuilds on every daily backup.**
+  `pull_request` branch filters match the *base* branch, so v0.4.7's `branches-ignore` on the
+  push trigger did nothing for a PR whose *head* is `auto-backup/<host>` — a natural way to
+  inspect or recover auto-backed-up work. Each daily force-push fired a `synchronize` event and
+  the daily failure email continued. Excluded at the job instead, on `github.head_ref`, which is
+  the only place the head branch is filterable.
+
+- **The v0.4.7 regression test can now actually catch the regression it guards.** Four ways it
+  could not: `startsWith("auto-backup")` accepted `['auto-backup']` and `['auto-backup-*']`,
+  neither of which glob-matches `auto-backup/<host>` (a GitHub filter pattern needs `/**` to
+  cross a `/`), so the fix could be undone with the suite green; the prefix was hardcoded rather
+  than read from `SNAPSHOT_BRANCH` in `backup.mjs`, so renaming the snapshot branch there left
+  the template ignoring a pattern nothing pushes; nothing asserted the `pull_request` trigger
+  survived an edit to the `on:` block; and the `!on?.push` guard was never true for the list
+  form `on: [push, pull_request]` it existed to diagnose, because `Array.prototype.push` is a
+  truthy `push` property. The test now matches patterns with a real glob matcher, derives the
+  ref from `backup.mjs`, and asserts the tag filter, the `pull_request` trigger, and the head-ref
+  guard are all still there. Verified by mutation: each of the six regressions above fails it.
+
 ## [0.4.7] - 2026-07-28
 
 ### Fixed
