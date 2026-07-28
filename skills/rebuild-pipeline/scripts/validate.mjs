@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // validate.mjs — schema-validate all workbench artifacts. Run from the workbench root.
-// Requires devDependencies (ajv, ajv-formats, yaml) — installed by `npm install`.
+// Requires ajv, ajv-formats and yaml from the workbench's own `npm install`. The plugin
+// ships no dependencies, so running the plugin's copy of this file cannot work.
 // Checks, in order:
 //   1. Every findings/**.yaml against finding.schema.json (+ evidence rule)
 //   2. matrix/features.yaml against feature.schema.json

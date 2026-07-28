@@ -3,7 +3,7 @@
 Run after each slice and on schedule (monthly default).
 
 1. **AC suite**: run the tests; "is the feature done" is a test result, not a meeting.
-2. **Parity diff**: `node .../scripts/parity.mjs` — rebuild coverage vs `matrix/`:
+2. **Parity diff**: `node scripts/parity.mjs` from the workbench root — coverage vs `matrix/`:
    covered / partial / missing per feature, plus scope-creep detection (built but not
    in matrix). Report lands in `parity/<date>.md`.
 3. **Upstream re-mine**: re-run lane A (changelog) against the reference's latest

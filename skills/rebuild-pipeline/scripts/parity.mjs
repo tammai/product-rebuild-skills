@@ -13,7 +13,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { parse } from "yaml";
 
-if (!existsSync("matrix/features.yaml")) { console.error("No matrix/features.yaml."); process.exit(1); }
+if (!existsSync("matrix/features.yaml")) {
+  console.error("No matrix/features.yaml here — run from the workbench root.");
+  process.exit(1);
+}
 const readYaml = (p, fallback) => (existsSync(p) ? parse(readFileSync(p, "utf8")) ?? fallback : fallback);
 
 const progress = readYaml("plan/progress.yaml", {}) || {};

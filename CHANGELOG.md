@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-28
+
+A repo-root `package.json` pinned `ajv`/`ajv-formats`/`yaml` that `rebuild-init.mjs` already
+pins for every workbench it scaffolds, so the two could drift. Deleting it exposed the reason
+the duplicate looked necessary: four documented script invocations pointed at the plugin's own
+copy of `validate.mjs`/`parity.mjs`, which can only resolve those imports on a machine that ran
+`npm install` in the plugin directory by hand. `node_modules/` is gitignored and no install has
+ever shipped dependencies, so that path was broken for every user and silently fine for its
+author. The pins now live in one place and the docs point at the workbench copy.
+
+### Removed
+
+- **The repo-root `package.json` and `package-lock.json` are gone.** They pinned
+  `ajv`/`ajv-formats`/`yaml` a second time — `scripts/rebuild-init.mjs` already writes those
+  same pins into every workbench it scaffolds — so a bump in one place silently left new
+  workbenches on the old range. The manifest was never load-bearing: `node_modules/` is
+  gitignored and no plugin install has ever shipped dependencies, so the only machine where
+  the plugin's own copy of `validate.mjs` could resolve `ajv` was the one that ran
+  `npm install` by hand. `rebuild-init.mjs:122` is now the single source of the pins. Every
+  `.mjs` here declares itself by extension, so no `"type": "module"` is needed.
+
+### Fixed
+
+- **Script invocations in `SKILL.md` and `references/g6-parity.md` now name the workbench's
+  own `scripts/` copy.** Four call sites read `node .../scripts/X.mjs` or pointed at
+  `${CLAUDE_PLUGIN_ROOT}`; the first is unrunnable as written and the second resolves to a
+  copy with no `node_modules` (`validate.mjs`, `parity.mjs`) or reads cwd-relative paths that
+  are only correct in the workbench (`gate.mjs`, `pause-check.mjs`). Step 2 of the
+  orchestration protocol now states the invariant once: workbench copy, workbench cwd, with
+  `rebuild-init.mjs` the sole exception since it runs before a workbench exists.
+- `parity.mjs` failed with a bare `No matrix/features.yaml.`; it now says "run from the
+  workbench root", matching `gate.mjs` and `pause-check.mjs`.
+
 ## [0.6.0] - 2026-07-28
 
 The org-default playbook no longer prescribes Nuxt Layers for frontend feature boundaries. §5

@@ -36,7 +36,11 @@ started: offer to run onboarding (Step 4a).
 
 ### Step 2 — Detect state
 
-Run: `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/gate.mjs status`
+Run, with the workbench root as cwd: `node scripts/gate.mjs status`
+
+Always the workbench's own `scripts/` copy, never the plugin's. Every script except
+`rebuild-init.mjs` reads and writes cwd-relative paths, and `validate.mjs`/`parity.mjs`
+additionally need the workbench's `node_modules` — the plugin ships no dependencies.
 
 This prints each gate's state (open/locked, date, artifact hashes) and derives the
 **current phase**: the first phase whose entry gate is locked but whose own exit gate
@@ -87,10 +91,11 @@ slice, or run parity), present the concrete options rather than guessing.
 
 Gates are human decisions. When a phase's exit criteria are met:
 
-1. Run `node .../scripts/validate.mjs` — all artifacts must pass schema validation first.
+1. Run `node scripts/validate.mjs` from the workbench root — all artifacts must pass schema
+   validation first.
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, and what becomes immutable afterward.
-3. Only after explicit user approval, run `node .../scripts/gate.mjs lock <gate-id>`.
+3. Only after explicit user approval, run `node scripts/gate.mjs lock <gate-id>`.
 4. **Push the lock commit *and* its tag**: `git push && git push --tags`. Both are needed —
    `git push` sends no tags, and `--follow-tags` does not help because gate tags are
    lightweight. The tag is not a label: code repos pin this workbench as a submodule at
@@ -107,7 +112,7 @@ logged event; require the user to state the reason.
 
 When the user signals they're pausing, stopping, or ending the session — or you notice a
 natural stopping point (a slice just finished, a gate review just landed) — run:
-`node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/pause-check.mjs`
+`node scripts/pause-check.mjs` (from the workbench root)
 
 This is NOT one of the five hash-pinned gates — it locks nothing, has no PreToolUse
 enforcement, and is safe to run any number of times. It reports, across the workbench and
