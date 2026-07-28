@@ -60,7 +60,9 @@ then resolves against the code repo's own remote, so a fresh
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
 - Cross-lane shared changes go through one serialized review path.
 - **The slice is not done until deployed** and its `done_means` demonstrably true —
-  the deploy is half the curriculum. Confirm with the user before marking a slice done
-  in `plan/slices.yaml` (status field).
+  the deploy is half the curriculum. Confirm with the user before marking a slice done,
+  and record it in `plan/progress.yaml`, never in the gate-locked `plan/slices.yaml` —
+  see `g6-parity.md`. Use `deployed` rather than `done` when a `done_means` clause is
+  knowingly unmet, so the status stays honest without switching off creep detection.
 
 Between slices: run G6 parity, then return here for the next slice.
