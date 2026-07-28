@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-28
+
+### Added
+
+- **`scripts/backup.mjs` — the pipeline now gets its own output off the machine.** Found on the
+  WordPress rebuild, four gates in: the workbench and its code repo had *no git remote at all*.
+  Six months of findings, the locked taxonomy, thirteen ADRs, four gate tags and a parity run
+  existed on exactly one laptop, and nothing in the pipeline had ever said to push. The gap is
+  easy to miss because the pipeline is scrupulous about durability *on disk* — checkpoint
+  discipline, artifact-first, pause-check's git cleanliness — and every one of those checks
+  passes with a green tick while the only copy sits one disk failure from gone. Worth being
+  explicit about why this is not "just use git": mining output is **not reproducible**. Re-mine
+  the reference and you get different findings; you do not get back the taxonomy you argued
+  yourself into, or the reasons an ADR diverged. The reference checkout *is* reproducible and is
+  deliberately excluded — on that project it was 966M of upstream clone versus ~2MB of actual
+  decisions, and `sources.yaml` already pins the commits needed to restore it.
+
+  `run` pushes every branch and tag for the workbench and each repo in `repos.yaml`, workbench
+  first because code repos pin it as a submodule and a pinned commit must reach the remote
+  before the parent that references it. `status` reports exposure without pushing. `install`
+  schedules a daily run (launchd on macOS, systemd `--user` timer on Linux, printed cron
+  instructions elsewhere), with `RunAtLoad`/`Persistent=true` so a laptop asleep at 13:00 for a
+  week still backs up at login rather than silently skipping.
+
+  Two design choices worth keeping: **uncommitted work is snapshotted onto `auto-backup/<host>`,
+  never the mainline** — gate locks hash artifact content and `gate-N/vN` tags are consumed as
+  submodule pins, so an unattended job committing to `main` would corrupt precisely the history
+  the gates exist to make trustworthy. And the snapshot is built in a scratch `GIT_INDEX_FILE`,
+  leaving HEAD, the index and the working tree untouched, because it runs while the user is
+  mid-edit. It honours `.gitignore`, so `.env` files and `node_modules` stay local.
+
+- **Repo visibility is now derived from `license-posture.md`, not left to the moment.** Backup
+  means pushing a rebuild of (usually) a copyleft product to a hosting provider, and for a
+  `private-learning` posture a public remote is *distribution* — the one condition that
+  invalidates the posture and requires a G0 reopen. `backup.mjs` reads the posture and says so
+  when a repo has no remote; G0 and G5 both spell out `--private` with the reason attached,
+  since the user chose the posture minutes earlier and will not connect it to a `gh` flag.
+
+### Changed
+
+- **`pause-check.mjs` now asks whether the work left the machine**, not just whether it was
+  committed. It flags a repo with no remote, and commits sitting on local branches no remote has
+  (`git log --branches --not --remotes`). "Safe to pause" claiming success while every artifact
+  lives on one disk was the specific false green that hid the missing remote for four gates.
+
+- **`rebuild-init.mjs`** copies `backup.mjs` into the new workbench, adds an `npm run backup`
+  script, tells the user to create the remote in its closing output, and documents it in the
+  generated README. The copy is deliberate: the scheduled job stores an absolute path to the
+  script, and a plugin cache path contains the plugin version, so running it from
+  `${CLAUDE_PLUGIN_ROOT}` would leave every upgrade with a silently dead schedule.
+
+- **`repos.yaml`'s own comment** now states that an unregistered repo is invisible to *both*
+  `pause-check.mjs` and `backup.mjs` — never checked before a pause, and never backed up. G5's
+  repo-creation step became a three-item checklist (register, remote, verify) for the same
+  reason, and notes that a relative submodule URL (`../<name>-workbench`) resolves against the
+  code repo's own remote, so keeping both repos under one owner makes
+  `git clone --recurse-submodules` work with no per-machine setup.
+
 ## [0.3.5] - 2026-07-27
 
 ### Added

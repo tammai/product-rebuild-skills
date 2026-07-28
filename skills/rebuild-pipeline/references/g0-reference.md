@@ -20,9 +20,25 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
 - Scaffold: `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <name>`
 - Fill `sources.yaml`: exactly what agents may fetch/clone, derived from the posture.
   If clean-room: the reference repo goes on the deny list.
+- **Give the workbench a remote now, before mining starts.** Everything the pipeline is
+  about to produce — taxonomy, ADRs, gate history — is unreproducible: re-mining the
+  reference yields different findings, not the decisions you argued yourself into. Waiting
+  until "there's something worth backing up" means the loss window covers G1 and G2, the
+  phases with the most output.
+  ```sh
+  gh repo create <name>-workbench --private --source . --push
+  npm run backup -- install      # daily + at login; picks up code repos from repos.yaml later
+  ```
+  **Visibility follows the posture just decided.** `private-learning` or
+  `possible-closed-distribution` → private, non-negotiable: pushing a copyleft-derived
+  rebuild to a public remote is distribution, and would need a G0 reopen. Only
+  `permissive-reference` leaves it open. Say this out loud when you create the repo —
+  the user chose the posture minutes ago and will not connect it to a `gh` flag.
 - Confirm the user can run the reference locally (Docker preferred). This becomes a
   hard G1 exit requirement.
 
 ## Exit criteria
 Reference chosen with recorded rationale; `license-posture.md` complete;
-`sources.yaml` reviewed by the user; workbench scaffolded and CI green on empty state.
+`sources.yaml` reviewed by the user; workbench scaffolded and CI green on empty state;
+workbench pushed to a remote whose visibility matches the recorded posture
+(`npm run backup -- status` confirms it).

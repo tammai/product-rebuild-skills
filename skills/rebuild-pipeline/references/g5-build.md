@@ -4,10 +4,23 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 3, not a constant. Work happens in code repos; the workbench is read-only input
 (submodule pinned to gate tags).
 
-**The first time a code repo is created**, add it to the workbench's `repos.yaml`
-(`name` + `path` relative to the workbench root) — `scripts/pause-check.mjs` reads this
-list to know which repos to check for uncommitted work before a session pauses. An
-unregistered repo is invisible to that check.
+**The first time a code repo is created**, do all three of these — the repo is not set up
+until they are:
+
+1. **Register it** in the workbench's `repos.yaml` (`name` + `path` relative to the
+   workbench root). Both `scripts/pause-check.mjs` and `scripts/backup.mjs` read this list.
+   An unregistered repo is invisible to both: never checked before a pause, never backed up.
+2. **Give it a remote**, visibility per `license-posture.md` — private unless the posture is
+   `permissive-reference`:
+   `gh repo create <repo-name> --private --source . --push`
+3. **Confirm it is covered**: `npm run backup -- status` from the workbench should list the
+   new repo as pushed. If the backup schedule was installed at G0, it picks the repo up from
+   `repos.yaml` automatically — no reinstall needed.
+
+If the repo pins the workbench as a submodule with a **relative** URL (`../<name>-workbench`),
+push the workbench remote first and keep both repos under the same owner: the relative URL
+then resolves against the code repo's own remote, so a fresh
+`git clone --recurse-submodules` works with no per-machine configuration.
 
 ## Per-slice sequence
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice. Spec inputs: the

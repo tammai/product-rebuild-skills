@@ -6,7 +6,8 @@
 //
 // This is NOT one of the pipeline's five hash-pinned gates (gate-1..gate-5) — it locks
 // nothing and has no protects:/PreToolUse enforcement. It's a repeatable, advisory readiness
-// check: git cleanliness across the workbench and every repo in repos.yaml, any gate left
+// check: git cleanliness across the workbench and every repo in repos.yaml, whether that work
+// has actually left the machine (a remote exists, nothing sits unpushed), any gate left
 // mid-decision (reopened but not re-locked), docker-compose stacks left running, and
 // host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
 // is communicated in the report, not a process-failure exit code, since nothing here should
@@ -41,6 +42,20 @@ const gitDirty = (dir) => {
   } catch { return null; } // not a git repo, or git unavailable
 };
 
+// A commit is not durable just because it exists. "Safe to pause" has to mean the work
+// survives the machine, so this also asks whether each repo has a remote and whether
+// anything is sitting on a local branch no remote has seen.
+const hasOrigin = (dir) => {
+  try { execSync("git remote get-url origin", { cwd: dir, stdio: "pipe" }); return true; }
+  catch { return false; }
+};
+const unpushedCount = (dir) => {
+  try {
+    const out = execSync("git log --branches --not --remotes --oneline", { cwd: dir, encoding: "utf8" }).trim();
+    return out ? out.split("\n").filter(Boolean).length : 0;
+  } catch { return null; }
+};
+
 const checkRepo = (label, dir) => {
   if (!existsSync(dir)) { notes.push(`${label}: path does not exist (${dir}) — skipped.`); return; }
   if (!isGitRepo(dir)) { notes.push(`${label}: not a git repo — skipped.`); return; }
@@ -51,6 +66,20 @@ const checkRepo = (label, dir) => {
     issues.push(`${label}: ${lines.length} uncommitted change(s) — ${dir}`);
   } else {
     notes.push(`${label}: clean.`);
+  }
+
+  if (!hasOrigin(dir)) {
+    issues.push(`${label}: no git remote — this repo exists only on this machine (${dir}). ` +
+      `Give it one (\`gh repo create <name> --private --source . --push\`; visibility follows ` +
+      `license-posture.md) and run \`node scripts/backup.mjs install\`.`);
+    return;
+  }
+  const ahead = unpushedCount(dir);
+  if (ahead === null) { notes.push(`${label}: could not compare against remotes — skipped.`); return; }
+  if (ahead > 0) {
+    issues.push(`${label}: ${ahead} commit(s) not on any remote — run \`node scripts/backup.mjs\`.`);
+  } else {
+    notes.push(`${label}: pushed to origin.`);
   }
 };
 
@@ -152,12 +181,12 @@ for (const n of notes) console.log(`  ${n}`);
 if (issues.length) {
   console.log("\n⚠️  NOT safe to pause without a look — issues found:");
   for (const i of issues) console.log(`  - ${i}`);
-  console.log("\nCommit/persist draft work, resolve any reopened gate (re-lock or explicitly " +
-    "leave it open with the reason noted to the user), and stop or consciously keep running " +
-    "services before ending the session.");
+  console.log("\nCommit/persist draft work, push it off-machine (`node scripts/backup.mjs`), " +
+    "resolve any reopened gate (re-lock or explicitly leave it open with the reason noted to " +
+    "the user), and stop or consciously keep running services before ending the session.");
 } else {
-  console.log("\n✅ Safe to pause — git clean everywhere checked, no gate mid-decision, no " +
-    "services left running.");
+  console.log("\n✅ Safe to pause — git clean everywhere checked, all work pushed to a remote, " +
+    "no gate mid-decision, no services left running.");
 }
 console.log("\nReminder (not scriptable): confirm nothing non-trivial exists only in this " +
   "conversation — a partial ADR, a draft matrix, in-flight findings — that hasn't reached disk.");

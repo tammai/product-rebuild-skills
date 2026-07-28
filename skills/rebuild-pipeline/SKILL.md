@@ -69,7 +69,9 @@ per-phase by design to keep context lean:
 **4a — Onboarding (no workbench).** Interview the user: which reference product, why,
 distribution intent (this decides license posture — see g0 reference). Then scaffold:
 `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <project-name>`
-and walk the user through the generated `sources.yaml` and `license-posture.md`.
+and walk the user through the generated `sources.yaml` and `license-posture.md`. Before
+leaving G0, give the workbench a remote and install the backup schedule (g0 reference has
+the commands) — visibility follows the posture just decided.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
 agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, spec-writer) using the
@@ -104,7 +106,8 @@ natural stopping point (a slice just finished, a gate review just landed) — ru
 
 This is NOT one of the five hash-pinned gates — it locks nothing, has no PreToolUse
 enforcement, and is safe to run any number of times. It reports, across the workbench and
-every repo registered in `repos.yaml`: uncommitted/untracked git changes, any gate left
+every repo registered in `repos.yaml`: uncommitted/untracked git changes, work that has not
+left the machine (no remote, or commits on no remote), any gate left
 mid-decision (reopened but not re-locked), and docker-compose stacks left running. Report
 its verdict to the user plainly. If it flags issues, resolve them (commit or explicitly
 flag draft work, decide on a reopened gate, stop or consciously keep services running)
@@ -128,6 +131,13 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 - The workbench describes the product; it never contains product code. Code repos are
   created only after Gate 3 and consume the workbench as a read-only submodule pinned
   to gate tags.
+- Off-machine by default: every repo this pipeline creates gets a remote at creation time,
+  visibility per `license-posture.md` (private unless the posture is `permissive-reference`).
+  The pipeline's output is months of decisions that re-mining cannot reproduce, so a
+  single-disk copy is a real risk, not a hypothetical one. `scripts/backup.mjs install`
+  schedules a daily push of the workbench and every repo in `repos.yaml`; uncommitted work
+  goes to an `auto-backup/<host>` branch, never to the mainline whose history gate locks
+  hash and submodule pins consume.
 - All model-facing artifacts are English.
 
 ## Failure modes to actively prevent
@@ -142,3 +152,7 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 - Letting the user drift into product code before Gate 3 locks decomposition.
 - Ending a session without running the pause safety check (Step 6), or running it but not
   acting on what it flags.
+- Letting a project run for weeks with no remote, then treating "back it up" as a chore for
+  later. The cost of the loss grows every phase; the fix takes one command at G0.
+- Creating a public remote for a copyleft-derived rebuild. That is distribution, whatever
+  the intent — it needs a G0 reopen first, not a `--public` flag.
