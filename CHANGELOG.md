@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-28
+
+### Removed
+
+- **The automated backup flow is gone.** `scripts/backup.mjs` (push-all-repos, `status`,
+  and the self-installing launchd/systemd daily schedule) is deleted, along with the
+  `npm run backup` script it registered in scaffolded workbenches. Keeping work off-machine
+  is now manual: give every repo a remote at creation, push it yourself, and let
+  `npm run pause-check` tell you when something has not left the machine.
+
+  Two of the flow's own failure modes argued against keeping it. Committed work on a
+  **detached HEAD** was invisible to both the push (`git push --all` only sends
+  `refs/heads/*`) and the health report (`git log --branches --not --remotes`), so a repo
+  holding unpushed commits was reported as `✅ fully pushed` — and the pipeline itself hands
+  out `git checkout --detach <gate-tag>` for submodule syncing. Separately, the scheduled job
+  had to hard-code an absolute `node` path, so a version-manager upgrade broke it silently;
+  the script warned about this at install time and then had no way to resurface it. An
+  advisory check that is honest beats an automation that reports green while losing commits.
+
+  **Existing workbenches are unaffected until you act.** `rebuild-init.mjs` copied
+  `backup.mjs` into each workbench rather than running it from the plugin, so any schedule you
+  installed keeps working off its own copy. To retire one:
+  `node scripts/backup.mjs uninstall` in that workbench, then delete
+  `scripts/backup.mjs` and the `backup` entry from its `package.json`.
+
+### Fixed
+
+- **`pause-check.mjs` no longer reports work as pushed when it is on a detached HEAD.** Its
+  unpushed walk used `git log --branches --not --remotes`, which reads `refs/heads/*` only —
+  so a commit made while HEAD was detached was invisible, and the repo came back
+  `✅ Safe to pause — all work pushed to a remote`. It now names its refs explicitly
+  (`--branches --tags HEAD`), and when HEAD is detached it says so and gives the remedy that
+  actually works: `git switch -c <branch>` then `git push -u origin <branch>`, since a plain
+  `git push` fails with "You are not currently on a branch". This was `backup.mjs`'s bug too;
+  with that script gone, `pause-check` is the only off-machine signal left, so the blind spot
+  mattered more, not less.
+
+  Explicit refs rather than `--all`, deliberately: `--all` includes `refs/stash`, and no
+  `git push` can send a stash, so counting stashes in this number produces a warning whose
+  suggested fix does nothing and which therefore never clears.
+- **Stashed work is now reported, with the right remedy.** A stash is local-only by
+  construction and is easy to leave behind precisely because `git status` then calls the tree
+  clean — so a session could end `✅ Safe to pause` with real work in `refs/stash`. It is now
+  its own issue pointing at `git stash list`, separate from the unpushed-commit count.
+- **Unpushed tags are now caught.** `git log` walks commits, so a `gate-N/vN` tag pointing at
+  an already-pushed commit was structurally invisible while still being local-only — and code
+  repos pin the workbench as a submodule at exactly those tags, so one that never left the
+  machine breaks `git clone --recurse-submodules` for everyone else. `backup.mjs` used to
+  `push --tags` on every run, so removing it opened this gap. `pause-check` now compares local
+  tags against `git ls-remote`. That is its only networked check: it runs with
+  `GIT_TERMINAL_PROMPT=0` and a 5s timeout, and degrades to an advisory note (never a blocking
+  issue, never a prompt, never a hang) when the remote is unreachable.
+
+### Changed
+
+- The scaffolded `validate.yml` drops its `auto-backup/**` exclusions and the
+  `github.head_ref` job guard, which existed only to keep daily snapshot force-pushes from
+  emailing CI failures. The trigger is now plain `[push, pull_request]`. Note that
+  `tags: ['**']` went with them **because it had to** — a push trigger carrying only branch
+  filters stops firing on tag pushes, so the two were load-bearing together; unfiltered
+  covers every branch and every `gate-N/vN` tag. The workflow comment records this for anyone
+  tempted to re-add a branch filter alone.
+- `pause-check.mjs` still flags repos with no remote and commits on no remote — its
+  remediation text now points at `git push` instead of the removed script.
+- G0 and G5 keep "give it a remote, visibility per `license-posture.md`"; only the
+  schedule-installation steps and the `npm run backup -- status` confirmations are gone.
+  "Backup-only remote" is now phrased "durability-only remote" throughout, since the
+  distinction it draws — a remote for durability vs. a remote that also runs your CI — is
+  unchanged and still asked explicitly at both gates.
+
+### Recorded late
+
+Two changes landed in the 0.4.9 line without a CHANGELOG entry and are noted here rather
+than by editing a tagged section:
+
+- **The regression suite was removed** (`e918f55`): `tests/regress.mjs` (856 lines) and the
+  `test` script in `package.json`, both added in 0.4.4. It is inside the `v0.4.9` tag. As a
+  result **v0.4.6's note that "`npm test` is unchanged and remains the way to check the
+  scripts: 59 tests, run it before tagging" is historical** — there is no `npm test` now, and
+  the scripts have no automated coverage. Worth knowing when reading 0.4.4, 0.4.5 and 0.4.8,
+  all of which cite that suite as their safety net.
+- **`g5-build.md` points slice completion at `plan/progress.yaml`** (`1ba719d`), completing
+  0.4.9's progress-overlay change on the doc side.
+
 ## [0.4.9] - 2026-07-28
 
 ### Fixed

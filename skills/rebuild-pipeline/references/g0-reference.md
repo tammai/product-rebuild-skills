@@ -27,12 +27,13 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   phases with the most output.
   ```sh
   gh repo create <name>-workbench --private --source . --push
-  npm run backup -- install      # daily + at login; picks up code repos from repos.yaml later
-  # Backup-only remote? Turn the host's CI off so pushes stay silent:
+  # Durability-only remote? Turn the host's CI off so pushes stay silent:
   gh api -X PUT repos/<owner>/<name>-workbench/actions/permissions -F enabled=false
   ```
-  Ask which the remote is for — backup only, or backup *and* hosted CI — and record the
-  answer. It decides that last line here and step 4 of G5's repo checklist. The scaffold ships
+  Pushing stays manual and stays your job: `npm run pause-check` flags anything that has not
+  left the machine before a session ends, but nothing pushes on your behalf.
+  Ask which the remote is for — durability only, or durability *and* hosted CI — and record the
+  answer. It decides that last line here and step 3 of G5's repo checklist. The scaffold ships
   a `validate.yml` that does pass on a hosted runner, but the code repos' workflows will not
   (see G5's private-submodule trap), so "we push to GitHub" and "GitHub runs our CI" need to be
   separate decisions rather than one assumption.
@@ -50,4 +51,4 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
 Reference chosen with recorded rationale; `license-posture.md` complete;
 `sources.yaml` reviewed by the user; workbench scaffolded and CI green on empty state;
 workbench pushed to a remote whose visibility matches the recorded posture
-(`npm run backup -- status` confirms it).
+(`npm run pause-check` confirms nothing is still local-only).

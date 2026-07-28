@@ -7,9 +7,10 @@
 // This is NOT one of the pipeline's five hash-pinned gates (gate-1..gate-5) — it locks
 // nothing and has no protects:/PreToolUse enforcement. It's a repeatable, advisory readiness
 // check: git cleanliness across the workbench and every repo in repos.yaml, whether that work
-// has actually left the machine (a remote exists, nothing sits unpushed), any gate left
-// mid-decision (reopened but not re-locked), docker-compose stacks left running, and
-// host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
+// has actually left the machine (a remote exists; no unpushed commits — including on a
+// detached HEAD — no unpushed tags, no stash entries), any gate left mid-decision (reopened
+// but not re-locked), docker-compose stacks left running, and host-native dev servers
+// (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
 // is communicated in the report, not a process-failure exit code, since nothing here should
 // ever block a tool call the way the gate-guard hook does.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.
@@ -44,15 +45,65 @@ const gitDirty = (dir) => {
 
 // A commit is not durable just because it exists. "Safe to pause" has to mean the work
 // survives the machine, so this also asks whether each repo has a remote and whether
-// anything is sitting on a local branch no remote has seen.
+// anything is sitting on a local ref no remote has seen.
 const hasOrigin = (dir) => {
   try { execSync("git remote get-url origin", { cwd: dir, stdio: "pipe" }); return true; }
   catch { return false; }
 };
+// Refs are named explicitly rather than using `--branches` or `--all`, and both halves of
+// that matter:
+//   - `--branches` alone walks refs/heads only, so a commit made on a DETACHED HEAD is
+//     invisible and the repo reports as fully pushed. Not exotic here — gate.mjs hands out
+//     `git checkout --detach <gate-tag>` for submodule syncing, so this pipeline actively
+//     puts people in that state. Hence the explicit HEAD.
+//   - `--all` would over-reach the other way: it includes refs/stash, and a stash cannot be
+//     pushed by any `git push`, so counting it here produces a warning whose suggested fix
+//     does nothing and which therefore never clears. Stashes are real risk, but they are a
+//     different problem with a different remedy — counted separately below.
+// `--tags` stays in: gate-N/vN tags are consumed as submodule pins, so a tag on an unpushed
+// commit is genuinely unpushed work.
 const unpushedCount = (dir) => {
   try {
-    const out = execSync("git log --branches --not --remotes --oneline", { cwd: dir, encoding: "utf8" }).trim();
+    const out = execSync("git log --branches --tags HEAD --not --remotes --oneline",
+      { cwd: dir, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     return out ? out.split("\n").filter(Boolean).length : 0;
+  } catch { return null; }
+};
+// A stash is local-only by construction: it lives at refs/stash, no push sends it, and it
+// survives neither a dead disk nor a fresh clone. Easy to leave behind precisely because
+// `git status` then reports the tree as clean.
+const stashCount = (dir) => {
+  try {
+    const out = execSync("git stash list", { cwd: dir, encoding: "utf8" }).trim();
+    return out ? out.split("\n").filter(Boolean).length : 0;
+  } catch { return 0; }
+};
+// Detached HEAD changes the remedy, not just the count: plain `git push` fails with
+// "You are not currently on a branch", so the message has to say to land it somewhere first.
+const detachedHead = (dir) => {
+  try { execSync("git symbolic-ref -q HEAD", { cwd: dir, stdio: "pipe" }); return false; }
+  catch { return true; }
+};
+// Tags are refs, not commits, so the walk above structurally cannot see them: a gate tag
+// pointing at an already-pushed commit is itself still local-only. It matters because code
+// repos pin the workbench as a submodule at `gate-N/vN` — a tag that never left the machine
+// breaks `git clone --recurse-submodules` for everyone but you.
+// The only way to know is to ask the remote, so this is the one networked check here:
+// GIT_TERMINAL_PROMPT=0 and a short timeout keep it from ever hanging a session-end check,
+// and it returns null (→ a note, not a blocking issue) whenever the remote can't be reached.
+const unpushedTags = (dir) => {
+  let local;
+  try { local = execSync("git tag", { cwd: dir, encoding: "utf8" }).trim(); }
+  catch { return null; }
+  if (!local) return [];
+  try {
+    const remote = execSync("git ls-remote --tags origin", {
+      cwd: dir, encoding: "utf8", timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    // Peeled annotated tags appear twice, as `<sha> refs/tags/x` and `refs/tags/x^{}`.
+    const onRemote = new Set([...remote.matchAll(/refs\/tags\/(.+?)(?:\^\{\})?$/gm)].map((m) => m[1]));
+    return local.split("\n").filter((t) => t && !onRemote.has(t));
   } catch { return null; }
 };
 
@@ -70,14 +121,36 @@ const checkRepo = (label, dir) => {
 
   if (!hasOrigin(dir)) {
     issues.push(`${label}: no git remote — this repo exists only on this machine (${dir}). ` +
-      `Give it one (\`gh repo create <name> --private --source . --push\`; visibility follows ` +
-      `license-posture.md) and run \`node scripts/backup.mjs install\`.`);
+      `Give it one: \`gh repo create <name> --private --source . --push\` (visibility follows ` +
+      `license-posture.md).`);
     return;
   }
+  const at = dir === "." ? "" : ` -C ${dir}`;
+  const stashes = stashCount(dir);
+  if (stashes) {
+    issues.push(`${label}: ${stashes} stash entr${stashes === 1 ? "y" : "ies"} — a stash is ` +
+      `local-only and no push sends it, so this work dies with the machine (${dir}). ` +
+      `Review \`git${at} stash list\`, then pop and commit what matters or drop what doesn't.`);
+  }
+  const staleTags = unpushedTags(dir);
+  if (staleTags === null) {
+    notes.push(`${label}: could not reach origin to check tags — if you locked a gate this ` +
+      `session, confirm \`git${at} push --tags\` landed.`);
+  } else if (staleTags.length) {
+    const shown = staleTags.slice(0, 3).join(", ") + (staleTags.length > 3 ? ", …" : "");
+    issues.push(`${label}: ${staleTags.length} tag(s) not on the remote (${shown}) — ` +
+      `\`git${at} push --tags\`. Code repos pin the workbench at gate tags, so an unpushed ` +
+      `one breaks a fresh recursive clone.`);
+  }
+
   const ahead = unpushedCount(dir);
   if (ahead === null) { notes.push(`${label}: could not compare against remotes — skipped.`); return; }
   if (ahead > 0) {
-    issues.push(`${label}: ${ahead} commit(s) not on any remote — run \`node scripts/backup.mjs\`.`);
+    issues.push(detachedHead(dir)
+      ? `${label}: ${ahead} commit(s) not on any remote, and HEAD is DETACHED — they are on ` +
+        `no branch, so a plain push will not send them (${dir}). Land them first: ` +
+        `\`git${at} switch -c <branch>\` then \`git${at} push -u origin <branch>\`.`
+      : `${label}: ${ahead} commit(s) not on any remote — \`git${at} push\`.`);
   } else {
     notes.push(`${label}: pushed to origin.`);
   }
@@ -160,9 +233,9 @@ const checkDevProcess = (label, dir) => {
   const escaped = abs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   try {
     // pgrep -f is an UNANCHORED regex match, so the bare path also matches any sibling that
-    // merely extends it: `/x/foo` matches `/x/foo.git`, `/x/foo-backup`, `/x/foobar`. That
-    // reported a dev server in repos that had none — and the likeliest false match is the
-    // repo's own bare remote (`<repo>.git`), so the noise landed exactly where backups run.
+    // merely extends it: `/x/foo` matches `/x/foo.git`, `/x/foo-copy`, `/x/foobar`. That
+    // reported a dev server in repos that had none — the likeliest false match being the
+    // repo's own bare remote (`<repo>.git`) sitting next to it.
     // Require a path boundary: the next character must open a child path, be whitespace (the
     // path was the whole argument), or end the command line.
     const out = execSync(`pgrep -f "${escaped}(/|[[:space:]]|$)"`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -187,7 +260,7 @@ for (const n of notes) console.log(`  ${n}`);
 if (issues.length) {
   console.log("\n⚠️  NOT safe to pause without a look — issues found:");
   for (const i of issues) console.log(`  - ${i}`);
-  console.log("\nCommit/persist draft work, push it off-machine (`node scripts/backup.mjs`), " +
+  console.log("\nCommit/persist draft work, push it off-machine, " +
     "resolve any reopened gate (re-lock or explicitly leave it open with the reason noted to " +
     "the user), and stop or consciously keep running services before ending the session.");
 } else {

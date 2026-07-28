@@ -34,12 +34,8 @@ const dirs = [
 for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
-// backup.mjs is copied rather than run from the plugin on purpose: its scheduled job stores
-// an absolute path to the script, and a plugin cache path contains the plugin version
-// (.../product-rebuild-skills/0.3.5/...), so the next upgrade would silently break the
-// schedule. A path inside the workbench never moves.
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
-for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "backup.mjs", "pause-check.mjs"]) {
+for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -81,9 +77,8 @@ write("repos.yaml", `
 # Code repos consuming this workbench (fill after Gate 3).
 # Each pins the workbench as a read-only submodule at a gate-4 tag.
 # Populate as each repo is created — scripts/pause-check.mjs reads this to know which
-# repos to check for uncommitted work before a session pauses, and scripts/backup.mjs
-# reads it to know which repos to push off-machine. A repo missing from this list is
-# invisible to both: it is never checked, and never backed up. Format:
+# repos to check for uncommitted or unpushed work before a session pauses. A repo missing
+# from this list is invisible to it and never checked. Format:
 #   repos:
 #     - name: <repo-name>
 #       path: ../<repo-name>   # relative to this workbench's own root
@@ -122,7 +117,6 @@ write("package.json", JSON.stringify({
     validate: "node scripts/validate.mjs",
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
-    backup: "node scripts/backup.mjs",
     "pause-check": "node scripts/pause-check.mjs",
   },
   devDependencies: { ajv: "^8.17.0", "ajv-formats": "^3.0.0", yaml: "^2.5.0" },
@@ -130,23 +124,14 @@ write("package.json", JSON.stringify({
 
 write(".github/workflows/validate.yml", `
 name: validate-workbench
-# Snapshot branches are excluded rather than allow-listing a default branch by name:
-# scripts/backup.mjs force-pushes uncommitted work to auto-backup/<host> every time it runs,
-# and an unfiltered push trigger fires on those too — so a workbench whose validate cannot
-# pass on a hosted runner would email a failure every day the backup runs. Ignoring the
-# snapshot pattern keeps every real branch covered whatever the default branch is called.
-on:
-  push:
-    branches-ignore: ['auto-backup/**']
-    # A push trigger carrying only branch filters stops firing on tag pushes, and gate.mjs
-    # mints gate-N/vN tags that code repos consume as submodule pins — keep them validated.
-    tags: ['**']
-  pull_request:
+# Unfiltered on purpose: every branch and every tag gets validated, whatever the default
+# branch is called. Tags matter specifically — gate.mjs mints gate-N/vN tags that code repos
+# consume as submodule pins. If you ever add a \`branches\`/\`branches-ignore\` filter here,
+# add \`tags: ['**']\` alongside it: a push trigger carrying only branch filters silently
+# stops firing on tag pushes, which would leave those pins unvalidated.
+on: [push, pull_request]
 jobs:
   validate:
-    # pull_request branch filters match the *base* branch, so a PR opened from a snapshot
-    # branch would still be rebuilt by every daily force-push; skip on the head ref instead.
-    if: "!startsWith(github.head_ref, 'auto-backup/')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -166,19 +151,21 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 
 - \`npm run validate\` — schema-validate all artifacts
 - \`npm run gate -- status\` — pipeline/gate state
-- \`npm run pause-check\` — safe to stop and resume in a new session?
-- \`npm run backup -- status\` — is this project's work off-machine yet?
+- \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
+  not been pushed yet)
 - Decision history = \`git log\` on adr/, locks/, matrix/
 
-## Backup
+## Keep it off-machine
 
 This workbench is the only copy of decisions that are NOT reproducible from the reference
 product — the taxonomy, the ADRs, the gate history. Give it a remote early:
 
 \`\`\`sh
 gh repo create ${name}-workbench --private --source . --push
-npm run backup -- install     # daily + at login, this repo and every repo in repos.yaml
 \`\`\`
+
+Pushing is manual. \`npm run pause-check\` tells you when something has not left the machine;
+run it before you stop for the day.
 `);
 
 try { execSync("git init -q && git add -A && git commit -qm 'workbench: scaffold'", { cwd: root }); }
@@ -188,4 +175,3 @@ console.log(`Workbench created: ${root}`);
 console.log("Next: npm install, then fill sources.yaml and license-posture.md (G0).");
 console.log("Then give it a remote — this scaffold is currently the only copy:");
 console.log(`  gh repo create ${name}-workbench --private --source . --push`);
-console.log("  npm run backup -- install");

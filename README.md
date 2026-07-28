@@ -122,8 +122,7 @@ Ask the skill "where are we?" anytime, or run in the workbench:
 npm run gate -- status     # gate states + current phase
 npm run validate           # all artifacts against schemas + lock integrity
 npm run parity             # coverage report into parity/<date>.md
-npm run backup -- status   # is this project's work off this machine?
-npm run backup -- install  # schedule a daily push (workbench + every repo in repos.yaml)
+npm run pause-check        # safe to stop? (includes what hasn't been pushed off-machine)
 ```
 
 ## What's in this plugin
@@ -140,7 +139,6 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/validate.mjs          schema + lock-integrity validation (also runs in CI)
   scripts/parity.mjs            G6 coverage report
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
-  scripts/backup.mjs            push the workbench + code repos off-machine; schedules itself
 agents/                         miner, adr-drafter, spec-writer subagents
 hooks/                          PreToolUse guard: blocks edits to locked artifacts
 docs/PLAYBOOK.md                the full methodology
@@ -157,8 +155,9 @@ docs/PLAYBOOK.md                the full methodology
 - **Every slice ships.** Deployment is part of the definition of done — it's half the
   curriculum.
 - **The work leaves the machine.** Every repo gets a remote when it is created, private
-  unless the license posture says otherwise, and a daily push is scheduled. Months of
-  decisions that re-mining cannot reproduce should not live on one disk.
+  unless the license posture says otherwise, and the pause check tells you when something
+  still hasn't been pushed. Months of decisions that re-mining cannot reproduce should not
+  live on one disk.
 
 ## FAQ
 

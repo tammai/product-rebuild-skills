@@ -70,8 +70,8 @@ per-phase by design to keep context lean:
 distribution intent (this decides license posture — see g0 reference). Then scaffold:
 `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <project-name>`
 and walk the user through the generated `sources.yaml` and `license-posture.md`. Before
-leaving G0, give the workbench a remote and install the backup schedule (g0 reference has
-the commands) — visibility follows the posture just decided.
+leaving G0, give the workbench a remote and push it (g0 reference has the commands) —
+visibility follows the posture just decided.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
 agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, spec-writer) using the
@@ -107,8 +107,9 @@ natural stopping point (a slice just finished, a gate review just landed) — ru
 This is NOT one of the five hash-pinned gates — it locks nothing, has no PreToolUse
 enforcement, and is safe to run any number of times. It reports, across the workbench and
 every repo registered in `repos.yaml`: uncommitted/untracked git changes, work that has not
-left the machine (no remote, or commits on no remote), any gate left
-mid-decision (reopened but not re-locked), and docker-compose stacks left running. Report
+left the machine (no remote, unpushed commits including on a detached HEAD, unpushed tags,
+stash entries), any gate left mid-decision (reopened but not re-locked), and docker-compose
+stacks or host-native dev servers left running. Report
 its verdict to the user plainly. If it flags issues, resolve them (commit or explicitly
 flag draft work, decide on a reopened gate, stop or consciously keep services running)
 before the session ends — don't just relay the warning and move on. It also can't check
@@ -133,16 +134,13 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   to gate tags.
 - Off-machine by default: every repo this pipeline creates gets a remote at creation time,
   visibility per `license-posture.md` (private unless the posture is `permissive-reference`).
-  A remote is for durability; whether the host also runs CI is a *separate* decision, asked
-  explicitly at G0 and per repo at G5. For a backup-only remote, disable the host's CI — these
-  repos' workflows are written for local or self-hosted execution and fail on a hosted runner
-  (private-submodule checkout, unset secrets, gitignored paths), so leaving them enabled just
-  emails a failure on every push.
   The pipeline's output is months of decisions that re-mining cannot reproduce, so a
-  single-disk copy is a real risk, not a hypothetical one. `scripts/backup.mjs install`
-  schedules a daily push of the workbench and every repo in `repos.yaml`; uncommitted work
-  goes to an `auto-backup/<host>` branch, never to the mainline whose history gate locks
-  hash and submodule pins consume.
+  single-disk copy is a real risk, not a hypothetical one — push it, and keep pushing it.
+  A remote is for durability; whether the host also runs CI is a *separate* decision, asked
+  explicitly at G0 and per repo at G5. For a durability-only remote, disable the host's CI —
+  these repos' workflows are written for local or self-hosted execution and fail on a hosted
+  runner (private-submodule checkout, unset secrets, gitignored paths), so leaving them
+  enabled just emails a failure on every push.
 - All model-facing artifacts are English.
 
 ## Failure modes to actively prevent

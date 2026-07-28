@@ -8,18 +8,15 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 until they are:
 
 1. **Register it** in the workbench's `repos.yaml` (`name` + `path` relative to the
-   workbench root). Both `scripts/pause-check.mjs` and `scripts/backup.mjs` read this list.
-   An unregistered repo is invisible to both: never checked before a pause, never backed up.
+   workbench root). `scripts/pause-check.mjs` reads this list; an unregistered repo is
+   invisible to it and never checked before a session pauses.
 2. **Give it a remote**, visibility per `license-posture.md` — private unless the posture is
    `permissive-reference`:
    `gh repo create <repo-name> --private --source . --push`
-3. **Confirm it is covered**: `npm run backup -- status` from the workbench should list the
-   new repo as pushed. If the backup schedule was installed at G0, it picks the repo up from
-   `repos.yaml` automatically — no reinstall needed.
-4. **Decide what the remote is for, and say it out loud.** Two different things get called
+3. **Decide what the remote is for, and say it out loud.** Two different things get called
    "the repo has a remote":
-   - *Backup only* — CI runs locally or on your own infrastructure. Then **disable Actions on
-     the remote**, or every push emails you a failure:
+   - *Durability only* — CI runs locally or on your own infrastructure. Then **disable Actions
+     on the remote**, or every push emails you a failure:
      `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=false`
    - *Also running CI on the host* — then the workflow has to actually work there, which for
      this pipeline's repos it does not by default. See the trap below.
@@ -30,7 +27,7 @@ found`. That is not a missing repo and not a bad token — `GITHUB_TOKEN` is sco
 repository, so a private sibling reads as 404. Fixing it properly means a read-only deploy key
 on the workbench plus a manual `git submodule update` over SSH (which preserves the gate-tag
 pin; a second `actions/checkout` of the workbench does not). Only worth doing if CI on the host
-is actually wanted — for a backup-only remote, disabling Actions is the honest answer.
+is actually wanted — for a durability-only remote, disabling Actions is the honest answer.
 
 Two more reasons a workflow written for local execution fails on a hosted runner: it needs
 secrets that were never set there, and it reads paths that `.gitignore` keeps out of the repo
