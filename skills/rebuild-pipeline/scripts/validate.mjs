@@ -5,8 +5,9 @@
 //   1. Every findings/**.yaml against finding.schema.json (+ evidence rule)
 //   2. matrix/features.yaml against feature.schema.json
 //   3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
-//   4. locks/gate-*.yaml against lock.schema.json
-//   5. Locked-gate hash consistency: protected files must match recorded hashes
+//   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream)
+//   5. locks/gate-*.yaml against lock.schema.json
+//   6. Locked-gate hash consistency: protected files must match recorded hashes
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -24,6 +25,11 @@ const validators = {
   slice: ajv.compile(schema("slice.schema.json")),
   lock: ajv.compile(schema("lock.schema.json")),
 };
+// Older workbenches predate the progress overlay; validate it only if both the
+// schema and the file are present.
+if (existsSync(join("schemas", "progress.schema.json"))) {
+  validators.progress = ajv.compile(schema("progress.schema.json"));
+}
 
 let failures = 0;
 const fail = (file, msg) => { failures++; console.error(`FAIL ${file}\n  ${msg}`); };
@@ -48,9 +54,10 @@ for (const f of yamlFilesUnder("findings")) {
   if (f.endsWith("nfr-profile.yaml")) { ok(f + " (profile, free-form)"); continue; }
   check(f, validators.finding);
 }
-if (existsSync("matrix/features.yaml")) check("matrix/features.yaml", validators.feature);
+let features = null, slices = null;
+if (existsSync("matrix/features.yaml")) features = check("matrix/features.yaml", validators.feature);
 if (existsSync("plan/slices.yaml")) {
-  const slices = check("plan/slices.yaml", validators.slice);
+  slices = check("plan/slices.yaml", validators.slice);
   if (Array.isArray(slices)) {
     const ids = new Set(slices.map((s) => s.id));
     const visiting = new Set(), done = new Set();
@@ -68,6 +75,25 @@ if (existsSync("plan/slices.yaml")) {
     for (const s of slices) visit(s.id, []);
   }
 }
+// The mutable progress overlay. A typo'd id here would silently never match a
+// feature, so every key must resolve against the locked artifacts.
+if (validators.progress && existsSync("plan/progress.yaml")) {
+  const progress = check("plan/progress.yaml", validators.progress);
+  if (progress && typeof progress === "object") {
+    const known = (arr) => new Set(Array.isArray(arr) ? arr.map((x) => x.id) : []);
+    const featureIds = known(features), sliceIds = known(slices);
+    const crossRef = (section, ids, label) => {
+      if (!ids.size) return; // upstream artifact absent or invalid — already reported
+      for (const id of Object.keys(progress[section] || {})) {
+        if (!ids.has(id)) fail("plan/progress.yaml", `${section}: unknown ${label} ${id}`);
+      }
+    };
+    crossRef("features", featureIds, "feature");
+    crossRef("slices", sliceIds, "slice");
+    crossRef("notes", sliceIds, "slice");
+  }
+}
+
 for (const f of yamlFilesUnder("locks").filter((f) => /gate-\d\.yaml$/.test(f))) {
   const lock = check(f, validators.lock);
   if (lock?.status === "locked" && lock.artifact_hashes) {

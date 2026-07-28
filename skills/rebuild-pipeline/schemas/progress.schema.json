@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "progress.schema.json",
+  "title": "Build progress (mutable overlay over the gate-locked matrix and slice plan)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "slices": {
+      "description": "Slice id -> status. Overrides `status:` in plan/slices.yaml (gate-2).",
+      "type": "object",
+      "propertyNames": { "pattern": "^S[0-9]+$" },
+      "additionalProperties": { "enum": ["pending", "in-progress", "deployed", "done"] }
+    },
+    "features": {
+      "description": "Feature id -> status. Overrides `status:` in matrix/features.yaml (gate-1).",
+      "type": "object",
+      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+      "additionalProperties": {
+        "enum": ["planned", "covered", "partial", "missing", "upstream-candidate"]
+      }
+    },
+    "notes": {
+      "description": "Free-form per-slice remarks carried into the parity report.",
+      "type": "object",
+      "propertyNames": { "pattern": "^S[0-9]+$" },
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
