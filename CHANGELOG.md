@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-28
+
+### Fixed
+
+- **The visibility warning no longer assumes the reference is copyleft.** It read "publishing a
+  copyleft-derived rebuild is distribution", which is wrong for a proprietary reference — the
+  Linear rebuild mines a closed-source SaaS, where the objection to a public remote is terms of
+  service and trade secret, not a licence's copyleft clause. Stating the wrong mechanism
+  invites the reader to dismiss the warning as inapplicable. The text now says publishing is
+  distribution that the recorded posture does not cover, and leaves the mechanism to
+  `license-posture.md`, which is where the actual reference licence lives. Same correction in
+  `SKILL.md`'s failure-mode list and G0's visibility step.
+
 ## [0.4.1] - 2026-07-28
 
 ### Fixed

@@ -30,8 +30,10 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   npm run backup -- install      # daily + at login; picks up code repos from repos.yaml later
   ```
   **Visibility follows the posture just decided.** `private-learning` or
-  `possible-closed-distribution` → private, non-negotiable: pushing a copyleft-derived
-  rebuild to a public remote is distribution, and would need a G0 reopen. Only
+  `possible-closed-distribution` → private, non-negotiable: pushing the rebuild to a public
+  remote is distribution, which neither posture covers, and would need a G0 reopen. The
+  mechanism differs by reference — a copyleft reference makes it a licensing problem, a
+  proprietary one a terms/trade-secret problem — but the answer is private either way. Only
   `permissive-reference` leaves it open. Say this out loud when you create the repo —
   the user chose the posture minutes ago and will not connect it to a `gh` flag.
 - Confirm the user can run the reference locally (Docker preferred). This becomes a

@@ -117,8 +117,10 @@ if (existsSync("repos.yaml")) {
   }
 }
 
-// --- license posture: pushing a copyleft-derived rebuild to a public remote is the one
-// way this script can cause harm, so it says so rather than assuming the user remembers.
+// --- license posture: pushing the rebuild to a public remote is the one way this script can
+// cause harm, so it says so rather than assuming the user remembers. Deliberately does not
+// name the mechanism — a copyleft reference makes publishing a licensing problem, a
+// proprietary one makes it a terms/trade-secret problem, and the answer is private either way.
 const posture = () => {
   if (!existsSync("license-posture.md")) return null;
   const t = readFileSync("license-posture.md", "utf8");
@@ -136,8 +138,8 @@ const visibilityAdvice = () => {
     return "license-posture.md records `permissive-reference`, so visibility is your call.";
   }
   if (p) {
-    return `license-posture.md records \`${p}\` — create remotes **private**. Publishing a ` +
-      "copyleft-derived rebuild is distribution, and needs a G0 reopen first.";
+    return `license-posture.md records \`${p}\` — create remotes **private**. Publishing the ` +
+      "rebuild is distribution, which that posture does not cover; it needs a G0 reopen first.";
   }
   return "license-posture.md has no recorded distribution intent yet — default to **private** remotes.";
 };

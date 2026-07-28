@@ -154,5 +154,7 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   acting on what it flags.
 - Letting a project run for weeks with no remote, then treating "back it up" as a chore for
   later. The cost of the loss grows every phase; the fix takes one command at G0.
-- Creating a public remote for a copyleft-derived rebuild. That is distribution, whatever
-  the intent — it needs a G0 reopen first, not a `--public` flag.
+- Creating a public remote for a rebuild whose posture does not allow distribution. Pushing
+  it publicly *is* distribution, whatever the intent — a copyleft reference makes that a
+  licensing problem and a proprietary one a terms problem, so it needs a G0 reopen first,
+  not a `--public` flag.
