@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-07-28
+
+### Fixed
+
+- **The scaffolded workbench's `validate.yml` no longer fires on backup snapshot branches.** It
+  shipped with `on: [push, pull_request]`, and `backup.mjs` force-pushes uncommitted work to
+  `auto-backup/<host>` on every run — so an unfiltered push trigger fires on the snapshot too,
+  and a workbench whose validate cannot pass on a hosted runner emails a failure *every day the
+  backup runs*. This is the exact interaction v0.4.3 documented for the code repos; the scaffold
+  it generates had the same shape and was missed, because v0.4.3 fixed the advice without
+  fixing the template.
+
+  Excluded via `branches-ignore: ['auto-backup/**']` rather than allow-listing `main`. A
+  snapshot branch is the only trigger worth suppressing — allow-listing a branch name would
+  also stop CI on feature branches, and would silently cover nothing at all in a workbench whose
+  default branch is not called `main`. Named from `SNAPSHOT_BRANCH` in `backup.mjs`, so the two
+  stay in step, with a regression test asserting the generated workflow keeps excluding it.
+
 ## [0.4.6] - 2026-07-28
 
 ### Removed

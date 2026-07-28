@@ -130,7 +130,15 @@ write("package.json", JSON.stringify({
 
 write(".github/workflows/validate.yml", `
 name: validate-workbench
-on: [push, pull_request]
+# Snapshot branches are excluded rather than allow-listing a default branch by name:
+# scripts/backup.mjs force-pushes uncommitted work to auto-backup/<host> every time it runs,
+# and an unfiltered push trigger fires on those too — so a workbench whose validate cannot
+# pass on a hosted runner would email a failure every day the backup runs. Ignoring the
+# snapshot pattern keeps every real branch covered whatever the default branch is called.
+on:
+  push:
+    branches-ignore: ['auto-backup/**']
+  pull_request:
 jobs:
   validate:
     runs-on: ubuntu-latest

@@ -696,6 +696,21 @@ t("scaffold contains every directory and file the pipeline expects", () => {
   }
 });
 
+t("the generated workflow does not fire on backup snapshot branches", () => {
+  const w = workbench();
+  const text = readFileSync(join(w, ".github/workflows/validate.yml"), "utf8");
+  const doc = parseYaml(text);
+  // YAML 1.1 reads a bare `on` key as boolean true; the 1.2 core schema keeps it a string.
+  const on = doc.on ?? doc[true];
+  if (!on?.push) throw new Error(`no push trigger found in:\n${text}`);
+  const ignored = on.push["branches-ignore"] || [];
+  if (!ignored.some((p) => String(p).startsWith("auto-backup"))) {
+    throw new Error("the push trigger does not exclude auto-backup/<host>, which backup.mjs " +
+      `force-pushes on every run: ${JSON.stringify(on.push)}`);
+  }
+  has(text, "npm run validate", "still runs the validator");
+});
+
 t("scaffold is a git repo with the initial commit already made", () => {
   const w = workbench();
   eq(git(w, ["rev-parse", "--is-inside-work-tree"]), "true", "is a repo");
