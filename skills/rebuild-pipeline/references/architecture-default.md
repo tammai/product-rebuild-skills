@@ -292,6 +292,7 @@ Same principle as section 4.2, applied to the frontend:
 
 - Feature A does **not** import feature B's components/composables/hooks directly (e.g. `projects` importing `billing`'s `InvoiceRow` component). Reuse goes through `shared/` — the generated `api-client` and anything deliberately promoted to a shared UI-primitives folder.
 - A feature's `composables/` (Nuxt) or `hooks/` (Next) that call the API are private to that feature. If a second feature needs the same call, either it gets its own thin composable/hook around the shared `api-client`, or the logic gets promoted to `shared/` — it never gets imported cross-feature directly.
+- **Those composables/hooks are the only way feature code reaches the API.** They wrap the data-fetching library (Pinia Colada `useQuery`/`useMutation`, TanStack Query) over `api-client`; components and pages consume them and never call `$fetch` or an HTTP client themselves. See §6.1 for why, and for the lint rule that holds it.
 - No feature reaches into another feature's local state store directly. If two features keep needing each other's state, that's the same signal as Conway's Law in section 14 — the boundary is drawn in the wrong place, not a reason to add a cross-import.
 - **The route layer is the one sanctioned exception**, the same way `analytics` is section 4.2's one sanctioned cross-schema reader. `app/pages/` (Nuxt) / `src/app/` (Next) may import from any feature, because composing several features onto one screen is its entire job — a work-package list legitimately needs teams, members, and labels. Keep those files thin: data wiring and layout only, no feature logic, and no re-export that would let feature A reach feature B *through* a route file. Without this exception the rule above has no escape valve and gets satisfied by dumping everything into `shared/`, which is the same as having no boundary.
 
@@ -357,6 +358,48 @@ export default withNuxt(...features.map((feature) => {
 - One team/module owns one feature folder, reducing code conflicts when multiple teams work in parallel.
 - The default is Nuxt; reach for Next.js only when there's a specific reason (existing React team, a library only available in the React ecosystem, etc.) — everything above applies to either.
 
+### 5.5 The Presentation Layer
+
+**Default: `@nuxt/ui` (Nuxt UI v4, MIT) on Tailwind CSS. Scaffold it in from the first commit — do not hand-roll a component layer.**
+
+```bash
+npm create nuxt@latest -- --template ui     # or the short form: -t ui
+```
+
+The `ui` template is the officially maintained Nuxt UI starter, so this costs one flag at init and nothing thereafter. Adopt it at the first commit: retrofitting a component library onto screens that already exist is a migration, and migrations get deferred.
+
+**This playbook is making the call, not recording an existing one.** Nuxt UI is not installed by a bare `nuxt` init, so nothing decides this for you — and the failure mode of leaving it undecided is not "no library", it is a hand-rolled component layer that accretes screen by screen until replacing it is a project. §5.1's `components/ ← shared UI primitives only` left a slot with no stated origin; this fills it.
+
+**Reference layouts: <https://github.com/nuxt-ui-templates>.** Before laying out a shell by hand, start from the template whose shape matches the product:
+
+| Template | Shape |
+|---|---|
+| `dashboard` | admin-style multi-column shell — the usual fit for an authenticated app area |
+| `saas` | public landing/pricing/blog/docs **+** a private `/dashboard` behind `nuxt-auth-utils` |
+| `landing` | marketing landing page |
+| `docs` | documentation site |
+| `editor` | Notion-like WYSIWYG editor |
+| `chat` | AI chat surface (Vercel AI SDK) |
+| `portfolio` | portfolio/blog |
+| `changelog` | GitHub-releases-powered changelog |
+
+Read these as **layout references, not architecture**. They are standalone Nuxt apps and know nothing of this playbook: none of them ships §5.1's `features/` structure, and none has a BFF. Take the shell, the navigation pattern and the component composition — then impose §5.1–5.3's boundaries and section 7's BFF on top. A template cloned and left as-is gives you a good-looking app with none of this playbook's structure, which is the one way to use them badly.
+
+**Why a library and not bespoke components** — the argument is about what CI can see, not about velocity:
+
+- **A template↔stylesheet reference is unverifiable by any tool in the standard chain.** ESLint parses templates but knows nothing of CSS; `vue-tsc` type-checks props, not class names; axe tests the rendered result and cannot know a class was *meant* to do something. So `class="button button--danger"` against a stylesheet that never defines `button--danger` renders a destructive action as an ordinary button, in a green build, indefinitely. Reviewed in one real project: **nine** such classes, including that exact case and a `.dialog` with no definition at all.
+- **Overlay and focus behaviour cannot be expressed in markup, and the failure is silent to AT.** `role="dialog" aria-modal="true"` is a *promise* that the background is unavailable. Honouring it needs a focus trap, focus restore, Escape, scroll lock, a portal, and background `inert` — none of which is markup, and none of which axe's WCAG rules can detect the absence of. A hand-rolled `div` with those two attributes and none of that behaviour actively misinforms a screen-reader user. `UModal` (Reka UI underneath) supplies the primitives; hand-written CSS structurally cannot.
+- **Theming is the thing you actually want to own.** A library is not a constraint on visual identity — `app.config.ts` and Tailwind tokens are where brand lives, and that file is small, reviewable, and yours.
+
+**What this does *not* dictate:**
+
+- **Not a licence to skip §5.1–5.3.** `U*` components auto-import from `node_modules` and produce no `features/*` specifier, so §5.3's `no-restricted-imports` rule never sees them — the feature boundary is unaffected and still has to be set up and watched to fail.
+- **Not a source of truth for validation.** §5.4's optimistic-UI-only rule still holds. `UForm`'s schema validation is a UX affordance; the backend remains the authority.
+- **Not a substitute for a server-driven affordance contract.** If the API tells the client what a user may do, render from that. A component library makes hardcoded option lists *ergonomic* (`:items="['editor', 'author']"`), which is the same anti-pattern as gating UI on role slugs — now one keystroke away. Section 7's authorization rules are unchanged.
+- **Not icons-by-network.** `@nuxt/icon` arrives transitively and falls back to the Iconify HTTP API when no local collection is installed. Install the collection you use (e.g. `@iconify-json/lucide`) so the server makes no third-party call at render time.
+
+**When to hand-roll instead:** a product whose entire surface is a handful of screens with no dialogs, no async state and no forms; or a design system already committed to elsewhere in the org. "Our design is too custom" is not one of the cases — that is what the theme layer is for.
+
 ---
 
 ## 6. Shared Contract: OpenAPI as the Source of Truth
@@ -367,7 +410,15 @@ export default withNuxt(...features.map((feature) => {
    - Go (default, **spec-first**): `api/openapi.yaml` is hand-authored as the contract, with every operation tagged by module; per-module `oapi-codegen` configs (`include-tags`) generate each module's chi-compatible server interface and types (wiring in section 4.1). Handlers implement the generated interface — change the spec and the code stops compiling until handlers catch up. *Structural* drift is impossible by construction; value-level correctness (a field of the right type carrying the wrong value) is what section 11's contract tests cover.
    - **Author the spec as OpenAPI 3.0.x**, not 3.1 — `oapi-codegen`'s 3.1 support is not yet dependable, while every consumer here handles 3.0 perfectly. Revisit only by pinning and verifying a codegen version with proven 3.1 support.
    - Fastify (alternate, **code-first**): TypeBox schemas on each route (also used for runtime request/response validation) via `@fastify/type-provider-typebox`, exported through `@fastify/swagger` — the same schema object is both the validator and the spec source, so this step is close to free.
-2. **Generate frontend types**: `openapi-typescript` generates the TS types from the published spec file (`openapi.yaml` for the Go default, `openapi.json` for the Fastify alternate — same tool, either format); `openapi-fetch` is the thin typed client built on those types — this pairing is the base layer only, not the query layer itself. It gets wrapped by the actual data-fetching/cache library (Pinia Colada for Nuxt, TanStack Query for Next) inside each feature's `composables/`/`hooks/` (section 5.1), which is where caching, retries, and invalidation actually live. `orval` is deliberately not used here — its main value-add is generating query hooks/composables directly, which would duplicate or conflict with a dedicated Pinia Colada/TanStack Query composable layer rather than add to it.
+2. **Generate frontend types**: `openapi-typescript` generates the TS types from the published spec file (`openapi.yaml` for the Go default, `openapi.json` for the Fastify alternate — same tool, either format). **The transport is the framework's own client — Nuxt's `$fetch` (ofetch); do not add an HTTP library for the sake of it.** `$fetch` already handles SSR-vs-browser base resolution, so a third-party client buys nothing there.
+
+   What the generated types *must* keep buying is **call-site enforcement**: a request whose path, params, body or response shape has drifted from the spec should fail `vue-tsc`, not fail in production. Bare `$fetch<T>` does not give you that — the `T` is an assertion you write by hand, so a drifted call type-checks against whatever you claimed. Close the gap with a thin typed wrapper over `$fetch` in `api-client/`, keyed on the generated `paths` type, so the path string and its params/body/response are inferred rather than asserted. That file is generated-or-mechanical and is the one place `$fetch` is called directly.
+
+   Either way this is the base layer only, not the query layer. If you do reach for a typed client library (`openapi-fetch` is the usual one), treat it as an implementation detail of `api-client/` — nothing outside that folder should know which it is.
+
+   **Hard rule: feature code never calls `$fetch` (or any client) directly. It consumes the query layer.** Two layers, and only two: `api-client/` owns transport and types; each feature's `composables/`/`hooks/` wrap it in the data-fetching library — **Pinia Colada `useQuery`/`useMutation` for Nuxt**, TanStack Query for Next — and components consume *those*. That layer is where caching, retries, invalidation and optimistic updates live, so a raw `$fetch` in a component or a page is not a shortcut, it is a request with no cache entry, no shared in-flight dedupe, no invalidation on mutation and no loading/error state the rest of the app can see. A mutation in particular must go through `useMutation`, because that is what knows which queries to invalidate afterwards; a component that writes with `$fetch` leaves every reader showing stale data until something else happens to refetch.
+
+   This is cheap to enforce and worth enforcing: `$fetch` appearing anywhere under `app/features/**` or `app/pages/**` is a lint error, with `api-client/` the only exception. Same `no-restricted-*` mechanism as §5.3, one more rule. `orval` is deliberately not used here — its main value-add is generating query hooks/composables directly, which would duplicate or conflict with a dedicated Pinia Colada/TanStack Query composable layer rather than add to it.
 3. No one hand-writes API types on the frontend — everything is generated from the published spec.
 
 ### 6.2 CI Enforcement of Sync (the step most often skipped)
@@ -407,7 +458,7 @@ Shared components that change rarely and don't belong to any single module:
 The meta-framework's server runtime (Nitro for Nuxt, Route Handlers/middleware for Next) acts as a backend-for-frontend, and the JWT never reaches browser JavaScript:
 
 - Nuxt (default): `nuxt-auth-utils` — the session is sealed (encrypted) inside an httpOnly cookie; only the Nuxt server can unseal it. Next (alternate): Auth.js or `iron-session`, same shape.
-- **The BFF data path is one catch-all proxy route**, not per-endpoint server routes: `server/api/backend/[...path].ts` unseals the session, attaches `Authorization: Bearer <jwt>`, and forwards to the backend API. The generated `openapi-fetch` client's `baseURL` is `/api/backend`, so feature composables work unchanged in the browser and during SSR. Hand-writing a server route per endpoint is banned — it recreates the hand-written API surface section 6 exists to eliminate.
+- **The BFF data path is one catch-all proxy route**, not per-endpoint server routes: `server/api/backend/[...path].ts` unseals the session, attaches `Authorization: Bearer <jwt>`, and forwards to the backend API. The `api-client/` layer's base URL is `/api/backend`, so feature composables work unchanged in the browser and during SSR — `$fetch` resolves that relative path correctly in both, which is the reason the same composable needs no environment branch. Hand-writing a server route per endpoint is banned — it recreates the hand-written API surface section 6 exists to eliminate.
 - **Cookie size is a hard limit (4096 bytes), so respect it by design:** keep JWT claims minimal — user ID and role IDs only, never the expanded permission list (the backend resolves roles→permissions per request via the shared kernel). If the sealed payload (access + refresh token) ever approaches the limit, switch to a server-side session store (Redis) keyed by a small ID in the sealed cookie — don't fight the limit with truncation tricks.
 - Refresh-token rotation happens server-side in the BFF and the cookie gets resealed — the browser never participates and never holds a refresh token.
 - Cookie-carried auth requires `SameSite=Lax` (or Strict) plus CSRF protection on state-changing routes — the httpOnly cookie removes XSS token theft, not CSRF. Concrete mechanism: a small BFF middleware that verifies the `Origin` (or `Sec-Fetch-Site`) header on every non-GET request — dependency-free and sufficient for a same-origin app.
@@ -590,11 +641,14 @@ Sections 1–15 apply unchanged regardless of which stack is chosen. For the act
 - [ ] Confirm there's a real API-first driver (decoupled backend/frontend releases, or a second client on the roadmap) — not just "might need it later"
 - [ ] Repo setup decided: polyrepo (default) unless the monorepo alternate is justified — with the OpenAPI publish/pin mechanism in place if polyrepo
 - [ ] Set up module boundaries from the start: `internal/` (Go) or a boundary-lint rule (Fastify), enforced in CI
+- [ ] Presentation layer scaffolded in, not deferred: `@nuxt/ui` from the first commit (`npm create nuxt@latest -- --template ui`), with a reference layout picked from `github.com/nuxt-ui-templates` where one fits (section 5.5) — hand-rolling a component layer is a decision that has to be justified, not the path of least resistance
+- [ ] Icon collection installed locally (e.g. `@iconify-json/lucide`) so `@nuxt/icon` never falls back to the Iconify HTTP API at render time (section 5.5)
 - [ ] Frontend feature boundaries enforced: core ESLint `no-restricted-imports` per feature folder in CI (no plugin, no resolver — section 5.3), route layer as the only cross-feature importer — not assumed automatic just because it's the frontend
 - [ ] That rule **watched to fail once** on a deliberate cross-feature import *and* on a lazy `import()` of one, then watched **not** to fire on own-feature, nested-relative, `shared/`, and `app/pages/` imports (section 5.3)
 - [ ] Business logic 100% in the `application/` layer, handlers/controllers are a thin layer only
 - [ ] Spec↔code bound by generation: spec-first via per-module oapi-codegen (Go, OpenAPI 3.0.x) or code-first via TypeBox export (Fastify) — CI diff-checks enforce it
 - [ ] CI has a diff-check step between the spec and generated frontend types
+- [ ] Data layer is Pinia Colada `useQuery`/`useMutation` (or TanStack Query) over `api-client/`, with a lint rule banning `$fetch`/HTTP-client calls under `features/**` and `pages/**` — watched to fail once (section 6.1)
 - [ ] API versioning by path ready starting from v1
 - [ ] Auth flow per section 7: login/refresh/revocation endpoints, argon2id, short access TTL, BFF catch-all proxy — implemented once, not per feature
 - [ ] ID strategy (UUIDv7/ULID), audit columns incl. `version`, and migration tooling decided before the first table is created

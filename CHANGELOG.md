@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-07-29
+
+The playbook specified the frontend's data layer down to the package — Pinia Colada,
+`openapi-typescript`, Vitest, Playwright — and said nothing whatsoever about presentation. Not a
+component library, not a CSS framework, not styling, theming or icons: a grep of all 611 lines for
+`tailwind|css|component librar|design system|shadcn|vuetify|primevue|headless ui` returned nothing
+relevant. §5.1's directory tree even reserved a slot (`components/ ← shared UI primitives only`)
+without ever saying where those primitives come from.
+
+The failure mode of that silence is not "no library". It is a hand-rolled component layer that
+accretes screen by screen, and it was found in a live project with receipts: **nine class names
+referenced in `.vue` templates with zero definitions in the only stylesheet**, including
+`button--danger` on a destructive confirm button — which therefore rendered as an ordinary primary
+button — and `.dialog`, so the delete "modal" had no overlay or positioning at all. Nothing in the
+standard chain can catch that: ESLint parses templates but not CSS, `vue-tsc` checks props but not
+class names, and axe tests the rendered result without knowing a class was *meant* to do something.
+Worse, that same component carried `role="dialog" aria-modal="true"` with no focus trap, no focus
+restore, no Escape, no scroll lock and no background `inert` — a promise to assistive tech that the
+background is unavailable, when it wasn't, and one axe's WCAG rules cannot detect the absence of.
+
+### Added
+
+- **§5.5 The Presentation Layer** — `@nuxt/ui` v4 (MIT) on Tailwind as the default, scaffolded at
+  the first commit via `npm create nuxt@latest -- --template ui`, on the grounds above: the
+  argument is about what CI can see, not about velocity or a11y marketing. Includes
+  <https://github.com/nuxt-ui-templates> as reference layouts, with the eight starters tabled and
+  an explicit warning to read them as layout references only — they are standalone apps with no
+  `features/` structure and no BFF, so §5.1–5.3 and section 7 still have to be imposed on top.
+  Also states what the default does *not* dictate: it is not a licence to skip the feature-boundary
+  lint (`U*` components auto-import from `node_modules` and produce no `features/*` specifier, so
+  §5.3's rule never sees them), not a source of truth for validation, not a substitute for a
+  server-driven affordance contract (`:items="[...]"` makes hardcoded option lists ergonomic, which
+  is the role-slug anti-pattern one keystroke away), and not icons-by-network (`@nuxt/icon` falls
+  back to the Iconify HTTP API unless a collection is installed locally).
+- Two §17 checklist items: scaffold the presentation layer rather than deferring it, and install an
+  icon collection locally.
+
+### Changed
+
+- **§6.1 now names the framework's own client as the transport.** Nuxt ships `$fetch` (ofetch) and
+  it already resolves SSR-vs-browser bases, so a third-party HTTP library buys nothing there and is
+  no longer presented as part of the default pairing. What the generated types must keep buying is
+  **call-site enforcement**, and this is the part worth being precise about: bare `$fetch<T>` does
+  not provide it, because `T` is an assertion the caller writes, so a request that has drifted from
+  the spec still type-checks against whatever was claimed. §6.1 therefore calls for a thin typed
+  wrapper in `api-client/` keyed on the generated `paths` type — inference, not assertion — and
+  relegates typed-client libraries (`openapi-fetch` among them) to an implementation detail of that
+  folder that nothing outside it should know about.
+- **§6.1 also states the two-layer rule as a hard rule, and §5.2 carries it as a boundary rule:**
+  feature code never calls `$fetch` (or any client) directly — `api-client/` owns transport and
+  types, each feature's composables wrap it in **Pinia Colada `useQuery`/`useMutation`** (TanStack
+  Query for Next), and components consume those. Making the transport the framework's own client
+  makes this rule *more* necessary, not less: `$fetch` is globally available and auto-imported, so
+  the wrong thing is now the easiest thing to type. A raw `$fetch` in a component is a request with
+  no cache entry, no in-flight dedupe, no invalidation and no shared loading/error state — and a
+  raw write is worse, since `useMutation` is what knows which queries to invalidate, so every
+  reader shows stale data until something else refetches. Enforced the same way as §5.3: `$fetch`
+  under `features/**` or `pages/**` is a lint error with `api-client/` the only exception, plus a
+  §17 checklist item to watch it fail once.
+- **§7's BFF passage** no longer names a specific client when describing the `/api/backend` base
+  URL, and now says why one base works for both browser and SSR: `$fetch` resolves the relative
+  path in either, which is what removes the environment branch from feature composables.
+
 ## [0.6.5] - 2026-07-29
 
 `contracts/` was the one thing this pipeline never validated, and it is the one thing G5 generates
