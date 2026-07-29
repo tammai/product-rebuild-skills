@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-07-29
+
+`contracts/` was the one thing this pipeline never validated, and it is the one thing G5 generates
+code from. `validate.mjs` covered findings, matrix, slices, progress and lock integrity — every
+artifact except the three the whole build reads. So the first check on an OpenAPI document was a
+human reading a diff, and the second was `oapi-codegen` failing in a code repo, by which point the
+gate was locked, the tag was cut, and the submodule pins were updated. The gap was found in a live
+project mid-reopen, when the orchestrator went looking for the command that would check a contract
+it had just had three agents write and discovered there wasn't one.
+
+`npm run validate` now parses every `contracts/**.yaml`, rejects duplicate keys, and resolves
+**every `$ref`**, cross-file ones included. A dangling pointer is invisible to a YAML parse and
+survives review comfortably — it is a string that looks like every other string — so this is the
+check that earns its place. For OpenAPI documents it also checks `operationId` presence and
+uniqueness, that every operation declares responses, and that every referenced security scheme is
+actually declared in `components.securitySchemes`.
+
+Deliberately **not** a full OpenAPI/AsyncAPI validator: that needs a real dependency, and the
+plugin ships none by design. The docs say so in all four places that describe `validate`, because
+a check that is trusted for more than it does is worse than no check — the same reason
+`g5-build.md` forbids a verification script from printing a banner over criteria it skipped.
+`g4b-contracts.md` also now states plainly that passing this does not substitute for the callee
+check, which no script can perform.
+
+Proven against a fixture before being written down, not after: a document carrying a dangling
+`$ref`, a duplicate `operationId`, an operation with no responses, an operation with no
+`operationId`, and a reference to an undeclared security scheme. All five were reported; the real
+contracts of the project it was built for still pass.
+
 ## [0.6.4] - 2026-07-28
 
 State detection was lying. `gate.mjs status` derives the current phase from the first unlocked

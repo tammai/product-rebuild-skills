@@ -19,6 +19,16 @@ only, never shared tables.
 All three CI-validated. Everything in G5 must trace to contract elements; anything not
 in a contract does not exist.
 
+**What `npm run validate` does and does not cover** (from 0.6.5): it parses every
+`contracts/**.yaml`, rejects duplicate keys, and resolves **every `$ref`** — including
+cross-file ones — so a pointer at nothing fails here rather than as a codegen error in a
+code repo after the gate is locked and the tag is pinned. For OpenAPI documents it also
+checks `operationId` presence and uniqueness, that every operation declares responses, and
+that every referenced security scheme is declared. It is **not** a full OpenAPI/AsyncAPI
+validator (that needs a dependency the plugin does not ship): passing it means the contract
+is not broken in the ways that travel silently downstream, **not** that it is semantically
+right. Nothing here substitutes for the callee check below, which no script can do.
+
 ## The callee check — run before every Gate 4 lock, including reopens
 
 Ask, per module the slice touches: **which other modules does it CALL, and does each

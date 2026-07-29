@@ -92,7 +92,10 @@ slice, or run parity), present the concrete options rather than guessing.
 Gates are human decisions. When a phase's exit criteria are met:
 
 1. Run `node scripts/validate.mjs` from the workbench root — all artifacts must pass schema
-   validation first.
+   validation first. From 0.6.5 this also structurally checks `contracts/`: YAML validity,
+   duplicate keys, and every `$ref` resolving. It is NOT a full OpenAPI/AsyncAPI validator —
+   passing it does not mean the spec is semantically correct, only that it is not broken in
+   the ways that silently reach a code repo.
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, and what becomes immutable afterward.
 3. Only after explicit user approval, run `node scripts/gate.mjs lock <gate-id>`.

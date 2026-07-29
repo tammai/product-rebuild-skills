@@ -120,7 +120,7 @@ Ask the skill "where are we?" anytime, or run in the workbench:
 
 ```bash
 npm run gate -- status     # gate states + current phase
-npm run validate           # all artifacts against schemas + lock integrity
+npm run validate           # artifacts vs schemas, contract $refs, lock integrity
 npm run parity             # coverage report into parity/<date>.md
 npm run pause-check        # safe to stop? (includes what hasn't been pushed off-machine)
 ```
@@ -136,7 +136,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   schemas/*.schema.json         finding / feature / slice / lock schemas
   scripts/rebuild-init.mjs      workbench scaffolder
   scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
-  scripts/validate.mjs          schema + lock-integrity validation (also runs in CI)
+  scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
   scripts/parity.mjs            G6 coverage report
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
 agents/                         miner, adr-drafter, spec-writer subagents

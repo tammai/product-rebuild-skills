@@ -149,7 +149,8 @@ write("README.md", `
 Pipeline state store for the ${name} rebuild. Describes the product; never contains
 product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills plugin).
 
-- \`npm run validate\` — schema-validate all artifacts
+- \`npm run validate\` — schema-validate all artifacts, and structurally check
+  \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving)
 - \`npm run gate -- status\` — pipeline/gate state
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)

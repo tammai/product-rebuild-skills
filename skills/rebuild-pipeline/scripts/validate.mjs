@@ -7,15 +7,19 @@
 //   2. matrix/features.yaml against feature.schema.json
 //   3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
 //   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream)
-//   5. locks/gate-*.yaml against lock.schema.json
-//   6. Locked-gate hash consistency: protected files must match recorded hashes
+//   5. contracts/**.yaml structural checks — YAML validity, duplicate keys, and every
+//      $ref resolving. G5 generates code from these; nothing else in this pipeline
+//      checked them, so a dangling $ref first surfaced as a codegen failure in a code
+//      repo, one gate lock too late.
+//   6. locks/gate-*.yaml against lock.schema.json
+//   7. Locked-gate hash consistency: protected files must match recorded hashes
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { join, dirname, resolve as resolvePath } from "node:path";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 
 const ajv = new Ajv({ allErrors: true });
 addFormats(ajv);
@@ -93,6 +97,117 @@ if (validators.progress && existsSync("plan/progress.yaml")) {
     crossRef("slices", sliceIds, "slice");
     crossRef("notes", sliceIds, "slice");
   }
+}
+
+// ---------------------------------------------------------------------------
+// contracts/ — the artifacts G5 generates code from.
+//
+// Deliberately NOT a full OpenAPI/AsyncAPI spec validator: that needs a real
+// dependency, and the plugin ships none. What it does check is the class of
+// defect that actually costs a slice — a $ref pointing at nothing. That is
+// invisible to a YAML parse, invisible to review, and shows up as a codegen
+// error in a code repo after the gate is locked and the tag is pinned.
+// ---------------------------------------------------------------------------
+const contractDocs = new Map(); // path -> parsed doc, so cross-file refs parse once
+const loadContract = (file) => {
+  if (contractDocs.has(file)) return contractDocs.get(file);
+  let doc = null;
+  try { doc = parse(readFileSync(file, "utf8")); } catch { /* reported by its own pass */ }
+  contractDocs.set(file, doc);
+  return doc;
+};
+// RFC 6901, plus the two escapes everyone forgets.
+const resolvePointer = (doc, pointer) => {
+  if (pointer === "" || pointer === "/") return doc;
+  let node = doc;
+  for (const rawSeg of pointer.replace(/^\//, "").split("/")) {
+    const seg = rawSeg.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (node == null || typeof node !== "object") return undefined;
+    node = Array.isArray(node) ? node[Number(seg)] : node[seg];
+    if (node === undefined) return undefined;
+  }
+  return node;
+};
+const walkRefs = (node, out, path = "") => {
+  if (node == null || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    node.forEach((v, i) => walkRefs(v, out, `${path}/${i}`));
+    return out;
+  }
+  for (const [k, v] of Object.entries(node)) {
+    if (k === "$ref" && typeof v === "string") out.push({ ref: v, at: path || "/" });
+    else walkRefs(v, out, `${path}/${k}`);
+  }
+  return out;
+};
+
+for (const file of yamlFilesUnder("contracts")) {
+  // parseDocument rather than parse: it surfaces duplicate keys, which a plain
+  // parse silently resolves last-wins. Two operations sharing a path key, or a
+  // schema defined twice, is exactly the merge accident this catches.
+  let docNode;
+  try { docNode = parseDocument(readFileSync(file, "utf8"), { uniqueKeys: true }); }
+  catch (e) { fail(file, `YAML parse error: ${e.message}`); continue; }
+  if (docNode.errors?.length) {
+    fail(file, docNode.errors.map((e) => e.message).join("\n  "));
+    continue;
+  }
+  const dupes = (docNode.warnings || []).filter((w) => /duplicate/i.test(w.message));
+  if (dupes.length) { fail(file, dupes.map((w) => w.message).join("\n  ")); continue; }
+
+  const doc = docNode.toJS();
+  if (doc == null || typeof doc !== "object") { ok(file + " (empty)"); continue; }
+  contractDocs.set(file, doc);
+
+  const problems = [];
+  for (const { ref, at } of walkRefs(doc, [])) {
+    const [target, pointer = ""] = ref.split("#");
+    if (ref.startsWith("http://") || ref.startsWith("https://")) continue; // remote: not ours to resolve
+    if (target === "") {
+      if (resolvePointer(doc, pointer) === undefined) problems.push(`dangling $ref at ${at}: ${ref}`);
+      continue;
+    }
+    const other = resolvePath(dirname(file), target);
+    if (!existsSync(other)) { problems.push(`$ref at ${at} points at a missing file: ${ref}`); continue; }
+    const otherDoc = loadContract(other);
+    if (otherDoc == null) { problems.push(`$ref at ${at} targets an unparseable file: ${ref}`); continue; }
+    if (pointer && resolvePointer(otherDoc, pointer) === undefined) {
+      problems.push(`dangling cross-file $ref at ${at}: ${ref}`);
+    }
+  }
+
+  // Kind-specific checks, only where the document declares its kind. A contract
+  // file that is neither (the data-model prose files are .md, but be tolerant)
+  // still gets the YAML + $ref pass above, which is the valuable part.
+  if (typeof doc.openapi === "string") {
+    if (!/^3\./.test(doc.openapi)) problems.push(`unexpected OpenAPI version: ${doc.openapi}`);
+    const declared = new Set(Object.keys(doc.components?.securitySchemes || {}));
+    const seenOpIds = new Map();
+    const METHODS = ["get", "put", "post", "delete", "patch", "options", "head", "trace"];
+    for (const [p, item] of Object.entries(doc.paths || {})) {
+      if (item == null || typeof item !== "object") continue;
+      for (const m of METHODS) {
+        const op = item[m];
+        if (!op || typeof op !== "object") continue;
+        const where = `${m.toUpperCase()} ${p}`;
+        if (!op.operationId) problems.push(`${where}: missing operationId`);
+        else if (seenOpIds.has(op.operationId)) {
+          problems.push(`duplicate operationId "${op.operationId}" (${seenOpIds.get(op.operationId)} and ${where})`);
+        } else seenOpIds.set(op.operationId, where);
+        if (!op.responses || !Object.keys(op.responses).length) problems.push(`${where}: no responses declared`);
+        for (const req of [...(op.security || []), ...(doc.security || [])]) {
+          for (const name of Object.keys(req || {})) {
+            if (!declared.has(name)) problems.push(`${where}: security scheme "${name}" is not in components.securitySchemes`);
+          }
+        }
+      }
+    }
+  } else if (typeof doc.asyncapi === "string") {
+    if (!Object.keys(doc.channels || {}).length) problems.push("asyncapi document declares no channels");
+  }
+
+  if (problems.length) fail(file, problems.join("\n  "));
+  else ok(file);
 }
 
 for (const f of yamlFilesUnder("locks").filter((f) => /gate-\d\.yaml$/.test(f))) {
