@@ -89,7 +89,7 @@ Record the decision as `license-posture.md` with the chosen mode and its consequ
 
 Mine the reference codebase for deterministic facts:
 
-- **Data model:** migrations / schema files → entities, relationships, constraints, tenancy columns
+- **Data model:** migrations / schema files → entities, relationships, constraints, tenancy columns. Transcribed as one Mermaid `erDiagram` at `findings/ground-truth/reference-erd.mermaid` — descriptive ground truth, scoped to the feature matrix, deliberately **not** gate-locked so G6 re-mining can update it. The rebuild's own model is a different artifact (§7.1).
 - **API surface:** route definitions, OpenAPI/GraphQL schemas, serializers
 - **Permission matrix:** roles, policies, guards — extracted as a features × roles table
 - **Background processing:** job classes, queues, schedules
@@ -268,9 +268,11 @@ Locks the applicability-check outcome, context map, decomposition, all cross-cut
 
 **Goal:** the interfaces that make G5 fan-out safe. Order: **data model first** (Gate 3 decided where data lives; this decides what it is), then three contract layers.
 
-### 7.1 Data model
+### 7.1 Data model → `contracts/data-model/<context>.mermaid`
 
-Per context: entities, ownership, relationships, source-of-truth assignment. The reference's schema (lane D) is the starting draft; every deliberate deviation from it is annotated (it will matter when reading reference behavior later). Cross-context references via IDs, never shared tables.
+One Mermaid `erDiagram` per bounded context. Per context: entities, ownership, relationships, source-of-truth assignment. The reference's ERD (lane D, §3.1) is the starting draft; every deliberate deviation from it is annotated inline (it will matter when reading reference behavior later), and a *structural* deviation needed an ADR back at Gate 3. Cross-context references via IDs, never shared tables.
+
+Mermaid because it diffs, renders in review, and states cardinality in notation rather than in a sentence someone has to interpret. Tooling requires each diagram to declare at least one entity, and refuses to lock Gate 4 while no diagram exists — a header-only stub is not a data model. What tooling cannot check is whether the model agrees with the API; that is the coherence review in §7.3.
 
 ### 7.2 Three contract layers
 
@@ -280,11 +282,12 @@ Per context: entities, ownership, relationships, source-of-truth assignment. The
 
 ### 7.3 Rules
 
+- **Coherence check before every Gate 4 lock, both directions:** every API resource maps to an entity or a named projection of entities; every entity is reachable from the API or annotated `%% internal` with a reason. One direction alone passes a half-built contract. Not scriptable — "maps to" is a judgment about naming and intent.
 - Data model drafted sequentially; contracts then drafted per context in parallel.
 - Everything in G5 traces to contract elements; anything not in a contract does not exist.
 - After the gate: additive changes allowed; breaking changes reopen the gate for the affected contract only.
 
-**Exit criteria:** data model reviewed with deviations-from-reference annotated; all three layers validate and codegen in CI; breaking-change policy documented.
+**Exit criteria:** data model reviewed with deviations-from-reference annotated; coherence check run in both directions with every projection and internal-only entity named; all three layers validate and codegen in CI; breaking-change policy documented.
 
 ---
 

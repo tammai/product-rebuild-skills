@@ -27,15 +27,15 @@ if (existsSync(root)) {
 
 const dirs = [
   "findings/ground-truth", "findings/feature", "findings/nfr", "findings/flow",
-  "matrix", "plan", "adr", "contracts/openapi", "contracts/internal",
-  "contracts/asyncapi", "locks", "parity", "schemas", "scripts",
+  "matrix", "plan", "adr", "contracts/data-model", "contracts/openapi",
+  "contracts/internal", "contracts/asyncapi", "locks", "parity", "schemas", "scripts",
   ".github/workflows",
 ];
 for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
-for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs"]) {
+for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -85,6 +85,53 @@ write("repos.yaml", `
 repos: []
 `);
 
+// Not a stub diagram, on purpose. A scaffolded `erDiagram` with no entities would satisfy
+// every check written against it, so the scaffold ships the format instead — and the
+// directory stays empty of .mermaid files until someone drafts one, which is exactly the
+// state gate.mjs refuses to lock. (A file is also the only way the directory survives a
+// clone: git does not track empty directories.)
+write("contracts/data-model/README.md", `
+# Data model — one Mermaid \`erDiagram\` per bounded context
+
+Drafted in **G4b, before the three contract layers**: Gate 3 decided where data lives,
+this decides what it is. Locked by **Gate 4** along with the rest of \`contracts/\`.
+
+## Convention
+
+\`contracts/data-model/<context>.mermaid\` — one file per bounded context, named after the
+context as it appears in the G4a context map. Per context: entities, ownership,
+relationships, source-of-truth per entity. Cross-context references by **ID only, never
+shared tables** — a relationship line that crosses a context boundary belongs in neither
+file and is a Gate 3 question, not a Gate 4 one.
+
+\`\`\`mermaid
+erDiagram
+    PROJECT ||--o{ WORK_PACKAGE : contains
+    WORK_PACKAGE {
+        uuid id PK
+        uuid project_id FK
+        string subject
+    }
+\`\`\`
+
+## What is checked
+
+\`npm run validate\` requires every \`.mermaid\` here to declare **at least one entity** —
+an \`erDiagram\` header alone is not a data model. \`npm run gate -- lock gate-4\` refuses
+to lock while this directory holds no diagram. Neither is a Mermaid validator, and neither
+can check that the model is *right*: that is the Gate 4 coherence review (every API
+resource maps to an entity or a declared projection; every entity is reachable from the
+API or annotated \`%% internal\`).
+
+Annotate every deliberate deviation from the reference's schema
+(\`findings/ground-truth/reference-erd.mermaid\`) inline with \`%%\` — deviations change how
+reference behavior maps onto the rebuild, and a structural one needs an ADR at Gate 3.
+
+Keep this file, or delete it once the first real diagram lands — but delete it **before**
+Gate 4 locks. Gate 4 hashes everything under \`contracts/\`, so removing it afterwards
+fails \`npm run validate\` with \`locked file missing\` and needs a gate reopen to undo.
+`);
+
 const gates = [
   ["gate-1", "Taxonomy lock",     ["matrix/features.yaml"]],
   ["gate-2", "Slice-plan lock",   ["plan/slices.yaml"]],
@@ -105,7 +152,10 @@ history: []
 write("locks/pipeline.yaml", `
 # Marker + metadata for orchestrator state detection. Do not edit by hand.
 project: ${name}
-schema_version: "0.1.0"
+# 0.2.0 added contracts/data-model/ as a checked artifact. Scripts read this to decide
+# whether a missing or entity-less data model is an error (0.2.0+) or a warning (older
+# workbenches, which cannot be retro-enforced). Bump it by hand after backfilling one.
+schema_version: "0.2.0"
 created: ${new Date().toISOString()}
 `);
 
@@ -150,7 +200,8 @@ Pipeline state store for the ${name} rebuild. Describes the product; never conta
 product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills plugin).
 
 - \`npm run validate\` — schema-validate all artifacts, and structurally check
-  \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving)
+  \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving; every
+  \`data-model/*.mermaid\` declaring entities)
 - \`npm run gate -- status\` — pipeline/gate state
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)

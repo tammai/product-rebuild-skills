@@ -65,7 +65,7 @@ per-phase by design to keep context lean:
 | G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
 | G4a | `references/g4a-architecture.md` (+ `references/architecture-default.md`, the org default every ADR mirrors or diverges from) | Dispatch ADR drafts, Gate 3 review |
-| G4b | `references/g4b-contracts.md` | Data model, three contract layers, Gate 4 |
+| G4b | `references/g4b-contracts.md` | Data model (`contracts/data-model/`), three contract layers, Gate 4 |
 | G5 | `references/g5-build.md` | Per-slice fan-out to build subagents |
 | G6 | `references/g6-parity.md` | Parity report, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
@@ -93,9 +93,10 @@ Gates are human decisions. When a phase's exit criteria are met:
 
 1. Run `node scripts/validate.mjs` from the workbench root — all artifacts must pass schema
    validation first. From 0.6.5 this also structurally checks `contracts/`: YAML validity,
-   duplicate keys, and every `$ref` resolving. It is NOT a full OpenAPI/AsyncAPI validator —
-   passing it does not mean the spec is semantically correct, only that it is not broken in
-   the ways that silently reach a code repo.
+   duplicate keys, and every `$ref` resolving; from 0.7.0, that every
+   `contracts/data-model/*.mermaid` declares entities. It is NOT a full OpenAPI/AsyncAPI or
+   Mermaid validator — passing it does not mean the spec is semantically correct, only that
+   it is not broken in the ways that silently reach a code repo.
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
    it, open risks, and what becomes immutable afterward.
 3. Only after explicit user approval, run `node scripts/gate.mjs lock <gate-id>`.

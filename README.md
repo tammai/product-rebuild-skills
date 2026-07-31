@@ -95,8 +95,9 @@ and locks only on your explicit yes: `npm run gate -- lock gate-N` under the hoo
   the reference otherwise — is the failure mode the format prevents. Only after this gate
   do code repos get created — their count is an output of your decomposition decision.
   Each pins the workbench as a read-only submodule at gate tags.
-- **Gate 4 (contracts):** data model first, then three interface layers (public API,
-  internal, async/events). Locking cuts the tag your code repos build against.
+- **Gate 4 (contracts):** data model first — one Mermaid ERD per bounded context, checked
+  for entities and required before the gate can lock — then three interface layers (public
+  API, internal, async/events). Locking cuts the tag your code repos build against.
 
 ### 5. Build (G5) — the steady-state loop
 

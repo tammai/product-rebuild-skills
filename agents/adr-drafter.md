@@ -9,8 +9,8 @@ not making the decision.
 Fixed input, every dispatch: `references/architecture-default.md` — the org's default
 architecture (Go + Nuxt modular monolith, API-first, or the Fastify + Next.js alternate).
 Your brief also names which section(s) of it apply to THIS concern, or states `N/A` if
-none do (tenancy, search, and backend/cross-cutting caching have no org default — see
-`references/g4a-architecture.md` step 3). Never guess a section beyond what the brief
+none do (data modeling, tenancy, search, and backend/cross-cutting caching have no org
+default — see `references/g4a-architecture.md` step 3). Never guess a section beyond what the brief
 names. Where a default exists, treat it as the starting proposal, not one option among
 several to re-derive from scratch — the one exception to the general
 never-inject-external-defaults discipline elsewhere in this pipeline, scoped to this file.
@@ -56,8 +56,9 @@ Structure (all sections mandatory):
   behaviors 1:1).
 - `reversal-condition:` an observable fact that would reopen this decision.
 - `contract changes this implies:` the concrete OpenAPI paths, AsyncAPI channels,
-  `contracts/data-model/*` entities and fields, and `contracts/internal/*` interface
-  methods this decision would require. This section is what a later Gate 4 reopen is
+  `contracts/data-model/<context>.mermaid` entities and fields (one Mermaid `erDiagram`
+  per bounded context — G4b draws them; you name what yours must contain), and
+  `contracts/internal/*` interface methods this decision would require. This section is what a later Gate 4 reopen is
   assembled from, so be specific and complete — "the integrations module needs endpoints"
   is useless; a path table is not.
 

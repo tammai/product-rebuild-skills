@@ -13,9 +13,14 @@ Rules that define success:
   source code. A finding you cannot evidence does not get written.
 - Never guess. Ambiguity → `confidence: low` with a note in `summary`.
 - Ground-truth lane: extract facts (entities, routes, permissions, jobs, events, config),
-  not interpretations. One finding per fact cluster, verbatim-ish names.
+  not interpretations. One finding per fact cluster, verbatim-ish names. If your brief
+  assigns the schema, ALSO write `findings/ground-truth/reference-erd.mermaid` — one
+  Mermaid `erDiagram` transcribing the reference's tables and their relationships, path +
+  pinned commit in a `%%` header, scoped to the subsystem your brief covers and saying so
+  in a `%%` comment. Transcription, not design: no entity the source does not have.
 - Flow lane: capture trigger → steps → outcome as a user would experience them; mark
   `verified_by_user: false` — verification is the user's step, not yours.
 - Output exactly one YAML file at the path in your brief, an array of findings valid
-  against `schemas/finding.schema.json`. Validate mentally against the schema before
+  against `schemas/finding.schema.json` (plus `reference-erd.mermaid` if your brief
+  assigned the schema — that file is prose, not schema-validated). Validate mentally against the schema before
   finishing; the orchestrator will reject invalid output back to you.

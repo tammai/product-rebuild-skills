@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-31
+
+The data model was already the first thing G4b drafts — "data model FIRST (Gate 3 decided where
+data lives; this decides what it is)" — and gate-4's own phase name in `gate.mjs` has said
+`G4b data model + contracts` since the pipeline was written. What it never had was a path, a
+format, or a check. `adr-drafter` has been telling every ADR to enumerate the
+`contracts/data-model/*` entities its decision implies, against a directory `rebuild-init.mjs`
+does not create. So the artifact that G5 builds tables from existed as a review topic and
+nothing else: nothing said where to write it, nothing said in what notation, and a Gate 4 lock
+succeeded whether or not anyone had.
+
+### Added
+
+- **`contracts/data-model/<context>.mermaid`** — one Mermaid `erDiagram` per bounded context,
+  scaffolded as a directory with a README carrying the format, the convention, and what is
+  checked. Mermaid because it diffs, renders in every review surface, and puts cardinality in
+  the notation rather than in a sentence someone has to interpret. A directory rather than one
+  file because the other three contract layers are directories, G4b's data model has always
+  been specified *per context*, and `adr-drafter.md` already wrote it that way.
+- **`gate.mjs lock gate-4` refuses to lock without one.** This is the enforcement point, and
+  the choice matters: gate status is `open|locked` with nothing in between, so a check that
+  fires on `locked` reports a missing data model only *after* the tag is cut — turning a
+  one-line edit into a reopen, a `gate-4/v2`, and a re-pin in every code repo. The check that
+  prevents the lock has to run before it.
+- **`validate.mjs` requires every diagram to declare at least one entity**, and requires one to
+  exist once gate-4 is locked (not before — the script runs after every mining batch, and there
+  is legitimately nothing there yet). The entity floor is the whole point: "contains an
+  `erDiagram` block" is satisfied by a stub forever, so the scaffold deliberately ships a README
+  and no stub diagram — a fresh workbench is in exactly the state the gate refuses.
+- **A reference ERD in lane D** — `findings/ground-truth/reference-erd.mermaid`, transcribed
+  from migrations/models/docs with path + pinned commit in a `%%` header. It lands in
+  `findings/`, not `matrix/`, and is deliberately **not** gate-locked: it is descriptive ground
+  truth that G6 re-mining updates, and locking it would make every upstream schema change a
+  Gate 1 reopen. The feature matrix already carries per-feature `entities:` — names. What G4b
+  needs from the reference is shape.
+- **The coherence check** in the Gate 4 review, both directions: every API resource maps to an
+  entity or a named projection; every entity is reachable from the API or annotated
+  `%% internal` with a reason. One direction alone passes a half-built contract — an
+  unreachable unannotated entity is a feature that gets built, migrated and never read. Not
+  scriptable, and it sits beside the callee check for the same reason.
+- **Data modeling is now an ADR category at G4a**, with `org-default: N/A`. §8 governs how a row
+  is built — IDs, audit columns, soft delete, migrations — and says nothing about which entities
+  exist or how they relate, so citing it for entity shape is a miscite. The reference is the only
+  axis, and the ADR is required for *structural* divergence only (flattening a hierarchy, merging
+  entities, dropping a mined feature's tables); renames and type changes get a `%%` annotation.
+  The `N/A` concerns are now four, and every place that counted them says so.
+
+### Changed
+
+- `locks/pipeline.yaml` carries `schema_version: "0.2.0"`. Workbenches below that get warnings
+  where new ones get errors, in both scripts. The version is the signal because `protects` cannot
+  be: every workbench ever scaffolded protects `contracts/` wholesale and `gate.mjs` hashes every
+  file beneath it, so the new artifact was already gate-protected everywhere — there is nothing
+  in a lock file that distinguishes old from new. `validate.mjs` already used file-presence as a
+  version proxy for the progress overlay; this makes the signal explicit.
+- `rebuild-init.mjs` copies `scripts/erd.mjs` into the workbench alongside the other four — the
+  first time one workbench script has imported another. An existing workbench picks the checks
+  up by copying it and re-copying `validate.mjs`/`gate.mjs`; until then its pinned scripts behave
+  exactly as before. **Both importers load it lazily**, because there is no upgrade command and
+  hand-copying four files out of five is a normal mistake: a top-level import would make a
+  missing `erd.mjs` take out `gate.mjs status` — the command the orchestration protocol runs
+  first and trusts over the model's memory of the conversation — with a raw
+  `ERR_MODULE_NOT_FOUND` stack. Now `status` and `reopen` keep answering, `validate` reports the
+  gap as one failure and still runs every other check, and only `lock gate-4` refuses, naming the
+  file to copy.
+
+Proven against fixtures before being written down: a fresh workbench passes with no data model
+while gate-4 is open, refuses to lock gate-4 without one, fails validate and refuses the lock on
+a header-only stub and on a `graph TD` with no `erDiagram`, and passes both once a real diagram
+lands. A `schema_version: "0.1.0"` workbench warns and exits 0 in both scripts, including with
+gate-4 already locked and no data model present. The reader was checked separately against
+relationship-only, attribute-block-only, quoted-name, frontmatter-plus-`direction`, and
+commented-out-entity diagrams.
+
 ## [0.6.6] - 2026-07-29
 
 The playbook specified the frontend's data layer down to the package — Pinia Colada,

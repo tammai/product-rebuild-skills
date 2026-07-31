@@ -11,8 +11,10 @@
 //      $ref resolving. G5 generates code from these; nothing else in this pipeline
 //      checked them, so a dangling $ref first surfaced as a codegen failure in a code
 //      repo, one gate lock too late.
-//   6. locks/gate-*.yaml against lock.schema.json
-//   7. Locked-gate hash consistency: protected files must match recorded hashes
+//   6. contracts/data-model/*.mermaid — every diagram declares entities; one must exist
+//      once gate-4 is locked
+//   7. locks/gate-*.yaml against lock.schema.json
+//   8. Locked-gate hash consistency: protected files must match recorded hashes
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -38,6 +40,7 @@ if (existsSync(join("schemas", "progress.schema.json"))) {
 
 let failures = 0;
 const fail = (file, msg) => { failures++; console.error(`FAIL ${file}\n  ${msg}`); };
+const warn = (file, msg) => console.warn(`warn ${file}\n  ${msg}`);
 const ok = (file) => console.log(`ok   ${file}`);
 const yamlFilesUnder = (dir) => {
   if (!existsSync(dir)) return [];
@@ -208,6 +211,38 @@ for (const file of yamlFilesUnder("contracts")) {
 
   if (problems.length) fail(file, problems.join("\n  "));
   else ok(file);
+}
+
+// ---------------------------------------------------------------------------
+// contracts/data-model/ — the artifact G4b drafts BEFORE the three contract layers.
+//
+// Existence is required only once gate-4 is locked: before that there is legitimately
+// nothing here, and this script runs after every mining batch. The check that actually
+// prevents a bad lock lives in gate.mjs, which refuses to lock gate-4 without a data
+// model — by the time a locked gate-4 fails here, the tag is already cut.
+//
+// Entities, not just an `erDiagram` header: a stub satisfies the header forever.
+// ---------------------------------------------------------------------------
+// Imported here rather than at the top so a hand-upgraded workbench that copied this file
+// without erd.mjs still runs every other check and reports the gap as one failure, instead
+// of dying on an unresolved import before the first artifact is read.
+let erd = null;
+try { erd = await import("./erd.mjs"); }
+catch { fail("scripts/erd.mjs", "missing — data model not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/."); }
+if (erd) {
+  const { DATA_MODEL_DIR, DATA_MODEL_REMEDY, checkDataModel, isLegacyWorkbench } = erd;
+  const gate4 = join("locks", "gate-4.yaml");
+  const gate4Locked = existsSync(gate4) && /^status: locked$/m.test(readFileSync(gate4, "utf8"));
+  const dm = checkDataModel();
+  const issues = [...dm.problems];
+  if (dm.missing && gate4Locked) issues.push(`no .mermaid file, but gate-4 is locked`);
+  if (issues.length) {
+    const body = issues.join("\n  ") + `\n  ${DATA_MODEL_REMEDY}`;
+    if (isLegacyWorkbench()) {
+      warn(DATA_MODEL_DIR, `${body}\n  Warning only: this workbench predates schema_version 0.2.0. ` +
+        `After adding the data model, set schema_version: "0.2.0" in locks/pipeline.yaml to make it enforced.`);
+    } else fail(DATA_MODEL_DIR, body);
+  } else for (const f of dm.files) ok(f);
 }
 
 for (const f of yamlFilesUnder("locks").filter((f) => /gate-\d\.yaml$/.test(f))) {

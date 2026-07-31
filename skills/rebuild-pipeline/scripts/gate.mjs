@@ -137,6 +137,43 @@ if (cmd === "lock") {
     console.error(`Cannot lock ${id}: earlier gate(s) still open: ${prevOpen.map((l) => l.id).join(", ")}`);
     process.exit(1);
   }
+  // Gate 4 locks the data model as well as the three contract layers, and G4b drafts it
+  // FIRST — Gate 3 decided where data lives, this decides what it is. The check has to be
+  // here rather than in validate.mjs: gate status is open|locked with nothing in between,
+  // so a validator that fires on `locked` reports a missing data model only after the tag
+  // is cut, turning a one-line edit into a reopen and a new gate-4/vN.
+  //
+  // Imported here, not at the top of the file: `erd.mjs` is a newer script than the four
+  // rebuild-init has always copied, so a workbench upgraded by hand can be missing it. A
+  // top-level import makes that absence take out `gate.mjs status` too — the command the
+  // orchestration protocol runs first, and the one thing that must never stop answering.
+  // Lock is the only path that needs it, so lock is the only path that fails on it.
+  if (id === "gate-4") {
+    let erd;
+    try { erd = await import("./erd.mjs"); }
+    catch {
+      console.error(`Cannot lock ${id}: scripts/erd.mjs is missing, so the data model cannot be ` +
+        `checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/ alongside the copies ` +
+        `of validate.mjs and gate.mjs already in this workbench.`);
+      process.exit(1);
+    }
+    const { DATA_MODEL_DIR, DATA_MODEL_REMEDY, checkDataModel, isLegacyWorkbench } = erd;
+    const dm = checkDataModel();
+    const issues = [...dm.problems];
+    if (dm.missing) issues.push(`${DATA_MODEL_DIR}/ contains no .mermaid file`);
+    if (issues.length) {
+      const body = issues.map((i) => `  ${i}`).join("\n") + `\n  ${DATA_MODEL_REMEDY}`;
+      if (isLegacyWorkbench()) {
+        console.warn(`WARNING: locking ${id} without a checked data model:\n${body}\n` +
+          `  Allowed because this workbench predates schema_version 0.2.0. To enforce it, add the\n` +
+          `  data model and set schema_version: "0.2.0" in locks/pipeline.yaml.`);
+      } else {
+        console.error(`Cannot lock ${id}:\n${body}`);
+        process.exit(1);
+      }
+    }
+  }
+
   // artifact_hashes below is computed from the WORKING TREE, but the lock commit further
   // down stages only the lock file itself. If any protected (or other) file is dirty, the
   // hash recorded here describes content that never lands in the gate-tagged commit — a

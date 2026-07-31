@@ -60,17 +60,29 @@ Inputs: locked taxonomy, locked slice plan, `nfr-profile.yaml`, lane-D architect
    - **storage** → §8 (ID strategy, audit columns, soft delete, migrations)
    - **files/media** → §8 (file/attachment storage)
    - **observability** → §10 (Observability & Health Checks)
+   - **data modeling (entity shape)** → no org default. §8 governs how a row is *built*
+     (IDs, audit columns, soft delete, migrations) and says nothing about which entities
+     exist or how they relate, so storage's ADR does not cover this and citing §8 here is
+     a miscite. This is an `N/A` concern: the reference's own schema is the only axis.
+     Raise an ADR for any **structural** divergence from
+     `findings/ground-truth/reference-erd.mermaid` — flattening a hierarchy, merging or
+     splitting entities, dropping tables a mined feature depends on. Renames,
+     type/nullability changes, and the ID/audit-column conventions §8 already dictates are
+     not structural and need no ADR; they get a `%%` annotation at G4b.
+     The ADR cites the reference ERD by path and names the target
+     `contracts/data-model/<context>.mermaid` it constrains — that file does not exist yet
+     (G4b draws it), so name it as the artifact this decision binds, not as evidence.
    - **tenancy, search, caching (backend/cross-cutting)** → no org default exists for
      these in `architecture-default.md` (its only "caching" content is the frontend
-     query-layer, not a backend strategy). These three ADRs have no org-default axis:
+     query-layer, not a backend strategy). These ADRs have no org-default axis:
      org-default field is `N/A`, and the decision is made the original way — mirror-or-
      diverge against the reference's own architecture only.
 4. Infra topology derived from decomposition.
 
 ## ADR fields
 Every ADR states:
-- `org-default:` the section(s) cited above for this concern, or `N/A` (tenancy, search,
-  backend caching).
+- `org-default:` the section(s) cited above for this concern, or `N/A` (data modeling,
+  tenancy, search, backend caching).
 - `decision:` `mirror-default` | `diverge-from-default` | `silent-default` — the third
   value is for a concern that *has* an org default in general but is silent on this
   specific sub-question (e.g. the job queue is chosen, but cron-scheduling policy isn't
@@ -92,9 +104,9 @@ Every ADR states:
 - `reversal-condition:` an observable fact that would reopen this decision.
 
 Undocumented divergence from the org default is the #1 failure mode to enforce against
-for decomposition and the six concerns with a default. For tenancy, search, and caching —
-the three `N/A` concerns — undocumented divergence from the *reference* is still the
-thing that gates, exactly as before this change existed.
+for decomposition and the six concerns with a default. For data modeling, tenancy, search
+and caching — the four `N/A` concerns — undocumented divergence from the *reference* is
+still the thing that gates, exactly as before this change existed.
 
 Dispatch drafts to the `adr-drafter` agent (one per ADR, parallel — except background
 workers before events/queues) — pass the exact section(s) or `N/A` from the table above

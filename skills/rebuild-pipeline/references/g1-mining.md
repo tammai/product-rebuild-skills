@@ -10,6 +10,7 @@ no evidence, no entry.
   (features × roles); job classes → background processing; webhooks/flags → events;
   config/env/seeds → operational surface. Evidence = path + commit hash.
   Pin the reference commit once in `sources.yaml` and use it for every lane-D run.
+  Lane D additionally produces **`findings/ground-truth/reference-erd.mermaid`** — see below.
 - **A Features**: changelog/release notes (the reference's build ORDER is a free
   curriculum — capture `first_shipped`), docs, pricing page if any.
 - **B NFR**: deploy and run the reference locally (mandatory); observed limits, docs on
@@ -18,6 +19,30 @@ no evidence, no entry.
 - **C UX flows**: operate the running product; capture trigger → steps → outcome for top
   features. Agents draft from tours/docs; the USER verifies against the live instance —
   schedule that verification explicitly with them.
+
+## Reference ERD (lane D) → `findings/ground-truth/reference-erd.mermaid`
+
+The per-feature `entities:` lists in the feature matrix are names; what G4b needs from the
+reference is **shape** — which entity owns which, what is optional, where the hierarchy is.
+Transcribe it as one Mermaid `erDiagram`.
+
+- **Descriptive, not a design artifact.** It records what the reference *is*, so it lives in
+  `findings/` with the rest of lane D and is deliberately **not** gate-locked: G6 upstream
+  re-mining updates it as the reference moves, and a locked copy would make every upstream
+  schema change a Gate 1 reopen. The rebuild's own model is `contracts/data-model/`, locked
+  at Gate 4 — keep the two apart.
+- **Partial by design.** Only entities relevant to the feature matrix. A reference mined for
+  one subsystem gets that subsystem's tables, not its full schema; note the boundary in a
+  `%%` comment so a later reader does not mistake absence for evidence of absence.
+- **Where to find it:** a migrations directory (Rails `db/schema.rb`, Django
+  `*/migrations/`, `migrations/*.sql`), ORM model classes, or a published schema/ER page in
+  the docs — in that order of trust. Cite path + pinned commit in the `%%` header, same
+  evidence rule as every other lane-D finding.
+- Under **clean-room posture** there is no source to transcribe: build it from the API and
+  docs, mark it `%% inferred`, and expect lower fidelity on ownership and nullability.
+
+Where a rebuild mines more than one reference, one file per reference:
+`reference-erd.<name>.mermaid`, using the name from `sources.yaml`.
 
 ## Ground-truth graph (lane D, source-access postures only)
 
@@ -49,4 +74,5 @@ there is nothing to graph.
 
 ## Exit criteria
 Reference running locally (user-confirmed); lane D complete for schema/routes/permissions/
-jobs; lanes A–C complete; all findings validate; top-feature flows user-verified.
+jobs, including `reference-erd.mermaid`; lanes A–C complete; all findings validate;
+top-feature flows user-verified.
