@@ -45,6 +45,12 @@ GP Production-readiness     ── GATE 5: prod-ready lock (terminal)
 | Production-readiness verification (GP) | Mixed | Restore drills and incident dry-runs are human |
 | All five gates | Human only | Non-delegable |
 
+Every row above that reads "Agents" is a stretch the pipeline can run unattended — that is what
+autopilot is: the agent rows, chained, checkpointing to disk after each one, stopping at the
+human rows. It does not move the line between the two columns. The last row is why: a mode that
+could lock a gate would turn the gate review into an audit log, and the value of a gate is that
+it is deliberate.
+
 ### 1.3 Artifact-first rule
 
 Every phase boundary is a file (or set of files) with a schema, validated in CI. If a phase's output cannot be validated by a script, the phase is not done. Prose documents (ADRs, specs) carry structured frontmatter so tooling can index them.

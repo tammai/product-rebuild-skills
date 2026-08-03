@@ -8,6 +8,11 @@
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/gate-guard.mjs",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/autopilot-guard.mjs",
+            "timeout": 10
           }
         ]
       }

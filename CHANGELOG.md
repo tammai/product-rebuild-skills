@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-03
+
+Between the gates, the pipeline was a prompt to type "continue" into. G1 fans four miners out
+and merges them; G5 walks spec → backend → frontend → infra per slice; G6 runs a script and
+reads the diff. None of that needs a human in the turn, and all of it was spending one. The
+gates are where judgment lives, and they are the *interruptions* — so the shape of the fix is
+to run the stretches unattended and stop at every gate, not to make the gates cheaper.
+
+The thing that made this buildable is narrower than it sounds. Claude Code does expose how much
+of the 5-hour window is gone — `rate_limits.five_hour.used_percentage`, with `resets_at` — but
+it pipes it to the **status line and nowhere else**. Not to hooks, not into the conversation.
+An unattended run therefore cannot ask how much budget it has left; it can only read a number
+someone else wrote down. That single constraint is why this release touches the status line at
+all, and why `preflight` treats a missing or stale snapshot as a refusal rather than a warning:
+unknown usage is not low usage.
+
+### Added
+
+- **Autopilot** — `references/autopilot.md`, reached from a new **SKILL.md Step 6**, and
+  orthogonal to the phase router rather than an entry in it. Verify with `preflight`, present a
+  brief, get one explicit yes, then work unit-by-unit: `check` → do the unit → write to disk →
+  commit → `log`. It **halts at every gate**, and `stop_at_gates` has no off switch. Locking
+  stays what Step 5 always said it was — a human act on a review the run leaves in
+  `plan/gate-reviews/gate-N.md`, so the decision does not depend on scrollback.
+- **`scripts/autopilot.mjs`** — zero-dependency, copied into the workbench like the other five.
+  `preflight` deliberately reimplements none of the session-end checks: it shells out to
+  `pause-check.mjs` and requires its verdict, so a dirty tree, unpushed work in any `repos.yaml`
+  repo, a stash, a gate reopened but not re-locked, or a stray dev server all block a run
+  through the code that already knew how to find them.
+- **`hooks/scripts/autopilot-guard.mjs`** — a second `PreToolUse` guard that blocks writes once
+  an engaged run crosses its threshold. A pause rule written in prose is at its weakest exactly
+  where it has to hold: mid-slice, with the unit apparently one edit from done. This one is not
+  a rule the model applies to itself. It blocks **once** — `disengage` is a Bash call the matcher
+  never sees, and it flips the state to `paused`, after which the guard fails open and the drafts,
+  commits and pause report the stop procedure needs all go through.
+  It fails open up to the point an engaged run is established and **closed** after it: a missing
+  or stale snapshot blocks, because an unverifiable window is not a low one, and a status line
+  that breaks mid-run would otherwise delete the threshold without anyone noticing. The cost is
+  named in the block message — a run left `engaged` by a dead session blocks manual edits until
+  `disengage --reason error`.
+  A **subagent** that trips it is told to stop and report upward, explicitly not to run
+  `disengage`: a miner ending the parent's run would be closing a session it cannot see, and
+  `next_action` is knowledge only the orchestrator has.
+- **`plan/autopilot.yaml`** (+ `schemas/autopilot.schema.json`, `validate.mjs` check 9) — mutable
+  and ungated, beside `plan/progress.yaml`. Its header says what it is: breadcrumbs. `gate.mjs
+  status` stays the authority on where the project is, because a run that resumed from its own
+  `next_action` would be the stale-conversational-memory failure mode with a file behind it.
+- **The status-line snapshot**, documented in the reference with the exact block to paste. It
+  writes via temp-file + `mv` so a reader never sees a torn write, and skips entirely when
+  `rate_limits` is absent rather than overwriting a good snapshot with nulls — the field exists
+  only on Pro/Max plans, and only after the session's first API response.
+
+### Changed
+
+- The pause safety check is now **Step 7**; autopilot took Step 6. Its pause procedure *is* the
+  user-initiated one — save, commit, push every repo, disengage, `pause-check.mjs`, resolve what
+  it flags — so a run that stops on its own leaves the workbench in the state a deliberate stop
+  would have.
+- `rebuild-init.mjs` copies `autopilot.mjs` and adds an `autopilot` npm script; the generated
+  README documents `preflight`.
+- Every state mutation commits `plan/autopilot.yaml`, and only that path. Not tidiness:
+  `gate.mjs lock` refuses to run on a tree dirty outside the lock file, and autopilot hands over
+  to the user *at* a gate — an uncommitted state file would make the very next thing they do fail.
+
+### Notes
+
+- Autopilot is **interactive-session only**. No status line means no snapshot, so it cannot run
+  headless or from cron. `preflight` says which failure it is instead of guessing.
+- The two staleness bounds differ deliberately — `check` allows 15 minutes, the guard 45 — and
+  the reason came out of measuring rather than guessing. The status line re-renders at tool-call
+  *boundaries*, not during a call: inside one 100-second call the snapshot updated at each end
+  and went 95 seconds untouched between. `check` runs at unit boundaries, moments after a
+  render. The guard can fire twenty minutes into a slice build, where an old snapshot is normal.
+  A single bound would have to be either too loose for `check` or spuriously fatal for the hook.
+- The non-gate human decisions were never collected anywhere; they were spread across nine phase
+  references as individual sentences. Autopilot needed the whole list to know what to stop for, so
+  `references/autopilot.md` now carries it — license posture, the G4a team-composition question,
+  spec approval, marking a slice done, the GP drills, and the rest.
+
 ## [0.7.0] - 2026-07-31
 
 The data model was already the first thing G4b drafts — "data model FIRST (Gate 3 decided where

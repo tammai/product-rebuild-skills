@@ -35,7 +35,8 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
-for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs"]) {
+for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
+                 "autopilot.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -168,6 +169,7 @@ write("package.json", JSON.stringify({
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
     "pause-check": "node scripts/pause-check.mjs",
+    autopilot: "node scripts/autopilot.mjs",
   },
   devDependencies: { ajv: "^8.17.0", "ajv-formats": "^3.0.0", yaml: "^2.5.0" },
 }, null, 2) + "\n");
@@ -205,6 +207,8 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 - \`npm run gate -- status\` — pipeline/gate state
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)
+- \`npm run autopilot -- preflight\` — is this project ready to run unattended between gates?
+  (\`check\` / \`engage\` / \`log\` / \`disengage\` / \`status\` drive a run; gates always halt for you)
 - Decision history = \`git log\` on adr/, locks/, matrix/
 
 ## Keep it off-machine

@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "autopilot.schema.json",
+  "title": "Autopilot run state (mutable, ungated — breadcrumbs, not the source of truth)",
+  "description": "Written by scripts/autopilot.mjs. The authoritative phase always comes from `node scripts/gate.mjs status`; engaged_phase and paused.next_action are hints for a human reading the file, and must never be acted on in place of state detection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "threshold_pct"],
+  "properties": {
+    "status": {
+      "description": "engaged = a run is live and the guard hook is armed. paused = stopped, safe to inspect. off = explicitly disabled.",
+      "enum": ["engaged", "paused", "off"]
+    },
+    "engaged_at": { "type": "string", "format": "date-time" },
+    "engaged_phase": {
+      "description": "Phase reported by gate.mjs at engage time. A record of what was true then, not a claim about now.",
+      "type": "string"
+    },
+    "threshold_pct": {
+      "description": "Percent of the 5-hour rate-limit window at which the run pauses itself.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "stop_at_gates": {
+      "description": "Always true in this version — gates are human decisions (SKILL.md Step 5).",
+      "type": "boolean"
+    },
+    "last_check": {
+      "description": "Usage as of the last engage/log/disengage. `check` is read-only and does not stamp this.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "five_hour_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "resets_at": { "type": "integer", "description": "Unix epoch seconds." }
+      }
+    },
+    "paused": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "reason"],
+      "properties": {
+        "at": { "type": "string", "format": "date-time" },
+        "reason": {
+          "enum": [
+            "usage-threshold",
+            "gate-review",
+            "validate-failed",
+            "pause-check-unsafe",
+            "needs-user-decision",
+            "error",
+            "user"
+          ]
+        },
+        "five_hour_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "resets_at": { "type": "integer" },
+        "next_action": { "type": "string" }
+      }
+    },
+    "log": {
+      "description": "One entry per unit of work attempted. Append-only within a run.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "unit", "outcome"],
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "unit": { "type": "string", "minLength": 1 },
+          "outcome": { "enum": ["done", "failed", "skipped"] },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

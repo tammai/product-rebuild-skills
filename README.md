@@ -124,7 +124,37 @@ npm run gate -- status     # gate states + current phase
 npm run validate           # artifacts vs schemas, contract $refs, lock integrity
 npm run parity             # coverage report into parity/<date>.md
 npm run pause-check        # safe to stop? (includes what hasn't been pushed off-machine)
+npm run autopilot -- preflight   # ready to run unattended between gates?
 ```
+
+## Autopilot
+
+The gates are where judgment lives. Everything between them — four mining lanes, a matrix
+merge, per-slice spec → backend → frontend → infra, a parity report — is work you would
+otherwise advance by typing "continue". Say **"autopilot"** and the skill checks the project
+is in a safe state, tells you exactly what it would run and where it would stop, and waits
+for a yes. Then it works unit by unit, writing each result to disk and committing before
+starting the next.
+
+It stops at **every gate**, with the review written to `plan/gate-reviews/gate-N.md` so the
+decision doesn't depend on scrollback. It also stops on trouble — a failing validation, a
+subagent that came back empty, or any of the non-gate calls that are yours to make (license
+posture, spec approval, marking a slice done, adopting an upstream feature).
+
+And it watches the clock. At 80% of your 5-hour usage window it pauses itself: saves, commits,
+pushes, runs the pause check, and asks whether to continue after the reset or stop there.
+That threshold is enforced by a hook rather than by good intentions — the write is blocked,
+mid-slice, whether or not the unit felt nearly finished.
+
+```bash
+npm run autopilot -- preflight    # is this safe to start?
+npm run autopilot -- status       # what did the last run do, and where did it stop?
+```
+
+One-time setup: the 5-hour figure is piped by Claude Code to your **status line only**, so it
+has to be persisted to disk before anything else can read it. `preflight` prints the block to
+add if it's missing. It needs a Claude Pro/Max plan, and an interactive session — no status
+line means no signal, so autopilot can't run headless.
 
 ## What's in this plugin
 
@@ -140,8 +170,10 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
   scripts/parity.mjs            G6 coverage report
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
+  scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
 agents/                         miner, adr-drafter, spec-writer subagents
-hooks/                          PreToolUse guard: blocks edits to locked artifacts
+hooks/                          PreToolUse guards: locked artifacts, and the autopilot
+                                usage threshold
 docs/PLAYBOOK.md                the full methodology
 ```
 
@@ -150,7 +182,8 @@ docs/PLAYBOOK.md                the full methodology
 - **No evidence, no finding.** Agents cannot write hallucinated facts into the matrix.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
   hatch is a formal, logged reopen with a reason — never a quiet edit.
-- **Gates are yours.** The skill never locks a gate on its own initiative.
+- **Gates are yours.** The skill never locks a gate on its own initiative — including on
+  autopilot, which halts at every one of them and hands you a written review.
 - **The workbench never contains product code.** It describes the product; code repos
   consume it one-way, pinned at gate tags.
 - **Every slice ships.** Deployment is part of the definition of done — it's half the

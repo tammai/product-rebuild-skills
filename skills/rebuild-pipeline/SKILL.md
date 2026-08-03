@@ -1,6 +1,6 @@
 ---
 name: rebuild-pipeline
-description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (usually OSS, e.g. OpenProject, Twenty CRM, Webstudio, or a category like CRM / project management / web builder) to learn the complete product development lifecycle, ending in production-ready code. Use this skill whenever the user wants to start a rebuild project, decide license posture for a reference product, clone/rebuild/reimplement an existing product, continue or resume a rebuild, check rebuild progress, run any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity check, production readiness), lock/reopen a gate, or got blocked by the PreToolUse hook editing a locked artifact and needs to know how to proceed. Also trigger when the user runs /rebuild or mentions the workbench, gates, slices, license posture, or the parity loop of a rebuild project. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
+description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (usually OSS, e.g. OpenProject, Twenty CRM, Webstudio, or a category like CRM / project management / web builder) to learn the complete product development lifecycle, ending in production-ready code. Use this skill whenever the user wants to start a rebuild project, decide license posture for a reference product, clone/rebuild/reimplement an existing product, continue or resume a rebuild, check rebuild progress, run any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity check, production readiness), lock/reopen a gate, or got blocked by the PreToolUse hook editing a locked artifact and needs to know how to proceed. Also use it when the user asks to run the rebuild on autopilot, to work unattended or without being asked at every step, to check whether the project is ready for autopilot, or to pause/resume/stop an autopilot run — and when a run was blocked because the 5-hour usage window hit its threshold. Also trigger when the user runs /rebuild or mentions the workbench, gates, slices, license posture, or the parity loop of a rebuild project. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
 ---
 
 # Rebuild Pipeline Orchestrator
@@ -108,17 +108,36 @@ Gates are human decisions. When a phase's exit criteria are met:
 5. Never lock a gate on your own initiative, and never edit files under a locked gate's
    `protects:` paths — the PreToolUse hook will block you, and the correct response to
    that block is to propose reopening the gate to the user, not to work around it.
+   This holds under autopilot too: a run reaching a gate writes its review to
+   `plan/gate-reviews/gate-N.md` and stops there (Step 6).
 
 Reopening (`gate.mjs reopen <gate-id> --reason "..."`) is allowed but is a formal,
 logged event; require the user to state the reason.
 
-### Step 6 — Pause safety check (before ending a session)
+### Step 6 — Autopilot, if the user asks for it (opt-in, off by default)
+
+Autopilot runs the mechanical stretches between gates unattended — mining lanes, drafts,
+per-slice module builds, parity — checkpointing to disk after every unit, and **halting at
+every gate**. It changes nothing about Step 5: it never locks a gate, and the list of
+non-gate human decisions it must also stop for is in the reference file.
+
+When the user asks for autopilot, read `references/autopilot.md` and follow it. Never
+engage without running `node scripts/autopilot.mjs preflight` and getting an explicit
+confirmation of the brief — the word "autopilot" is a request to be told what a run would
+do, not consent to run it.
+
+If `plan/autopilot.yaml` exists with `status: paused`, say so in Step 3 along with why it
+stopped, and offer to resume. Its `engaged_phase` and `paused.next_action` are breadcrumbs
+for a human reading the file — `gate.mjs status` remains the authority on where the project
+actually is.
+
+### Step 7 — Pause safety check (before ending a session)
 
 When the user signals they're pausing, stopping, or ending the session — or you notice a
 natural stopping point (a slice just finished, a gate review just landed) — run:
 `node scripts/pause-check.mjs` (from the workbench root)
 
-This is NOT one of the five hash-pinned gates — it locks nothing, has no PreToolUse
+This is NOT one of the five hash-pinned gates — it locks nothing, has no gate-guard
 enforcement, and is safe to run any number of times. It reports, across the workbench and
 every repo registered in `repos.yaml`: uncommitted/untracked git changes, work that has not
 left the machine (no remote, unpushed commits including on a detached HEAD, unpushed tags,
@@ -167,8 +186,15 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   being deliberate.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
-- Ending a session without running the pause safety check (Step 6), or running it but not
+- Ending a session without running the pause safety check (Step 7), or running it but not
   acting on what it flags.
+- Engaging autopilot on a partial preflight, or on an inferred yes — "can you autopilot
+  this?" asks for the brief; only an explicit approval of that brief starts a run.
+- Resuming an autopilot run from `plan/autopilot.yaml`'s `next_action` instead of
+  re-deriving the phase with `gate.mjs status`. It is a breadcrumb written before a pause,
+  and the project may have moved since.
+- Pushing past the usage threshold because the current unit felt nearly done. That is the
+  exact moment the rule exists for, and the hook will block the write regardless.
 - Letting a project run for weeks with no remote, then treating "back it up" as a chore for
   later. The cost of the loss grows every phase; the fix takes one command at G0.
 - Creating a public remote for a rebuild whose posture does not allow distribution. Pushing

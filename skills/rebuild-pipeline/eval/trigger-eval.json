@@ -9,6 +9,10 @@
   {"query": "reopen gate 2, the slice order needs to change now that the auth adr changed", "should_trigger": true},
   {"query": "what's the license posture we recorded for this rebuild, can we read the reference's source for the billing module?", "should_trigger": true},
   {"query": "kick off the miner agents for the reference's ground truth lane, we haven't mined permissions yet", "should_trigger": true},
+  {"query": "just put the rebuild on autopilot, stop asking me at every step", "should_trigger": true},
+  {"query": "are we ready to run this unattended? i'm heading out for a couple of hours", "should_trigger": true},
+  {"query": "autopilot dừng rồi à? tiếp tục đi, hết 5 tiếng rồi mà", "should_trigger": true},
+  {"query": "something blocked my edit saying the 5-hour window is at 80%, what now", "should_trigger": true},
   {"query": "help me set up a new nuxt 4 project with pinia colada", "should_trigger": false},
   {"query": "write an ADR comparing kafka vs sqs for our notification service", "should_trigger": false},
   {"query": "clone this github repo and run the tests", "should_trigger": false},
@@ -18,5 +22,7 @@
   {"query": "review this PR before i merge, check for n+1 queries and error handling gaps", "should_trigger": false},
   {"query": "what's the parity in exchange rates between USD and VND today", "should_trigger": false},
   {"query": "build me a feature comparison matrix for three pricing plans in excel", "should_trigger": false},
-  {"query": "our postgres migration locked the table, how do i unblock the deploy", "should_trigger": false}
+  {"query": "our postgres migration locked the table, how do i unblock the deploy", "should_trigger": false},
+  {"query": "write a github action that auto-merges dependabot PRs without me approving them", "should_trigger": false},
+  {"query": "how close am i to my claude usage limit this week", "should_trigger": false}
 ]

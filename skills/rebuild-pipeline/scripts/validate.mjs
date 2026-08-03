@@ -15,6 +15,7 @@
 //      once gate-4 is locked
 //   7. locks/gate-*.yaml against lock.schema.json
 //   8. Locked-gate hash consistency: protected files must match recorded hashes
+//   9. plan/autopilot.yaml against autopilot.schema.json, if present
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -33,9 +34,13 @@ const validators = {
   lock: ajv.compile(schema("lock.schema.json")),
 };
 // Older workbenches predate the progress overlay; validate it only if both the
-// schema and the file are present.
+// schema and the file are present. Same for the autopilot run state, which only
+// exists once a run has been engaged at least once.
 if (existsSync(join("schemas", "progress.schema.json"))) {
   validators.progress = ajv.compile(schema("progress.schema.json"));
+}
+if (existsSync(join("schemas", "autopilot.schema.json"))) {
+  validators.autopilot = ajv.compile(schema("autopilot.schema.json"));
 }
 
 let failures = 0;
@@ -100,6 +105,12 @@ if (validators.progress && existsSync("plan/progress.yaml")) {
     crossRef("slices", sliceIds, "slice");
     crossRef("notes", sliceIds, "slice");
   }
+}
+// Autopilot run state. Nothing downstream reads it — it is a breadcrumb for whoever picks
+// the session back up — but a malformed one means autopilot.mjs is round-tripping badly,
+// and the file it is round-tripping records what an unattended run did.
+if (validators.autopilot && existsSync("plan/autopilot.yaml")) {
+  check("plan/autopilot.yaml", validators.autopilot);
 }
 
 // ---------------------------------------------------------------------------
