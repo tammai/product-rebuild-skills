@@ -56,6 +56,21 @@ between drafts, because they are written by different agents from the same ADRs.
   explicitly named *projection* of entities (a read model joining two tables is fine; say so
   in a `%%` note on the diagram). A resource that maps to nothing is either a table nobody
   drafted or an endpoint nobody needs — both are cheaper to settle now than in a slice.
+- **API → ERD, AT PROPERTY GRANULARITY.** Then walk it again, one *property* at a time: for
+  every property of every schema the phase adds or changes, **which column holds it?** Each
+  answer must be a column or an explicitly named derivation ("computed at read time from X",
+  "resolved through the id", "an RFC constant"). *A property that is neither is a storage
+  promise with no storage.*
+
+  **This is not the same pass as the one above, and doing only the resource-level one is how a
+  project shipped a filterable, "stored verbatim" field with no column.** The resource level
+  asked "does `ScimUser` map to an entity?" — it did. Nobody asked which column held
+  `externalId`. Every artifact validated: the OpenAPI schema was complete, the data model was
+  complete, and the two never referenced each other on that field. It was found by *building*
+  the handler, one gate too late.
+
+  Write the derivations down by name. A clean pass with unstated exceptions is the failure mode
+  — the exceptions are where the next gap will be.
 - **ERD → API-or-internal.** Every entity is either reachable from the public API or
   annotated `%% internal` with the reason (outbox rows, audit trails, join tables). An
   unreachable entity that nobody marked internal is the shape of a feature that was designed
@@ -100,6 +115,21 @@ Two patterns that produce these, both worth checking by name:
   by someone asking what a deploy criterion needed — not by a test. The first three were
   already written down, and so was the detector. **Run it as a step, not as a habit you
   intend to have.**
+- **THE TERMINAL STEP OF EACH OPERATION, not just the operation.** For every operation the
+  phase adds, ask what its **last line** has to produce — the value the caller was actually
+  promised — and whether something exists that produces it. Enumerating operations and
+  enumerating their terminal steps are different questions, and the second is the one that gets
+  skipped.
+
+  The case that named this: a SAML ACS whose spec said it *"returns the identical
+  `AuthTokenPair` that `/auth/login` returns"*. The callee check asked what the ACS needed,
+  found that it had to create a user, and added `EnsureFederatedUser` to the callee's
+  interface. **Nothing added a method that issues a session** — and sessions lived in the
+  callee's schema, so the caller could not write one. `EnsureFederatedUser` makes the *person*;
+  nothing made the *session*. The two obligations sat one sentence apart in the same spec
+  paragraph and were treated as one. Found by building the handler, one gate too late.
+
+  Tabulate it: operation | what the terminal step produces | producer | ✅/gap.
 - **A cross-module write.** Module boundaries forbid writing another module's schema, so
   the write must go through that module's `Service` — which may expose reads only. Check
   every "X's data is created by Y" sentence in the data model against Y's actual
@@ -114,9 +144,11 @@ here — but the point of this check is to run it *before* spec-writing, since a
 stops to flag a missing callee method has already cost the slice a gate reopen.
 
 ## Gate 4 review (present to user)
-Data model with deviations-from-reference and the coherence check's outcome in both
-directions (name any projection or `%% internal` entity by hand — a clean pass with
-unstated exceptions is the failure mode); the three layers and their codegen status;
+Data model with deviations-from-reference and the coherence check's outcome in **all three**
+passes — API → ERD at resource level, API → ERD at **property** level, and ERD → API-or-internal
+(name any projection, derivation or `%% internal` entity by hand — a clean pass with
+unstated exceptions is the failure mode); the callee check's outcome including its
+**terminal-step** table; the three layers and their codegen status;
 the change policy after lock: additive changes allowed within the tag series, breaking
 changes reopen Gate 4 for the affected contract only and cut a new major gate tag.
 

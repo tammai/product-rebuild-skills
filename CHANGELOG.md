@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-10
+
+The Gate 4 coherence and callee checks both stopped one level short, and a real rebuild paid for
+it four times in one slice. Every one of the four was found by BUILDING the handler — never by
+the check — which means each cost a mid-slice gate reopen with the spec already written.
+
+Two passes added, one to each check.
+
+**The coherence check now walks API → ERD at PROPERTY granularity, not just resource
+granularity.** The resource-level pass asks "does this schema map to an entity?" That question
+was asked and answered correctly, and it still let through a field declared *"stored verbatim"*
+and *filterable with `eq`* that had no column anywhere. Nobody asked which column held it. Every
+artifact validated, because the OpenAPI schema and the data model were each internally complete
+and never referenced each other on that field. The new pass demands, per property, either a
+column or an explicitly named derivation — and demands the derivations be written down, since a
+clean pass with unstated exceptions is where the next gap hides.
+
+**The callee check now enumerates each operation's TERMINAL STEP, not just the operation.** The
+terminal step is the last line — the value the caller was actually promised. In the case that
+named this, a SAML ACS was specified to return *"the identical `AuthTokenPair` that
+`/auth/login` returns"*. The check asked what the ACS needed, found it had to create a user, and
+duly added that method to the callee's interface. Nothing added a method that issues a session,
+and sessions lived in the callee's schema so the caller could not write one. Making the *person*
+and making the *session* sat one sentence apart in the same paragraph and were treated as one
+obligation. The fix is a table: operation | what the terminal step produces | producer | verdict.
+
+Note what the two passes do NOT share. The terminal-step gap was a cross-module call, which is
+the callee check's territory. The property gap was written and read entirely inside one module,
+so no callee check in any form could have found it. They are different questions and both are
+now asked, which is the point — the previous version would have caught two of the four.
+
+The Gate 4 review presented to the user now names all three coherence passes and the
+terminal-step table, so a reviewer can see which were actually run rather than inferring it from
+a summary verdict.
+
 ## [0.9.0] - 2026-08-10
 
 The org-default playbook named a Go stack — chi, pgx/v5, sqlc — and `bigin-skills`' `go-scaffold`
