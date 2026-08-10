@@ -49,6 +49,14 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   the user chose the posture minutes ago and will not connect it to a `gh` flag.
 - Confirm the user can run the reference locally (Docker preferred). This becomes a
   hard G1 exit requirement.
+- **Confirm the `bigin-skills` plugin is installed**, and say why now rather than later: it
+  is this pipeline's baseline for creating code repos (`bigin-harness-setup` → scaffold +
+  governance harness, see `g5-build.md`), and it is not needed until G5 — which is weeks of
+  gates away. Checking costs one look at the available-skills list; not checking means
+  finding out on the day the first repo is due. If it is missing, tell the user to install
+  it (`/plugin marketplace add tammai/bigin-skills`, then
+  `/plugin install bigin-skills@bigin` — the marketplace is named `bigin`, not
+  `bigin-skills`) but do **not** block G0 on it — nothing before G5 touches it.
 
 ## Exit criteria
 Reference chosen with recorded rationale; `license-posture.md` complete;

@@ -24,6 +24,17 @@ G6 Parity loop           (automated, scheduled)
 GP Production readiness  ── GATE 5: prod-ready lock (terminal)
 ```
 
+**Baseline dependency — `bigin-skills`.** This pipeline produces decisions, contracts and
+specs; it does not know how to create a repo. From G5 onward, every code repo is created by
+the `bigin-skills:bigin-harness-setup` skill — a single entry point that scaffolds the app
+(delegating to `go-`/`nuxt-`/`nodejs-`/`next-scaffold` per the stack locked at Gate 3) and
+overlays the AI-governance harness. Never scaffold conversationally, never call the
+`*-scaffold` skills directly, and never hand-write a `CLAUDE.md` into a code repo. The org
+architecture default in `references/architecture-default.md` names the same stacks these
+scaffolds generate, on purpose: G4a decides, `bigin-skills` builds. Confirm the plugin is
+installed at G0 (it is needed at G5, and discovering it missing months in is the expensive
+way to find out).
+
 ## Orchestration Protocol
 
 Run these steps in order at the start of every session that touches the pipeline.
@@ -186,6 +197,12 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   being deliberate.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
+- Creating a code repo by hand — running `npm create`/`go mod init` directly, calling a
+  `*-scaffold` skill instead of `bigin-harness-setup`, or writing a `CLAUDE.md` yourself.
+  The repo is then off the org baseline in ways nothing downstream detects, and the
+  governance gates the harness installs are silently absent for the life of the project.
+- Trusting codegen from the scaffold's starter `openapi.yaml`. Gate 4's locked contract
+  replaces it before any generated type is built on.
 - Ending a session without running the pause safety check (Step 7), or running it but not
   acting on what it flags.
 - Engaging autopilot on a partial preflight, or on an inferred yes — "can you autopilot

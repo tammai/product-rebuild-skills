@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-10
+
+The org-default playbook named a Go stack — chi, pgx/v5, sqlc — and `bigin-skills`' `go-scaffold`
+generated a different one: Gin, GORM. Both were defensible in isolation; what made it a defect is
+that §4.1's own header points at `go-scaffold` as where the concrete scaffolding for this
+architecture lives. G4a's ADRs cite the playbook, G5 builds against whatever the scaffold wrote,
+and nothing in the pipeline ever compares the two. Reconciled toward the scaffold, because that is
+the side that is built, tested end-to-end, and actually runs.
+
+The swap is not just find-and-replace on library names. sqlc and GORM fail differently, so two
+things the playbook could previously leave implicit now have to be stated: `domain/` not importing
+`infrastructure/` stops being a style rule once an ORM makes it trivial to hang `gorm:` tags on a
+domain entity, and soft delete moves from "every query is written with the filter" to "the filter
+is automatic, and here are the two ways to silently bypass it."
+
+The same divergence had a second half. The playbook named library choices, but nothing in the
+pipeline said who *creates the repo* — G5's build step read "Scaffolding + codegen from
+contracts first", which is an instruction to improvise. So `bigin-skills` is now declared as
+this pipeline's baseline rather than a document it cites: from G5 onward every code repo is
+created by `bigin-harness-setup`, which already delegates to the matching `*-scaffold` and
+then overlays the governance harness. One entry point, not four, and not a hand-rolled repo.
+
+Wiring a scaffold into a gated pipeline surfaces three collisions that only exist at the seam,
+and all three are silent: the scaffold refuses a non-empty directory (so the workbench
+submodule has to come *after*), it makes its own initial commit (so `gh repo create --source .`
+comes after that), and it ships a starter `openapi.yaml` for its own auth kernel — which, if
+codegen runs before Gate 4's contract replaces it, means commit 1 violates G5's own "no code
+against interfaces absent from locked contracts" guardrail. The fourth is bookkeeping: the
+scaffolded auth kernel is real feature-matrix surface arriving before its slice, and unrecorded
+it reads to G6 as scope creep.
+
+### Changed
+
+- **`bigin-skills` is a declared baseline dependency, not a reference.** Stated in SKILL.md
+  (loaded every session), checked at G0 (non-blocking — nothing before G5 needs it), and
+  required at G5. README gains it as an install prerequisite, with the licensing asymmetry
+  noted: `bigin-skills` is PolyForm-Strict-1.0.0, this plugin is MIT.
+- **`references/g5-build.md` — the first-repo checklist gained a step 0** and is now five
+  steps. Repo creation goes through `bigin-skills:bigin-harness-setup`; profile follows Gate
+  3's stack ADR (Go → `go`, Fastify → `nodejs`, Nuxt → `nuxt`, Next → `next`) rather than
+  being re-decided. Calling a `*-scaffold` skill directly, scaffolding conversationally, or
+  hand-writing a `CLAUDE.md` are all named as the failure, not the shortcut. The per-slice
+  backend/frontend steps now point at the checklist on slice 1 and start at codegen after.
+- **`references/architecture-default.md` §4.1 — the Go default stack is Gin + GORM.** Router chi →
+  **Gin** (`Register(r gin.IRouter, …)`, `gen.RegisterHandlers`, `gin.New()` in the composition
+  root); persistence pgx/v5 + sqlc → **GORM on the pgx/v5 driver**, with GORM models living in
+  `infrastructure/` as their own types. `oapi-codegen`, `golang-migrate` and `golang-jwt` are
+  unchanged — they already agreed. The modular-monolith decomposition, the nested `internal/`
+  boundary, and every §4.2/4.3 rule are untouched: this is a library swap inside the structure,
+  not a change to it.
+- **§6.1 — the generator is `gin-server`,** and the spec-first claim is now scoped honestly.
+- **§8 — soft delete is expressed as `gorm.DeletedAt`** rather than a filter written into every
+  query, since GORM scopes it automatically.
+
+### Added
+
+- **§4.1 — "What `go-scaffold` gives you and what it doesn't."** The scaffold ships this stack in a
+  **flat-package** layout; adopting §4.1's decomposition is a deliberate, three-step move
+  (nest under `internal/<module>/internal/`, split the `oapi-codegen` config by `include-tags`,
+  replace `main()` composition with per-module `Register`). Stated with a deadline — before the
+  second module exists — because the same work after four modules is a migration.
+- **§4.1 — the one rule GORM makes load-bearing.** `domain/` must not import `infrastructure/`,
+  with the concrete failure named: `gorm:"primaryKey"` tags migrating onto the domain entity
+  because it is the same struct shape, coupling business rules to table layout.
+- **§6.1 / §11 — `security:` binds to nothing.** `oapi-codegen` generates routing and types, never
+  authorization, so an operation with `security:` written and no application-layer check compiles,
+  generates, serves 200s, and passes every structural drift gate. §11's contract suite now requires
+  a negative-authz case per protected operation (anonymous → 401, wrong-role → 403) — the only
+  place that failure is observable.
+- **§17 — two checklist lines**: repo created through `bigin-harness-setup`, and the Go-only
+  §4.1 restructure deadline.
+- **`g5-build.md` — the three ordering traps at the scaffold seam** (empty directory before
+  the submodule, scaffold's own initial commit before `gh repo create`, locked contract
+  replacing the starter `openapi.yaml` before codegen is trusted), plus the instruction to
+  record the scaffold's auth kernel in `plan/progress.yaml` as delivered-by-scaffold so G6's
+  first parity report doesn't open with a false creep positive.
+- **`g5-build.md` — a guardrail that the baseline is not partially adoptable.** Deleting the
+  harness's guard hooks or swapping the scaffolded stack contradicts the locked Gate 3 ADR
+  and is a gate conversation, not a lane decision. Its CI additions (license scan,
+  AC-coverage) go into the scaffold's `ci.yml`, not a second workflow beside it.
+- **SKILL.md — two failure modes**: creating a code repo by hand, and trusting codegen from
+  the scaffold's starter spec.
+
 ## [0.8.0] - 2026-08-03
 
 Between the gates, the pipeline was a prompt to type "continue" into. G1 fans four miners out

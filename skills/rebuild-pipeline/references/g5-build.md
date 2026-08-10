@@ -4,8 +4,47 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 3, not a constant. Work happens in code repos; the workbench is read-only input
 (submodule pinned to gate tags).
 
-**The first time a code repo is created**, do all four of these — the repo is not set up
+**The first time a code repo is created**, do all five of these — the repo is not set up
 until they are:
+
+0. **Create it with `bigin-skills`, never by hand.** `bigin-skills` is this pipeline's
+   baseline: it owns app scaffolding and the AI-governance harness, and this pipeline owns
+   none of it. From an **empty directory**, invoke the `bigin-skills:bigin-harness-setup`
+   skill. It is the single entry point — its Phase 0.5 delegates to the matching
+   `*-scaffold` skill's deterministic script, then overlays the governance harness
+   (`CLAUDE.md`, path-scoped `.claude/rules/`, commit-time guard hooks) on top. Do **not**
+   invoke `go-scaffold`/`nuxt-scaffold`/`nodejs-scaffold`/`next-scaffold` yourself, do not
+   scaffold conversationally, and do not hand-write a `CLAUDE.md` — all three produce a repo
+   that diverges from every other repo in the org, which is the whole reason the baseline
+   exists.
+
+   Profile follows Gate 3's stack ADR, not a fresh decision: Go backend → `go`, Fastify
+   backend → `nodejs`, Nuxt frontend → `nuxt`, Next frontend → `next`. The harness skill
+   will ask if it can't detect one — answer from the locked ADR.
+
+   Three things about the order, each of which breaks the run if got wrong:
+   - **Scaffold into the directory while it is still empty, then add the workbench
+     submodule.** Every `*-scaffold` script refuses a non-empty target directory. A repo
+     that already contains the pinned workbench submodule still has no `go.mod`, so
+     `bigin-harness-setup` fires Phase 0.5 anyway and the script it delegates to fails on a
+     directory it considers dirty. Submodule after, always.
+   - **The scaffold makes its own initial commit** (`git init` + commit is part of its
+     verify pass). So step 2's `gh repo create --source . --push` runs *after* it, against
+     a repo that already has history — not before.
+   - **The scaffold's `openapi.yaml` is a starter file, not the contract.** `go-scaffold`
+     ships a spec for its own auth kernel. Gate 4 locked the real one in the workbench's
+     `contracts/`. Replacing it is the first commit after scaffolding, before any codegen
+     is trusted — otherwise commit 1 already violates this phase's own guardrail ("no code
+     against interfaces absent from locked contracts"), and every generated type descends
+     from a spec no gate ever saw.
+
+   **What the scaffold hands you for free, and why that is a bookkeeping problem.** A
+   scaffolded backend arrives with a working auth kernel — signup, login, refresh-token
+   rotation, logout, profile, admin user management — plus rate limiting, CORS and health
+   probes. That is real feature-matrix surface delivered before the slice that planned it.
+   Record it in `plan/progress.yaml` as delivered-by-scaffold the moment the repo exists.
+   Unrecorded, it is indistinguishable from scope creep to G6's parity check, and the first
+   parity report of the project opens with a false positive.
 
 1. **Register it** in the workbench's `repos.yaml` (`name` + `path` relative to the
    workbench root). `scripts/pause-check.mjs` reads this list; an unregistered repo is
@@ -61,15 +100,27 @@ then resolves against the code repo's own remote, so a fresh
    whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
    reopen. Both were answerable in a minute at spec time.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
-   Scaffolding + codegen from contracts first.
-3. **Frontend** — against the generated typed client; may split per feature area.
+   On the first slice this is where the repo checklist above runs (`bigin-harness-setup`,
+   then the locked contract replacing the scaffold's starter spec); on every slice after,
+   the repo already exists and this step starts at codegen from `contracts/`.
+3. **Frontend** — same: first slice creates the repo through `bigin-harness-setup` (`nuxt`
+   or `next` per Gate 3), thereafter build against the generated typed client. May split
+   per feature area.
 4. **Infra** — CI/CD, environments, deploy. Migrations serialize through ONE queue
    regardless of lane count.
 
 ## Guardrails you enforce as orchestrator
 - No code against interfaces absent from locked contracts (hook also blocks workbench
   edits — if an agent needs a contract change, that is a Gate 4 conversation).
+- **The baseline is not optional and not partially adoptable.** Every code repo is created
+  by `bigin-skills:bigin-harness-setup` and keeps what it installed. Deleting its guard
+  hooks, rewriting its `CLAUDE.md` wholesale, or swapping the scaffolded stack for a
+  hand-rolled one is a Gate 3 conversation (it contradicts the locked stack ADR), not a
+  lane-level decision.
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
+  The scaffold already wrote `.github/workflows/ci.yml` with lint/test/build — this
+  pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a
+  second workflow written alongside it.
 - Cross-lane shared changes go through one serialized review path.
 - **The slice is not done until deployed** and its `done_means` demonstrably true —
   the deploy is half the curriculum. Confirm with the user before marking a slice done,

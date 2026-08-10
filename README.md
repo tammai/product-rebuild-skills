@@ -42,6 +42,19 @@ Two ideas carry everything:
 Requires Node.js ≥ 20 (scaffold and gate scripts), git, and Docker (you will run the
 reference product locally — it's mandatory, not optional).
 
+**Also requires the [`bigin-skills`](https://github.com/tammai/bigin-skills) plugin** — the
+baseline this pipeline builds on. It owns app scaffolding and the AI-governance harness;
+from G5 onward every code repo is created by its `bigin-harness-setup` skill rather than by
+hand, so the rebuild lands on the same stack and the same guardrails as everything else in
+the org. Nothing before G5 touches it, but install it up front:
+
+```bash
+/plugin marketplace add tammai/bigin-skills
+/plugin install bigin-skills@bigin
+```
+
+Note it is licensed PolyForm-Strict-1.0.0, unlike this plugin's MIT.
+
 ## Walkthrough: start to finish
 
 ### 1. Start

@@ -15,7 +15,7 @@
 
 > Default architecture reference for enterprise-scale systems. **Go + Nuxt is the default stack**; **Fastify (Node.js) + Next.js** is the supported alternate when the default doesn't fit. Goal: clear role separation, parallel team development, and a system that stays maintainable for years without requiring an architectural rewrite.
 >
-> This playbook covers structural/architectural decisions only. For concrete scaffolding, versions, and CI wiring for either stack, see `bigin-skills` (`go-scaffold` / `nodejs-scaffold`) rather than duplicating that detail here.
+> This playbook covers structural/architectural decisions only. For concrete scaffolding, versions, and CI wiring for either stack, see `bigin-skills` — entry point `bigin-harness-setup`, which runs the matching `*-scaffold` and then the governance harness — rather than duplicating that detail here.
 
 ---
 
@@ -136,13 +136,13 @@ backend/
   internal/
     projects/
       projects.go               ← module's ONLY public surface: exported interface for
-                                   other modules + func Register(r chi.Router, deps Deps)
+                                   other modules + func Register(r gin.IRouter, deps Deps)
       internal/                  ← nested internal/: compiler blocks ALL other modules from everything below
         gen/                     ← oapi-codegen output for THIS module only (include-tags: [projects])
         domain/                  ← entities, pure business rules
         application/              ← use-cases (CreateProject, ArchiveProject...)
-        infrastructure/            ← pgx/v5 + sqlc queries
-        api/                       ← chi handlers implementing gen.ServerInterface
+        infrastructure/            ← GORM models + repositories (this module's schema only)
+        api/                       ← Gin handlers implementing gen.ServerInterface
     workpackages/
       workpackages.go
       internal/
@@ -159,16 +159,16 @@ backend/
 
 ```go
 // internal/projects/projects.go — the public surface
-func Register(r chi.Router, deps Deps) {
+func Register(r gin.IRouter, deps Deps) {
     h := api.NewHandler(deps)            // nested internal/api — reachable from here, nowhere else
-    gen.HandlerFromMux(h, r)             // registers this module's /v1/projects/* routes onto r
+    gen.RegisterHandlers(r, h)           // registers this module's /v1/projects/* routes onto r
 }
 ```
 
 4. `cmd/server/main.go` is a pure composition root:
 
 ```go
-r := chi.NewRouter()
+r := gin.New()
 projects.Register(r, deps)
 workpackages.Register(r, deps)
 users.Register(r, deps)
@@ -177,9 +177,13 @@ billing.Register(r, deps)
 
 No module can see another's handlers, yet every route from the single contract gets mounted — the compiler-enforced boundary (this section) and the spec-first contract (section 6) compose instead of colliding.
 
-Accompanying stack for the default: **chi** (router), **oapi-codegen** (per-module server interfaces + types, generated from `openapi.yaml` as above — see section 6.1), **pgx/v5** (driver) + **sqlc** (typed queries), **golang-migrate** (section 8).
+Accompanying stack for the default: **Gin** (router), **oapi-codegen** (per-module server interfaces + types, generated from `openapi.yaml` as above — see section 6.1), **GORM** on the **pgx/v5** driver (persistence), **golang-migrate** (section 8), **golang-jwt** (section 7). This is the same stack `bigin-skills`' `go-scaffold` generates, so a scaffolded repo and this playbook agree on library choices from the first commit; what the scaffold does *not* give you is this section's module decomposition — see the note at the end of 4.1.
+
+**The one rule GORM makes load-bearing:** `domain/` must not import `infrastructure/` — and with a full ORM that stops being a stylistic preference. The failure mode is concrete and near-universal: GORM struct tags (`gorm:"primaryKey"`, `gorm:"index"`) get written onto the domain entity because it's the same struct shape, and the module's business rules are now coupled to its table layout. Keep GORM models in `infrastructure/` as their own types, mapped to and from domain entities at that boundary, and let the lint in the next paragraph enforce the import direction. Accept the mapping code; it is the price of the ORM, and it is cheaper than the alternative.
 
 **Important — how the `internal/` boundary actually works:** Go's top-level `internal/` only blocks imports from *outside* the backend repo — within it, `internal/workpackages` could freely import `internal/projects/domain` in a flat layout, and the compiler would say nothing. Real per-module compiler enforcement comes from the **nested** `internal/` shown above: each module's implementation lives under `internal/<module>/internal/`, unreachable from any other module; the only thing reachable is the small public surface file at the module root (`projects.go`). Layer rules *within* a module (e.g. `domain/` must not import `infrastructure/`) are lint territory — `go-arch-lint` or `depguard` in CI.
+
+**What `go-scaffold` gives you and what it doesn't.** The scaffold generates this section's *stack* (Gin, `oapi-codegen`, GORM, `golang-migrate`, `golang-jwt`) in a **flat-package** layout with a single `api/api.gen.go` — appropriate for the starter case, and not this section's decomposition. Adopting the modular structure above is a deliberate first move on a scaffolded repo, and it is three concrete changes: (1) move implementation under `internal/<module>/internal/`, leaving only `<module>.go` at each module root; (2) split the one `oapi-codegen` config into per-module configs with `output-options.include-tags`, each writing into its module's nested `internal/gen/`; (3) replace the composition in `main()` with per-module `Register(r, deps)` calls. Do this before the second module exists — a flat app with four modules' worth of code in it is a migration, not a refactor.
 
 **Node.js / Fastify (alternate)**
 
@@ -407,7 +411,8 @@ Read these as **layout references, not architecture**. They are standalone Nuxt 
 ### 6.1 Pipeline
 
 1. **One source of truth, with generation binding spec and code together — the direction differs per stack:**
-   - Go (default, **spec-first**): `api/openapi.yaml` is hand-authored as the contract, with every operation tagged by module; per-module `oapi-codegen` configs (`include-tags`) generate each module's chi-compatible server interface and types (wiring in section 4.1). Handlers implement the generated interface — change the spec and the code stops compiling until handlers catch up. *Structural* drift is impossible by construction; value-level correctness (a field of the right type carrying the wrong value) is what section 11's contract tests cover.
+   - Go (default, **spec-first**): `api/openapi.yaml` is hand-authored as the contract, with every operation tagged by module; per-module `oapi-codegen` configs (`include-tags`) generate each module's Gin server interface and types via the `gin-server` generator (wiring in section 4.1). Handlers implement the generated interface — change the spec and the code stops compiling until handlers catch up. *Structural* drift is impossible by construction; value-level correctness (a field of the right type carrying the wrong value) is what section 11's contract tests cover.
+   - **What generation does *not* bind: `security:`.** `oapi-codegen`'s `gin-server` generates routing and types, never authorization — an operation's `security:` block produces no check in the generated code. So the spec's security section is documentation, and the enforcement lives where section 7 puts it (a module's `application/` layer, through the shared kernel's RBAC interface). The trap is assuming the contract is doing this: a route whose `security:` was written but whose application-layer check was never added compiles, generates, serves 200s, and passes every structural drift gate. Section 11's contract tests must therefore include a negative-authz case per protected operation — anonymous → 401, wrong-role → 403 — because that is the only thing that actually observes the binding.
    - **Author the spec as OpenAPI 3.0.x**, not 3.1 — `oapi-codegen`'s 3.1 support is not yet dependable, while every consumer here handles 3.0 perfectly. Revisit only by pinning and verifying a codegen version with proven 3.1 support.
    - Fastify (alternate, **code-first**): TypeBox schemas on each route (also used for runtime request/response validation) via `@fastify/type-provider-typebox`, exported through `@fastify/swagger` — the same schema object is both the validator and the spec source, so this step is close to free.
 2. **Generate frontend types**: `openapi-typescript` generates the TS types from the published spec file (`openapi.yaml` for the Go default, `openapi.json` for the Fastify alternate — same tool, either format). **The transport is the framework's own client — Nuxt's `$fetch` (ofetch); do not add an HTTP library for the sake of it.** `$fetch` already handles SSR-vs-browser base resolution, so a third-party client buys nothing there.
@@ -480,7 +485,7 @@ The meta-framework's server runtime (Nitro for Nuxt, Route Handlers/middleware f
   - Go: `google/uuid` (`uuid.NewV7()`).
   - Fastify: the `uuid` package's `v7()` export (or the `uuidv7` package). **Not `crypto.randomUUID()`** — that generates v4 (random, not time-sortable), silently defeating the point. Node's native `crypto.randomUUIDv7()` exists only on very recent Node versions; don't assume it.
 - **Audit columns:** every table gets `created_at`, `updated_at` (UTC `timestamptz`), a **`version` integer row-version column** (incremented on every update — this is what section 9.4's optimistic concurrency checks against), and `created_by`/`updated_by` where a user is involved. Cross-module user references (`created_by` pointing at the users module) are **bare UUIDs, never cross-schema foreign keys** — referential integrity across module boundaries is the interface's job, not the database's.
-- **Soft delete, with its traps handled instead of discovered:** default to `deleted_at` nullable over hard delete. Three non-optional companion rules: (1) unique constraints become **partial unique indexes** (`... WHERE deleted_at IS NULL`) or a deleted row blocks re-creating its replacement; (2) the `deleted_at IS NULL` filter is baked into the query layer's conventions — every sqlc query is written with it, Drizzle gets a shared helper — never left to each call site's memory; (3) hard delete remains a separate, explicit use-case (e.g. GDPR erasure) — and note that real erasure must also cover outbox rows, DLQ entries, and event payloads consumers may have stored, so erasure is itself an event (`user.erased`) each module handles for its own schema.
+- **Soft delete, with its traps handled instead of discovered:** default to `deleted_at` nullable over hard delete. Three non-optional companion rules: (1) unique constraints become **partial unique indexes** (`... WHERE deleted_at IS NULL`) or a deleted row blocks re-creating its replacement; (2) the `deleted_at IS NULL` filter is baked into the query layer, never left to each call site's memory — GORM gives this for free via a `gorm.DeletedAt` field on the model, which scopes it out of every query automatically, and Drizzle gets a shared helper. **GORM's version has two escape hatches that bypass it silently**, so treat both as review-blocking: `Unscoped()` (legitimate only inside the explicit hard-delete use-case in rule 3) and any raw SQL / `Raw()` / `Exec()` path, where the filter is back to being the author's memory; (3) hard delete remains a separate, explicit use-case (e.g. GDPR erasure) — and note that real erasure must also cover outbox rows, DLQ entries, and event payloads consumers may have stored, so erasure is itself an event (`user.erased`) each module handles for its own schema.
 - **Migrations:** `golang-migrate` for Go; Drizzle Kit for Fastify (pairs with the TypeBox/Drizzle stack from section 4.1). Migrations are forward-only once merged — a broken migration gets fixed by a new migration, never edited in place after it's shipped. Migrations run as a **separate deploy step before the app rolls out**, never on app startup, and each migration must be backward-compatible with the still-running version (expand → migrate → contract) so zero-downtime deploys stay possible. The shared kernel owns its own schema and migration directory (for `idempotency_keys`, processed-events, RBAC tables), with an explicit owning team per section 14 — kernel tables don't live in any feature module's schema.
 - **Transactional outbox:** events are written to an outbox table **in each module's own schema** (required — same-transaction means same schema ownership) as part of the transaction that caused them; a relay publishes from the outbox after commit. The relay is just a recurring job in the existing job queue (section 7) — poll the outbox every few seconds, publish pending rows, mark them sent; no extra infrastructure. This closes the publish-side gap: without it, a process dying between "commit succeeded" and "event published" loses the event silently — and no dead-letter queue ever sees it, because the DLQ only covers consumption failures.
 - **Consumers must be idempotent — at-least-once delivery guarantees duplicates.** The relay can crash between "publish" and "mark sent," so every event will eventually arrive twice. Each consuming module keeps a processed-events (inbox) table in its own schema and dedupes on event ID before handling. Without this, the doc's own `billing` example double-counts and notifications double-send — it's as mandatory as the outbox itself.
@@ -553,7 +558,7 @@ All error responses share one JSON shape, defined once as a reusable OpenAPI sch
 ## 11. Testing Strategy
 
 - **Backend:** unit tests for `domain/` and `application/` (pure logic, no DB); integration tests for `infrastructure/` (real DB via test containers, not mocks) and `api/` (full HTTP round-trip through the router/plugin).
-- **Contract testing:** section 6.2's CI check catches the spec and generated types drifting apart *structurally* — it can't catch a field that matches its declared type but returns the wrong value. A contract test suite (generated request/response schemas run against real endpoints) closes that gap.
+- **Contract testing:** section 6.2's CI check catches the spec and generated types drifting apart *structurally* — it can't catch a field that matches its declared type but returns the wrong value. A contract test suite (generated request/response schemas run against real endpoints) closes that gap. **It must also carry a negative-authz case per protected operation** — anonymous → 401, wrong-role → 403 — because no generator binds the spec's `security:` block to a check (section 6.1), so this suite is the only place that failure becomes visible.
 - **Frontend:** component tests for isolated UI logic, plus a thin e2e suite (Playwright) covering critical paths only (login, primary CRUD flow per module) — not full-coverage e2e, just enough to catch integration breaks that type generation alone wouldn't.
 - Specific coverage thresholds are a per-project decision, not fixed here — but *which layer gets which kind of test* is fixed, so a new engineer or an AI coding agent knows where a test belongs without guessing.
 
@@ -632,7 +637,7 @@ Mixing is allowed (e.g. Go backend + Next frontend) if the two choices above are
 
 Fastify (not NestJS, not Encore.ts) is the named alternate specifically because it matches BigIn's existing Node.js stack choices (TypeBox, Drizzle, Vitest, pino) and keeps the boundary-enforcement story simple: one lint rule (`eslint-plugin-boundaries`/`dependency-cruiser`), not a framework-specific DI system to reason about.
 
-Sections 1–15 apply unchanged regardless of which stack is chosen. For the actual scaffolding commands, dependency versions, and CI templates for whichever stack is picked, use the matching `bigin-skills` skill (`go-scaffold`, `nodejs-scaffold`) — this playbook stays at the architecture level on purpose.
+Sections 1–15 apply unchanged regardless of which stack is chosen. For the actual scaffolding commands, dependency versions, and CI templates for whichever stack is picked, invoke `bigin-skills`' **`bigin-harness-setup`** — it delegates to the matching scaffold skill (`go-scaffold`, `nuxt-scaffold`, `nodejs-scaffold`, `next-scaffold`) and then installs the governance harness, so it is the one entry point rather than four. This playbook stays at the architecture level on purpose.
 
 ---
 
@@ -641,6 +646,8 @@ Sections 1–15 apply unchanged regardless of which stack is chosen. For the act
 - [ ] Confirm there's a real API-first driver (decoupled backend/frontend releases, or a second client on the roadmap) — not just "might need it later"
 - [ ] Repo setup decided: polyrepo (default) unless the monorepo alternate is justified — with the OpenAPI publish/pin mechanism in place if polyrepo
 - [ ] Set up module boundaries from the start: `internal/` (Go) or a boundary-lint rule (Fastify), enforced in CI
+- [ ] Repo created through `bigin-skills`' **`bigin-harness-setup`** (it runs the matching `*-scaffold` itself, then overlays the governance harness) — not by hand, and not by calling a scaffold skill directly
+- [ ] Go only: apply section 4.1's decomposition **before the second module exists** — the scaffold ships the right stack in a flat layout, and restructuring later is a migration
 - [ ] Presentation layer scaffolded in, not deferred: `@nuxt/ui` from the first commit (`npm create nuxt@latest -- --template ui`), with a reference layout picked from `github.com/nuxt-ui-templates` where one fits (section 5.5) — hand-rolling a component layer is a decision that has to be justified, not the path of least resistance
 - [ ] Icon collection installed locally (e.g. `@iconify-json/lucide`) so `@nuxt/icon` never falls back to the Iconify HTTP API at render time (section 5.5)
 - [ ] Frontend feature boundaries enforced: core ESLint `no-restricted-imports` per feature folder in CI (no plugin, no resolver — section 5.3), route layer as the only cross-feature importer — not assumed automatic just because it's the frontend
