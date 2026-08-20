@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0] - 2026-08-19
 
-G4a had exactly one architecture playbook and it was a web playbook, hardcoded by path in five
+G4a had exactly one architecture playbook and it was a web playbook, hardcoded by path in seven
 files. A rebuild the playbook did not fit had one escape hatch: the applicability check, which
 turns the whole mechanism *off* and reverts every ADR to blank slate. So a team rebuilding their
 own legacy React Native app in Flutter could either accept standing answers about Go modules and

@@ -5,6 +5,12 @@ product development lifecycle by doing it. Point it at a reference product (usua
 OpenProject, Twenty CRM, Webstudio, or a category like "CRM"), and it drives a gated
 pipeline from feature mining to a verified, production-ready codebase.
 
+**The reference can also be your own product**, which is the case for replacing a legacy app
+on a new stack. And the rebuild does not have to own both halves: set `target_shape:
+client-only` and the existing backend API stays where it is, becoming mined ground truth the
+pipeline freezes rather than a contract it designs. A messy old React Native app rebuilt in
+Flutter, backend untouched, is the same pipeline with three fields set differently at G0.
+
 **You interact with one thing only: the `rebuild-pipeline` skill** (or the `/rebuild`
 command). It detects where the project stands, reports progress, dispatches subagents
 for parallel work, and stops at every gate to ask for your decision. You never need to
@@ -27,6 +33,13 @@ Two ideas carry everything:
 2. **Gates, not momentum.** Five points where the pipeline deliberately stops for a
    human decision. Between gates, work fans out to parallel agents. Locked artifacts
    are enforced — a hook physically blocks edits to them.
+3. **A playbook, not a blank slate — but only for architecture.** Gate 3's decisions start
+   from an *architecture playbook* your project picks at G0: one file in
+   [`references/playbooks/`](skills/rebuild-pipeline/references/playbooks) declaring which
+   concerns exist and where its answers live, or one you write yourself. Two ship — a Go +
+   Nuxt modular monolith (the org default) and a Flutter client against an existing API — and
+   an ADR is required to *diverge* from an answer, not to adopt one. Everywhere else (taxonomy,
+   slicing, contracts) stays a per-product decision, deliberately.
 
 ## Install
 
@@ -67,7 +80,15 @@ interviews you:
 - **Distribution intent?** This decides the *license posture*: private learning allows
   reading any OSS source; possible closed-source distribution later means clean-room
   treatment of copyleft references (behavior/docs/API only, no code reading). Recorded
-  in `license-posture.md` before anything is mined.
+  in `license-posture.md` before anything is mined. If the reference is code you already own,
+  this collapses to a question about *your* distribution plans instead.
+- **What is being rebuilt, and against which playbook?** Two fields, and the cheapest thirty
+  seconds in the project: `target_shape` (`fullstack`, or `client-only` when the API already
+  exists and stays) and `playbook` (a registry entry, a file of your own, or `none` to keep
+  every architecture decision blank-slate). Four later phases read them — target shape alone
+  changes what G1 mines, flips Gate 4 from *authoring* a contract to *transcribing* one,
+  decides how G5 creates the repo, and selects Gate 5's checklist. Discovering it at Gate 4
+  means a month of mining the wrong things.
 
 It then scaffolds your **workbench** (`<name>-workbench/`): the directory tree, schemas,
 gate files (all open), validation scripts, and CI. Run `npm install` inside it once.
@@ -80,6 +101,13 @@ reference's actual schema, routes, permissions, jobs — when the license postur
 features actually work). Your two jobs: get the reference running locally, and verify
 the drafted UX flows against it when asked. Every finding carries evidence or it gets
 rejected at validation.
+
+For a `client-only` rebuild, lane D points at the *client*: every API call site (which becomes
+the frozen contract), every field the app reads or caches, and an inventory of what the old app
+left on people's devices — secure-storage keys, local database, files, push registration.
+That last one wants a device restored from a real backup rather than a fresh install, because a
+fresh install has none of the state a two-year-old install has, which is exactly the state that
+breaks on upgrade.
 
 ### 3. Gates 1–2: shape the map, order the work
 
@@ -120,14 +148,27 @@ observable behavior mapping to exactly one test) — you review specs before cod
 backend/frontend/infra lanes build in parallel against the locked contracts. The slice
 is done when it's **deployed** and its `done_means` is demonstrably true.
 
+Code repos are created by [`bigin-skills`](https://github.com/tammai/bigin-skills)
+(`bigin-harness-setup`), using the profile your locked playbook names — `go`/`nodejs` +
+`nuxt`/`next`, or `flutter` from bigin-skills 1.66.0. For a client-only rebuild this lane *is*
+the build, split per feature module, and "deployed" means a build a real person can install
+from an internal track — not a simulator run.
+
 ### 6. Parity (G6) and the finish line (GP)
 
 After each slice and monthly, the parity loop runs automatically: AC test results,
 coverage diff against the matrix, scope-creep detection, and re-mining the reference's
 changelog (it keeps shipping while you build — new features enter your backlog at slice
-boundaries, never mid-slice). When the slice plan completes, **Gate 5** verifies
-production readiness *by doing*: you restore a backup for real, you run an incident
-drill from the runbook. Evidence, not assertion. Locking Gate 5 is the finish.
+boundaries, never mid-slice; skipped entirely for a reference that has stopped shipping,
+which is the normal case when you are replacing your own app). When the slice plan completes,
+**Gate 5** verifies production readiness *by doing*: you restore a backup for real, you run an
+incident drill from the runbook. Evidence, not assertion.
+
+A shipped client gets its own checklist instead, because it breaks all three assumptions the
+service one makes — you cannot roll a release back, the data at risk is on devices you cannot
+reach, and someone else's review queue gates the deploy. So "restore a backup" becomes
+"upgrade in place over the old app, on the oldest supported OS, once with the migration
+interrupted", and the kill switch gets flipped for real. Locking Gate 5 is the finish.
 
 ## Knowing where you are
 
@@ -178,10 +219,14 @@ commands/rebuild.md             /rebuild — run or resume the pipeline
 skills/rebuild-pipeline/        THE skill you interact with
   SKILL.md                      orchestration protocol (state → report → act, gate rules)
   references/g*.md              one file per phase, loaded only when that phase runs
+  references/playbooks/         the architecture-playbook registry — one file per playbook,
+                                each declaring its own concerns → sections map; write your own
   schemas/*.schema.json         finding / feature / slice / lock schemas
   scripts/rebuild-init.mjs      workbench scaffolder
   scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
   scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
+  scripts/playbook.mjs          playbook resolution + the ADR concern/citation checks
+  scripts/erd.mjs               data-model checks shared by validate and gate
   scripts/parity.mjs            G6 coverage report
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
@@ -194,6 +239,13 @@ docs/PLAYBOOK.md                the full methodology
 ## Design rules the plugin enforces (so you don't have to)
 
 - **No evidence, no finding.** Agents cannot write hallucinated facts into the matrix.
+- **Every architecture concern gets decided, or the gate will not lock.** Your playbook's
+  concern list is the ADR list: `gate.mjs lock gate-3` refuses while any of them has no ADR, and
+  validation rejects an ADR citing a section the playbook does not have. "Every cross-cutting
+  concern decided" stopped being a sentence and became a check.
+- **The playbook you decided against is pinned to your decisions.** G4a copies it into the
+  workbench and Gate 3 hashes that copy, so upgrading this plugin cannot re-point an accepted
+  ADR's "§7" at different content months later.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
   hatch is a formal, logged reopen with a reason — never a quiet edit.
 - **Gates are yours.** The skill never locks a gate on its own initiative — including on
@@ -219,3 +271,31 @@ surfaced, and history stays honest.
 
 **Multiple projects?** One workbench per project, always. The plugin (schemas, scripts,
 process) is the shared part; every workbench pins the schema version it was created with.
+
+**Can I rebuild my own legacy app rather than someone else's product?** Yes, and it is a
+better-supported case than it sounds: record `reference.kind: own-code` and
+`reference.upstream: frozen`. Mining is unrestricted, the running instance is the app you
+already have, and the parity loop stops tracking upstream because there is none. That trade is
+in your favour — a frozen reference is a permanent arbiter for "what did the old app actually
+do here", so keep it *installable* for the life of the project. Losing that always happens by
+accident.
+
+**Can it rebuild only the client, against an API we are not touching?** That is
+`target_shape: client-only`. Gate 4 then locks a *transcription* of the existing API rather
+than a design, anything the rebuild needs added goes in a separate `requested.yaml` (it is a
+request to another team, not a contract you own), and `contracts/data-model/` describes the
+on-device store instead of a server schema.
+
+**None of the shipped playbooks fit my stack. Now what?** Write one — it is a Markdown file
+with a frontmatter block declaring its concerns, and
+[`references/playbooks/README.md`](skills/rebuild-pipeline/references/playbooks/README.md) has
+the contract and the four rules tooling enforces. Point `architecture.playbook` at your file
+(in the registry, or inside your own workbench for a project-local one). Or set it to `none`
+and every Gate 3 ADR goes back to a blank-slate decision against the reference, which is how
+the pipeline worked before playbooks existed.
+
+**What if my playbook's stack has no `bigin-skills` scaffold profile?** G5 says so out loud
+and falls back: the stack's own scaffolder first, then the harness in its stack-neutral
+`generic` mode — which installs no CI, so your playbook's CI section is what the first slice
+writes by hand. Usually that gap is a plugin version rather than a permanent fact, so check
+before accepting it.
