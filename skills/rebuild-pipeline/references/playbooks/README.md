@@ -7,7 +7,7 @@ the ADRs. The pipeline knows nothing about any playbook's content — it reads t
 | Playbook | Target shape | Stack | Scaffold |
 |---|---|---|---|
 | `web-modular-monolith` (org default) | `fullstack` | Go + Nuxt modular monolith, API-first; Fastify + Next.js alternate | `bigin-skills` profiles `go`/`nodejs` + `nuxt`/`next` |
-| `mobile-flutter` | `client-only` | Flutter client against an existing HTTP API; Riverpod + go_router + Drift + generated dio client | `flutter` (needs `bigin-skills` >= 1.66.0; `generic` fallback below that) |
+| `mobile-flutter` | `client-only` | Flutter client against an existing HTTP API; Riverpod + go_router + Drift + generated dio client | `flutter` (needs `bigin-skills` >= 1.68.0; `generic` fallback below that) |
 
 `web-modular-monolith` is the default when `architecture.playbook` is empty. `none` disables
 the mechanism: every G4a ADR becomes a blank-slate decision against the reference alone.

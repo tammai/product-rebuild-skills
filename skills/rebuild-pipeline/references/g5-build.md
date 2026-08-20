@@ -25,7 +25,7 @@ until they are:
    **Read the profile off the locked playbook, never off the stack you see in the code.**
    `adr/playbook.md`'s `scaffold-profile:` frontmatter names it, and that is a Gate 3 fact.
    The Flutter client playbook resolves to profile `flutter`, which needs `bigin-skills`
-   >= 1.66.0 — its Phase 0.5 delegates to `flutter create`, and the harness then installs the
+   >= 1.68.0 — its Phase 0.5 delegates to `flutter create`, and the harness then installs the
    rules, **both** lint commands (`custom_lint` for `riverpod_lint`, `import_lint` for the
    boundaries — they are separate tools), CI, and the pre-commit gate. Check the installed
    version before assuming the profile exists.

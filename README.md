@@ -150,7 +150,7 @@ is done when it's **deployed** and its `done_means` is demonstrably true.
 
 Code repos are created by [`bigin-skills`](https://github.com/tammai/bigin-skills)
 (`bigin-harness-setup`), using the profile your locked playbook names — `go`/`nodejs` +
-`nuxt`/`next`, or `flutter` from bigin-skills 1.66.0. For a client-only rebuild this lane *is*
+`nuxt`/`next`, or `flutter` from bigin-skills 1.68.0. For a client-only rebuild this lane *is*
 the build, split per feature module, and "deployed" means a build a real person can install
 from an internal track — not a simulator run.
 

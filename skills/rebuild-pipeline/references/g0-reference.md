@@ -90,7 +90,7 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   `/plugin install bigin-skills@bigin` — the marketplace is named `bigin`, not
   `bigin-skills`) but do **not** block G0 on it — nothing before G5 touches it.
   **Check the installed version against the chosen playbook's `scaffold-profile:`.** The
-  Flutter client playbook needs `bigin-skills` >= 1.66.0 for its `flutter` profile; below that
+  Flutter client playbook needs `bigin-skills` >= 1.68.0 for its `flutter` profile; below that
   there is no profile for the stack, and G5 must scaffold with the stack's own tool first and
   overlay the harness in `generic` mode instead (`g5-build.md` step 0). Both are documented
   paths, but they are not the same amount of work — `generic` writes no CI — so knowing which

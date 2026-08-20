@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-20
+
+The Flutter playbook shipped two commands that do the wrong thing, and named a `bigin-skills`
+floor that could not actually build a repo. Both were found the only way they could be — by
+someone running the profile on a real 118-file app (`bigin-skills` v1.68.0) rather than reading
+it.
+
+**`dart format --set-exit-if-changed .` rewrites the working tree.** The flag controls the exit
+code, not whether it writes. §3 listed the bare form as a CI and gate command, so a pre-commit
+hook built from this playbook would silently reformat files nobody staged, leave the staged
+snapshot unformatted, and land a commit that differed from the one the gate checked. It is
+`--output=none --set-exit-if-changed` everywhere now — same exit code, no writes.
+
+**`flutter analyze --fatal-infos` fails on generated code the playbook forbids editing.**
+`--fatal-infos` promotes analyzer infos to failures, and generated output reliably produces
+them — `freezed` emits `non_nullable_equals_parameter` per union, older-SDK output carries
+`deprecated_member_use`. Since that code is committed, CI-diffed and never hand-edited, the
+typecheck gate was red on day one with no legal fix (12 of 39 findings on the real app were in
+`*.freezed.dart`). §3 now requires an `analyzer: exclude:` block, merged into the repo's
+existing `analysis_options.yaml` rather than overwriting it — excluded rather than downgraded,
+because a real problem in generated code is a generator or contract problem and the
+regenerate-and-diff step is what catches it.
+
+**The codegen gate now switches itself off instead of failing.** §3 treated exact generator
+pins as a hard precondition. Essentially every existing Flutter repo carries caret ranges, so
+that turns the workflow red on the first push — the same day-one death the conditional lint
+steps exist to avoid. The step skips with a named message saying what to pin, and activates on
+its own once the pins are exact.
+
+**`import_lint`'s SDK floor now states its consequence.** It needs Dart 3.10+ / Flutter 3.38+,
+which §3 mentioned as a parenthetical. Below that floor nothing enforces the layer and feature
+boundaries — not a weaker check, none at all — while the playbook's central structural argument
+rests on them. The gate must skip it by name so the absence is visible, and §4.3's option 1
+(separate packages, resolver-enforced) is the answer that needs no plugin.
+
+**The `scaffold-profile:` floor moves from 1.66.0 to 1.68.0.** 1.66.0 shipped the profile, but
+five of its gates were red on a real repo: the format rewrite above, the analyzer failure, the
+codegen precondition, a GitHub workflow that could not resolve an SDK without `.fvmrc`, and a
+spec gate that blocked every Flutter integration test. "The profile exists" and "the profile
+builds a repo" were not the same version, and a playbook that names a floor should name the
+second one.
+
 ## [0.11.0] - 2026-08-19
 
 G4a had exactly one architecture playbook and it was a web playbook, hardcoded by path in seven

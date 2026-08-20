@@ -2,7 +2,7 @@
 playbook: mobile-flutter
 stack: "Flutter (Dart) client against an existing HTTP API (alternate state layer: BLoC)"
 target-shape: client-only
-scaffold-profile: "flutter, via bigin-skills:bigin-harness-setup (requires bigin-skills >= 1.66.0)"
+scaffold-profile: "flutter, via bigin-skills:bigin-harness-setup (requires bigin-skills >= 1.68.0)"
 not-applicable-when:
   - "the target is a single-screen utility or a marketing shell — the layering below costs more than it returns"
   - "the product is offline-first collaborative (CRDTs, multi-writer merge) — that needs a local-first playbook, not this one"
@@ -47,7 +47,7 @@ decide-before:
 > and the section bodies together or not at all.
 >
 > **Repo creation is the normal path, and §3 still owes the native half.**
-> `bigin-skills` >= 1.66.0 ships a `flutter` profile, so G5 creates the repo the same way it
+> `bigin-skills` >= 1.68.0 ships a working `flutter` profile, so G5 creates the repo the same way it
 > creates every other one: `bigin-harness-setup` from an empty directory, whose Phase 0.5
 > delegates to `flutter create` and which then installs the harness, both lint commands, CI,
 > and the pre-commit gate. Earlier versions of `bigin-skills` have no such profile — on those,
@@ -188,8 +188,8 @@ scaffold to delegate them to:**
 **CI** (added to whatever `bigin-harness-setup` wrote, one file, not a second workflow):
 
 ```sh
-dart format --set-exit-if-changed .
-flutter analyze --fatal-infos
+dart format --output=none --set-exit-if-changed .   # --output=none or it REWRITES the tree
+flutter analyze --fatal-infos                       # needs the analyzer exclude below
 dart run custom_lint            # riverpod_lint + any hand-written rules (§4.3, §5, §12)
 dart run import_lint            # the layer/feature import boundaries (§4.3) — SEPARATE tool
 flutter test
@@ -197,18 +197,42 @@ flutter test integration_test
 dart run build_runner build --delete-conflicting-outputs && git diff --exit-code
 ```
 
+**`--output=none` is not optional in a gate.** Plain `dart format --set-exit-if-changed .`
+*reformats every unformatted file it finds* and then exits 1 — the flag controls the exit
+code, not whether it writes. In a pre-commit hook that means the commit silently reformats
+files nobody staged, leaves the staged snapshot unformatted, and lands a commit that differs
+from the one the gate checked. `--output=none` makes it a pure check with the same exit code.
+Use the bare form only when you actually want the rewrite.
+
+**`--fatal-infos` needs generated code excluded from the analyzer, or the gate is red on day
+one with no legal fix.** It promotes analyzer infos to failures, and generated output reliably
+produces them: `freezed` emits `non_nullable_equals_parameter` per union, and output written
+against an older SDK carries `deprecated_member_use`. That code is committed, CI-diffed and
+never hand-edited, so add an `analyzer: exclude:` block — `**/*.g.dart`, `**/*.freezed.dart`,
+`**/*.gr.dart`, `api/generated/**` — **merged** into whatever `analysis_options.yaml` already
+exists, never overwriting it. Exclude rather than downgrade the severities: a real problem in
+generated code is a generator-version or contract problem, and the regenerate-and-diff step is
+what catches that.
+
 **`dart run custom_lint` does not run the import boundaries.** `import_lint` is a
-standalone analyzer plugin on Dart's first-party `plugins:` mechanism (Dart 3.10+ /
-Flutter 3.38+) with its own CLI; `custom_lint` is a separate, older mechanism that
-`riverpod_lint` is built on. The project needs **both commands**, and running both plugin
-mechanisms side by side is a decision to make deliberately (§4.3) rather than an assumption.
+standalone analyzer plugin on Dart's first-party `plugins:` mechanism with its own CLI;
+`custom_lint` is a separate, older mechanism that `riverpod_lint` is built on. The project
+needs **both commands**, and running both plugin mechanisms side by side is a decision to
+make deliberately (§4.3) rather than an assumption. **`import_lint` requires Dart 3.10+ /
+Flutter 3.38+, and below that floor nothing enforces the boundaries at all** — not a weaker
+check, none. On an older SDK the gate must skip it *by name* so the absence is visible, and
+§4.3's rules are review discipline until the SDK moves. That is also the strongest argument
+for §4.3 option 1, which needs no plugin.
 
 **Committed generated code must match its source** — the same rule the web playbook applies
 to its OpenAPI codegen, and the reason the `build_runner` + `git diff --exit-code` step is
-there. That gate is only stable if the inputs are pinned: commit `pubspec.lock`, pin
+there. That gate is only meaningful if the inputs are pinned: commit `pubspec.lock`, pin
 generator packages to exact versions, and pin the openapi-generator JAR or Docker tag (§7).
-Without the pins, the first transitive generator bump turns the safety gate red for reasons
-that have nothing to do with the contract, and a gate that cries wolf gets deleted.
+**Make the step skip itself with a named message while any generator is on a caret range —
+not fail.** Essentially every existing Flutter repo carries caret ranges, so a hard
+precondition turns the workflow red on the first push, which is the same day-one death the
+conditional lint steps exist to avoid. The gate then activates on its own once the pins are
+exact.
 
 ---
 
@@ -885,7 +909,9 @@ depth requirement.
    invalidate the whole plan; everything below assumes it came out acceptable.
 2. `bigin-harness-setup` from an empty directory, profile `flutter` — its Phase 0.5 runs
    `flutter create` with the org's package name and it then installs the harness, both lint
-   commands and CI (`g5-build.md` step 0). On `bigin-skills` older than 1.66.0 there is no
+   commands and CI (`g5-build.md` step 0). On `bigin-skills` older than 1.68.0 the profile is
+   absent or day-one-broken, so scaffold with `flutter create` yourself, run the harness over
+   it in `generic` mode, and write the CI from §3 by hand. Older than 1.66.0 there is no
    flutter profile: scaffold with `flutter create` yourself, run the harness over it in
    `generic` mode, and write the CI from §3 by hand.
 3. Three flavor entrypoints, three bundle IDs, `config/*.json` per flavor, **plus the native

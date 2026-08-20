@@ -47,7 +47,7 @@ overlays the AI-governance harness. Never scaffold conversationally, never call 
 `*-scaffold` skills directly, and never hand-write a `CLAUDE.md` into a code repo. Every
 shipped playbook names a profile `bigin-skills` can build — the org-default web playbook maps to
 `go`/`nodejs` + `nuxt`/`next`, the Flutter client playbook to `flutter` (needs `bigin-skills`
->= 1.66.0) — on purpose: G4a decides, `bigin-skills` builds. **The one exception** is a locked
+>= 1.68.0) — on purpose: G4a decides, `bigin-skills` builds. **The one exception** is a locked
 playbook naming a stack the *installed* plugin has no profile for: `bigin-harness-setup` cannot
 start from an empty directory without one, so G5 runs the stack's own scaffolder first and the
 harness second in its `generic` profile. That is a version gap to state out loud, not a

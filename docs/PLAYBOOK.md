@@ -341,7 +341,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 - CI on every lane: lint, tests, security scan, license scan, AC-coverage check (every AC has a test).
 - Cross-lane shared changes go through one serialized review path.
 - **Every slice ends deployed.** The deploy is part of the slice, not an afterthought — it's half the curriculum. For a client app, "deployed" means a build a real person can install (internal TestFlight / Play internal track, on a device that is not the build machine) — not a simulator run, not a CI artifact.
-- **Repo creation follows the locked playbook's `scaffold-profile:`.** `bigin-harness-setup` creates the repo from an empty directory and its Phase 0.5 delegates to that profile's scaffolder — `flutter` included, from `bigin-skills` 1.66.0. Only when the *installed* plugin has no profile for the playbook's stack does the order invert: the stack's own scaffolder first, then the harness in its stack-neutral `generic` profile, which installs no CI, so the playbook's own CI section is what the first slice writes by hand.
+- **Repo creation follows the locked playbook's `scaffold-profile:`.** `bigin-harness-setup` creates the repo from an empty directory and its Phase 0.5 delegates to that profile's scaffolder — `flutter` included, from `bigin-skills` 1.68.0. Only when the *installed* plugin has no profile for the playbook's stack does the order invert: the stack's own scaffolder first, then the harness in its stack-neutral `generic` profile, which installs no CI, so the playbook's own CI section is what the first slice writes by hand.
 
 **Exit criteria (per slice):** all specs approved; all ACs green; contract conformance passes; slice deployed and its `done_means` demonstrably true.
 
