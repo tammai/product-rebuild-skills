@@ -174,6 +174,50 @@ if (cmd === "lock") {
     }
   }
 
+  // Gate 3 locks the ADRs AND the playbook they cite. G4a vendors the selected playbook to
+  // adr/playbook.md precisely so the citations survive a plugin upgrade — a copy that never
+  // arrived leaves every "cites §7" pointing at whatever the registry says months from now.
+  // The undecided-concerns check is the other half: "every cross-cutting concern decided"
+  // was a prose exit criterion until the playbook's concerns: map made it a list, and a list
+  // is checkable. Same placement reasoning as gate-4's data model — a validator that fires
+  // on `locked` reports the gap only after the tag is cut.
+  if (id === "gate-3") {
+    let pb;
+    try { pb = await import("./playbook.mjs"); }
+    catch {
+      console.error(`Cannot lock ${id}: scripts/playbook.mjs is missing, so the architecture ` +
+        `playbook cannot be checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/ ` +
+        `alongside the copies of validate.mjs and gate.mjs already in this workbench.`);
+      process.exit(1);
+    }
+    const { checkPlaybook, PLAYBOOK_REMEDY, VENDORED_PLAYBOOK, isPrePlaybookWorkbench } = pb;
+    const res = checkPlaybook();
+    if (!res.disabled) {
+      const issues = [...res.problems];
+      if (res.missingVendored) {
+        issues.push(`${VENDORED_PLAYBOOK} does not exist — G4a step 0.3 must vendor the ` +
+          `"${res.selected}" playbook (selected ${res.selectedBy === "default"
+            ? "by default: sources.yaml's architecture.playbook is empty"
+            : "in sources.yaml"}) before this gate can lock, so the ADR citations are pinned by the lock`);
+      }
+      if (res.undecided.length) {
+        issues.push(`no ADR for concern(s): ${res.undecided.join(", ")} ` +
+          `(every key in the playbook's concerns: map needs one, even to record N/A)`);
+      }
+      if (issues.length) {
+        const body = issues.map((i) => `  ${i}`).join("\n") + `\n  ${PLAYBOOK_REMEDY}`;
+        if (isPrePlaybookWorkbench()) {
+          console.warn(`WARNING: locking ${id} without a checked architecture playbook:\n${body}\n` +
+            `  Allowed because this workbench predates schema_version 0.3.0. To enforce it, backfill\n` +
+            `  and set schema_version: "0.3.0" in locks/pipeline.yaml.`);
+        } else {
+          console.error(`Cannot lock ${id}:\n${body}`);
+          process.exit(1);
+        }
+      }
+    }
+  }
+
   // artifact_hashes below is computed from the WORKING TREE, but the lock commit further
   // down stages only the lock file itself. If any protected (or other) file is dirty, the
   // hash recorded here describes content that never lands in the gate-tagged commit — a

@@ -22,6 +22,41 @@ until they are:
    backend → `nodejs`, Nuxt frontend → `nuxt`, Next frontend → `next`. The harness skill
    will ask if it can't detect one — answer from the locked ADR.
 
+   **Read the profile off the locked playbook, never off the stack you see in the code.**
+   `adr/playbook.md`'s `scaffold-profile:` frontmatter names it, and that is a Gate 3 fact.
+   The Flutter client playbook resolves to profile `flutter`, which needs `bigin-skills`
+   >= 1.66.0 — its Phase 0.5 delegates to `flutter create`, and the harness then installs the
+   rules, **both** lint commands (`custom_lint` for `riverpod_lint`, `import_lint` for the
+   boundaries — they are separate tools), CI, and the pre-commit gate. Check the installed
+   version before assuming the profile exists.
+
+   **The fallback, for a playbook whose stack the installed `bigin-skills` has no profile
+   for.** This is the one documented exception to "never scaffold outside
+   `bigin-harness-setup`", and it is keyed to that absence, not to convenience:
+   - The empty-repo question offers only the profiles that plugin version ships, with no
+     "none of these" answer, and its stack-neutral `generic` profile is reachable **only**
+     from a directory that already contains code. So an empty directory plus an unsupported
+     stack is an unsatisfiable pair of rules; pretending otherwise means either stalling or
+     picking a profile that writes conventions for a stack that is not there.
+   - Correct order in that case: **run the stack's own official scaffolder first** (with the
+     package name and org from the locked ADR), commit it, *then* invoke
+     `bigin-harness-setup` over the now-non-empty repo. It detects no marker, lands on
+     `generic`, and installs `CLAUDE.md`, the path-scoped rules, and the commit-time guard
+     hooks. Then add the workbench submodule.
+   - **Know what `generic` skips, and close the gaps yourself from the playbook**: no
+     scaffold phase, no stack conventions or testing rule, no `.vscode` settings, **no CI
+     workflow at all**, and any lint/typecheck/test command it could not detect stays a
+     visible `TODO`. The CI file is then yours to write, from the playbook's own CI section.
+     Do it in the first slice; a repo whose harness installed a `TODO` where the test command
+     goes has a commit hook that runs nothing.
+   - This is **not** licence to hand-roll a repo for a stack that *does* have a profile. If
+     the profile exists, use it; if the playbook names one the plugin does not have, say so
+     out loud before falling back, because the gap is usually a plugin version, not a
+     permanent fact.
+   - Everything else in this checklist still applies unchanged either way: register in
+     `repos.yaml`, remote with posture-matching visibility, confirm `pause-check` sees it,
+     decide what the remote is for.
+
    Three things about the order, each of which breaks the run if got wrong:
    - **Scaffold into the directory while it is still empty, then add the workbench
      submodule.** Every `*-scaffold` script refuses a non-empty target directory. A repo
@@ -106,6 +141,14 @@ then resolves against the code repo's own remote, so a fresh
 3. **Frontend** — same: first slice creates the repo through `bigin-harness-setup` (`nuxt`
    or `next` per Gate 3), thereafter build against the generated typed client. May split
    per feature area.
+
+   **For a `client-only` rebuild, this lane is the whole build** and lane 2 does not exist —
+   there is no backend to write. It splits per feature module instead of per bounded context,
+   still one agent per module, still against a **generated** client (from the frozen
+   `contracts/openapi/`, committed, with CI regenerating and diffing it). The migration work
+   the `on-device-migration` ADR decided is its own module in whichever slice first touches
+   session or local data — never a task appended to a feature module, because it is the one
+   piece of code that runs once per user with no undo.
 4. **Infra** — CI/CD, environments, deploy. Migrations serialize through ONE queue
    regardless of lane count.
 
@@ -122,6 +165,12 @@ then resolves against the code repo's own remote, so a fresh
   pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a
   second workflow written alongside it.
 - Cross-lane shared changes go through one serialized review path.
+- **"Deployed" for a client app means a build a real person can install** — an internal
+  TestFlight or Play internal-track release, on a device that is not the build machine, with
+  the version and build number recorded. Not "it runs in the simulator", and not "CI built an
+  APK". A slice whose deploy criterion is satisfied by a simulator run has skipped the half of
+  the curriculum that signing, provisioning, store processing and rollout actually teach —
+  and every one of those fails for the first time on the day you need it to work.
 - **The slice is not done until deployed** and its `done_means` demonstrably true —
   the deploy is half the curriculum. Confirm with the user before marking a slice done,
   and record it in `plan/progress.yaml`, never in the gate-locked `plan/slices.yaml` —

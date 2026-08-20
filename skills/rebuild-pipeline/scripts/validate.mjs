@@ -13,9 +13,11 @@
 //      repo, one gate lock too late.
 //   6. contracts/data-model/*.mermaid — every diagram declares entities; one must exist
 //      once gate-4 is locked
-//   7. locks/gate-*.yaml against lock.schema.json
-//   8. Locked-gate hash consistency: protected files must match recorded hashes
-//   9. plan/autopilot.yaml against autopilot.schema.json, if present
+//   7. adr/ against the architecture playbook — every ADR names a concern the vendored
+//      playbook maps, and cites only sections that map points at
+//   8. locks/gate-*.yaml against lock.schema.json
+//   9. Locked-gate hash consistency: protected files must match recorded hashes
+//  10. plan/autopilot.yaml against autopilot.schema.json, if present
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -254,6 +256,62 @@ if (erd) {
         `After adding the data model, set schema_version: "0.2.0" in locks/pipeline.yaml to make it enforced.`);
     } else fail(DATA_MODEL_DIR, body);
   } else for (const f of dm.files) ok(f);
+}
+
+// ---------------------------------------------------------------------------
+// adr/ against the architecture playbook.
+//
+// G4a is playbook-driven: `sources.yaml` names a playbook, G4a vendors it to
+// `adr/playbook.md`, and its `concerns:` map is the list of ADRs the phase owes. Three
+// things are checkable and none of them were before 0.11.0:
+//   - the vendored copy exists and parses (without it, "cites §7" names nothing)
+//   - every ADR declares which concern it decides, and it is a concern the map has
+//   - every `§` an ADR cites is a section that map actually points at
+// The last one is the check that makes a swapped playbook safe. It cannot catch a
+// plausible-looking wrong section — §8 means storage in one playbook and auth in another —
+// only one the map never names at all. That is why the vendored copy is hashed into Gate 3:
+// the check narrows the window, the hash closes it.
+//
+// Imported like erd.mjs, for the same reason: a hand-upgraded workbench may not have copied
+// it, and that should be one reported failure rather than an unresolved import that takes
+// out every other check.
+// ---------------------------------------------------------------------------
+let pb = null;
+try { pb = await import("./playbook.mjs"); }
+catch { fail("scripts/playbook.mjs", "missing — architecture playbook not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/."); }
+if (pb) {
+  const { checkPlaybook, PLAYBOOK_REMEDY, VENDORED_PLAYBOOK, isPrePlaybookWorkbench } = pb;
+  const res = checkPlaybook();
+  if (res.disabled) {
+    ok(`${VENDORED_PLAYBOOK} (architecture.playbook: none — G4a runs blank-slate, no playbook to check)`);
+  } else {
+    // A missing vendored copy is normal until G4a runs, which is most of a project's life —
+    // failing on it from G1 onward would make `npm run validate` red for weeks and teach
+    // everyone to ignore it. It becomes fatal once gate-3 is locked, because then the ADRs
+    // cite a file that is supposed to be hashed into that lock. Refusing to lock WITHOUT it
+    // is gate.mjs's job, for the same reason the data-model check lives there: gate status is
+    // open|locked with nothing between, so a validator firing on `locked` is one tag too late.
+    const gate3 = join("locks", "gate-3.yaml");
+    const gate3Locked = existsSync(gate3) && /^status: locked$/m.test(readFileSync(gate3, "utf8"));
+    const issues = [...res.problems];
+    if (res.missingVendored && gate3Locked) {
+      issues.push(`gate-3 is locked but ${VENDORED_PLAYBOOK} does not exist — the ADRs cite a playbook nothing pins`);
+    }
+    if (issues.length) {
+      const body = issues.join("\n  ") + `\n  ${PLAYBOOK_REMEDY}`;
+      if (isPrePlaybookWorkbench()) {
+        warn(VENDORED_PLAYBOOK, `${body}\n  Warning only: this workbench predates schema_version 0.3.0. ` +
+          `After backfilling, set schema_version: "0.3.0" in locks/pipeline.yaml to make it enforced.`);
+      } else fail(VENDORED_PLAYBOOK, body);
+    } else if (res.missingVendored) {
+      ok(`${VENDORED_PLAYBOOK} (not vendored yet — G4a copies the "${res.selected}" playbook here` +
+        `${res.selectedBy === "default" ? ", the org default, since sources.yaml names none" : ""})`);
+    } else {
+      ok(`${VENDORED_PLAYBOOK} (${res.meta?.playbook} via ${res.selectedBy}, ` +
+        `${Object.keys(res.meta?.concerns || {}).length} concerns, ${res.adrs.length} ADR(s), ` +
+        `${res.undecided.length} concern(s) still undecided)`);
+    }
+  }
 }
 
 for (const f of yamlFilesUnder("locks").filter((f) => /gate-\d\.yaml$/.test(f))) {

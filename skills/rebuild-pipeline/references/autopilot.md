@@ -73,7 +73,7 @@ the `gate.mjs lock` the user will run at the halt.
 
 **At a gate.** Write the full gate review to `plan/gate-reviews/gate-N.md` — what is being
 locked, the key decisions inside it, open risks, what becomes immutable, and every point
-where the draft diverged from `architecture-default.md` or from the reference. Commit it,
+where the draft diverged from `adr/playbook.md` or from the reference. Commit it,
 then `disengage --reason gate-review --next "..."`, run `pause-check.mjs`, and present the
 review. The user decides; the file is there so the decision does not depend on scrollback.
 
@@ -89,8 +89,12 @@ review. The user decides; the file is there so the decision does not depend on s
 
 **Decisions autopilot may take alone:** lane dispatch and finding merges, dedup, canonical
 naming drafts, the dependency graph, slice-order drafts, ADR drafts against
-`architecture-default.md`, data-model and contract drafts, module specs, slice code against
-locked contracts, parity reports, and fixing its own validation failures.
+`adr/playbook.md`, data-model and contract drafts, module specs, slice code against
+locked contracts, parity reports, and fixing its own validation failures. Vendoring the
+selected playbook to `adr/playbook.md` at G4a entry is also autopilot's to do — it is a copy,
+not a decision. **Choosing or switching a playbook is not**: if the applicability check finds
+that the selected playbook's `not-applicable-when:` describes this rebuild, halt with
+`needs-user-decision` rather than picking another one or falling back to blank-slate.
 
 **Decisions it must never take alone** — halt with `needs-user-decision`. These are
 scattered across the phase references; this is the whole list:

@@ -9,12 +9,14 @@ Every dispatch is self-contained — subagents share no conversational context. 
    reference checkout's `graphify-out/graph.json` path when it exists (see
    `g1-mining.md`'s ground-truth graph step) so the miner queries it instead of grepping
    raw source cold. For adr-drafter (G4a): always include
-   `references/architecture-default.md` as a fixed input alongside the per-ADR brief, and
-   name the exact section(s) of it that apply to this concern (or `N/A` for tenancy,
-   search, and backend caching, which have no org default — see
-   `references/g4a-architecture.md` step 3). Never leave the drafter to infer the section
-   itself. For the decomposition/stack ADR specifically, also pass along whatever the
-   human said about team-composition facts bearing on Go+Nuxt vs. Fastify+Next.
+   the workbench's **`adr/playbook.md`** as a fixed input alongside the per-ADR brief — the
+   vendored copy, never the plugin's registry file — plus the **concern key** and the exact
+   **section(s)** the playbook's `concerns:` map gives for it (or `N/A` where it has no
+   answer). Never leave the drafter to infer the section itself: numbering is per-playbook,
+   so an inferred section is wrong in a way that reads as right. For the decomposition/stack
+   ADR specifically, also pass along whatever the human said about team-composition facts
+   bearing on the playbook's default versus its alternate. Pass `target_shape` too when it is
+   `client-only` — it changes what the drafter may propose about the API (see the agent file).
 3. **Output contract**: the exact output path and schema file. One output file per run.
 4. **Boundaries**: what the agent must NOT do — no edits outside its output path, no
    fetching outside `sources.yaml`, no restructuring locked artifacts, no invented

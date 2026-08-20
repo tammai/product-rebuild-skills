@@ -1,6 +1,6 @@
 ---
 name: rebuild-pipeline
-description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (usually OSS, e.g. OpenProject, Twenty CRM, Webstudio, or a category like CRM / project management / web builder) to learn the complete product development lifecycle, ending in production-ready code. Use this skill whenever the user wants to start a rebuild project, decide license posture for a reference product, clone/rebuild/reimplement an existing product, continue or resume a rebuild, check rebuild progress, run any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity check, production readiness), lock/reopen a gate, or got blocked by the PreToolUse hook editing a locked artifact and needs to know how to proceed. Also use it when the user asks to run the rebuild on autopilot, to work unattended or without being asked at every step, to check whether the project is ready for autopilot, or to pause/resume/stop an autopilot run — and when a run was blocked because the 5-hour usage window hit its threshold. Also trigger when the user runs /rebuild or mentions the workbench, gates, slices, license posture, or the parity loop of a rebuild project. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
+description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product end-to-end, ending in production-ready code. The reference can be OSS (OpenProject, Twenty CRM, Webstudio), a category (CRM / project management / web builder), or an app the user already owns and is replacing on a new stack (e.g. a legacy React Native app rebuilt in Flutter). Use this skill whenever the user wants to start a rebuild project, decide license posture for a reference product, clone/rebuild/reimplement an existing product, continue or resume a rebuild, check rebuild progress, run any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity check, production readiness), lock/reopen a gate, or got blocked by the PreToolUse hook editing a locked artifact and needs to know how to proceed. Also use it when the user asks to run the rebuild on autopilot, to work unattended or without being asked at every step, to check whether the project is ready for autopilot, or to pause/resume/stop an autopilot run — and when a run was blocked because the 5-hour usage window hit its threshold. Also trigger when the user runs /rebuild or mentions the workbench, gates, slices, license posture, or the parity loop of a rebuild project. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
 ---
 
 # Rebuild Pipeline Orchestrator
@@ -24,16 +24,36 @@ G6 Parity loop           (automated, scheduled)
 GP Production readiness  ── GATE 5: prod-ready lock (terminal)
 ```
 
+**What a project decides once, at G0, that four later phases read.** `sources.yaml` carries
+an `architecture:` block: which **playbook** G4a decides against
+(`references/playbooks/*.md`, or a path to one the user wrote — see below) and the rebuild's
+**target shape** (`fullstack`, or `client-only` when the API already exists and stays put).
+Both are cheap to answer at G0 and expensive to discover late: target shape flips G4b from
+*drafting* a contract to *transcribing* one, and it selects GP's checklist.
+
+**G4a is playbook-driven, not hardcoded.** The playbook supplies the standing answers and
+— through its frontmatter `concerns:` map — the list of ADRs the phase owes. The org default
+(`playbooks/web-modular-monolith.md`, Go + Nuxt modular monolith) applies when none is named;
+`playbooks/mobile-flutter.md` serves a Flutter client against an existing API. G4a vendors the
+chosen file to `adr/playbook.md`, inside gate-3's `protects:`, so the sections its ADRs cite
+cannot shift under a locked gate. Never carry a concern list or a section number between
+projects: §8 means storage in one playbook and auth in another.
+
 **Baseline dependency — `bigin-skills`.** This pipeline produces decisions, contracts and
 specs; it does not know how to create a repo. From G5 onward, every code repo is created by
 the `bigin-skills:bigin-harness-setup` skill — a single entry point that scaffolds the app
 (delegating to `go-`/`nuxt-`/`nodejs-`/`next-scaffold` per the stack locked at Gate 3) and
 overlays the AI-governance harness. Never scaffold conversationally, never call the
-`*-scaffold` skills directly, and never hand-write a `CLAUDE.md` into a code repo. The org
-architecture default in `references/architecture-default.md` names the same stacks these
-scaffolds generate, on purpose: G4a decides, `bigin-skills` builds. Confirm the plugin is
-installed at G0 (it is needed at G5, and discovering it missing months in is the expensive
-way to find out).
+`*-scaffold` skills directly, and never hand-write a `CLAUDE.md` into a code repo. Every
+shipped playbook names a profile `bigin-skills` can build — the org-default web playbook maps to
+`go`/`nodejs` + `nuxt`/`next`, the Flutter client playbook to `flutter` (needs `bigin-skills`
+>= 1.66.0) — on purpose: G4a decides, `bigin-skills` builds. **The one exception** is a locked
+playbook naming a stack the *installed* plugin has no profile for: `bigin-harness-setup` cannot
+start from an empty directory without one, so G5 runs the stack's own scaffolder first and the
+harness second in its `generic` profile. That is a version gap to state out loud, not a
+standing arrangement — the procedure and what `generic` skips are in `references/g5-build.md`
+step 0. Confirm the plugin is installed at G0
+(it is needed at G5, and discovering it missing months in is the expensive way to find out).
 
 ## Orchestration Protocol
 
@@ -75,14 +95,16 @@ per-phase by design to keep context lean:
 | G1 | `references/g1-mining.md` | Dispatch miner subagents per lane |
 | G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
-| G4a | `references/g4a-architecture.md` (+ `references/architecture-default.md`, the org default every ADR mirrors or diverges from) | Dispatch ADR drafts, Gate 3 review |
+| G4a | `references/g4a-architecture.md` (+ the playbook `sources.yaml` names, vendored to `adr/playbook.md` — its `concerns:` map is the ADR list) | Vendor the playbook, dispatch ADR drafts, Gate 3 review |
 | G4b | `references/g4b-contracts.md` | Data model (`contracts/data-model/`), three contract layers, Gate 4 |
 | G5 | `references/g5-build.md` | Per-slice fan-out to build subagents |
 | G6 | `references/g6-parity.md` | Parity report, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
 
 **4a — Onboarding (no workbench).** Interview the user: which reference product, why,
-distribution intent (this decides license posture — see g0 reference). Then scaffold:
+distribution intent (this decides license posture), whether the reference is third-party or
+an app they already own, and the `architecture:` block — target shape and playbook (see g0
+reference for all of it). Then scaffold:
 `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <project-name>`
 and walk the user through the generated `sources.yaml` and `license-posture.md`. Before
 leaving G0, give the workbench a remote and push it (g0 reference has the commands) —
@@ -105,7 +127,8 @@ Gates are human decisions. When a phase's exit criteria are met:
 1. Run `node scripts/validate.mjs` from the workbench root — all artifacts must pass schema
    validation first. From 0.6.5 this also structurally checks `contracts/`: YAML validity,
    duplicate keys, and every `$ref` resolving; from 0.7.0, that every
-   `contracts/data-model/*.mermaid` declares entities. It is NOT a full OpenAPI/AsyncAPI or
+   `contracts/data-model/*.mermaid` declares entities; from 0.11.0, that every ADR names a
+   concern its vendored playbook maps and cites only sections that map points at. It is NOT a full OpenAPI/AsyncAPI or
    Mermaid validator — passing it does not mean the spec is semantically correct, only that
    it is not broken in the ways that silently reach a code repo.
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
@@ -197,8 +220,14 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   being deliberate.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
+- Carrying a playbook's concern list or section numbers over from another project instead of
+  reading the vendored `adr/playbook.md`. A citation that names a section the playbook never
+  maps is caught by `validate.mjs`; a plausible-looking wrong one is not caught by anything.
 - Creating a code repo by hand — running `npm create`/`go mod init` directly, calling a
   `*-scaffold` skill instead of `bigin-harness-setup`, or writing a `CLAUDE.md` yourself.
+  (`g5-build.md` step 0's fallback is the sole exception, and it is keyed to the installed
+  plugin genuinely lacking a profile for the locked playbook's stack — not to a judgment call
+  at G5, and not to a stack whose profile merely needs a plugin upgrade.)
   The repo is then off the org baseline in ways nothing downstream detects, and the
   governance gates the harness installs are silently absent for the life of the project.
 - Trusting codegen from the scaffold's starter `openapi.yaml`. Gate 4's locked contract

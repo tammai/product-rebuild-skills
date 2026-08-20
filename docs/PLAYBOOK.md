@@ -1,6 +1,6 @@
 # Product Rebuild Playbook
 
-**Purpose:** a repeatable process for rebuilding an existing product end-to-end as a way to learn the full product development lifecycle. The input is a reference product (typically OSS — an OpenProject, a Twenty CRM, a Webstudio — or a well-understood category like CRM, project management, web builder). The output is a completed, full-featured, production-ready codebase.
+**Purpose:** a repeatable process for rebuilding an existing product end-to-end as a way to learn the full product development lifecycle. The input is a reference product: typically OSS (an OpenProject, a Twenty CRM, a Webstudio), a well-understood category (CRM, project management, web builder), or **an app you already own and are replacing on a new stack** — a legacy React Native app rebuilt in Flutter is the same pipeline with three fields set differently at G0. The output is a completed, full-featured, production-ready codebase.
 
 **Scope:** reference selection through a running parity loop, including an explicit production-readiness gate. Out of scope: go-to-market, pricing, growth.
 
@@ -9,8 +9,9 @@
 1. Every phase reads and writes machine-readable artifacts with fixed schemas, so agents can run every automatable step without human glue work.
 2. Human judgment is concentrated into five explicit gates. Everything between gates is parallelizable.
 3. Nothing downstream of a gate may contradict what the gate locked. Changing a locked decision means formally reopening the gate, not patching around it.
-4. Divergence from the reference is welcome — that is where the learning is — but only *documented* divergence. Every architectural departure gets an ADR; undocumented drift is the failure mode. (Exception, scoped to G4a only: architecture/stack decisions default to the org playbook in `architecture-default.md` — see section 6. This goal governs everywhere else, and still governs the *reference*-divergence axis within G4a, plus the three G4a concerns the org playbook doesn't cover at all.)
+4. Divergence from the reference is welcome — that is where the learning is — but only *documented* divergence. Every architectural departure gets an ADR; undocumented drift is the failure mode. (Exception, scoped to G4a only: architecture/stack decisions default to the **architecture playbook the project selected** — see section 6. This goal governs everywhere else, and still governs the *reference*-divergence axis within G4a, plus every G4a concern its playbook marks `N/A`.)
 5. "Full features" is the declared end state, so scoping decisions are about *sequence*, never about cutting the destination.
+6. Nothing in the process is hardcoded to one kind of product. Two fields recorded at G0 — the **architecture playbook** and the **target shape** (`fullstack` or `client-only`) — parameterize G4a's standing answers, G4b's mode, G5's repo creation and GP's checklist. A playbook is a file in a registry, including one you write yourself; the pipeline reads its frontmatter rather than knowing anything about it.
 
 ---
 
@@ -64,6 +65,7 @@ Every phase boundary is a file (or set of files) with a schema, validated in CI.
 ### 2.1 Select the reference
 
 - **1 primary reference.** Prefer OSS with an active repo, real deployments, and a public changelog — you get ground truth (lane D) for free.
+- **Or your own product.** Record `reference.kind: own-code` and `reference.upstream: frozen`. Lane D is unrestricted, the running instance is the app you already have, and the reference stops moving — which costs you G6's upstream re-mine and buys you a permanent arbiter for ambiguous behavior. Keep it runnable for the life of the project.
 - **Optionally 1 secondary reference**, used only for UX-flow comparison where the primary's UX is weak or dated.
 - Selection criteria: domain you want to learn, codebase you can actually read (size, language familiarity), active upstream (so the parity loop has something to track), and a deployment story you can study.
 
@@ -83,7 +85,14 @@ Record the decision as `license-posture.md` with the chosen mode and its consequ
 - If clean-room mode: the reference repo goes on the harness blocklist (pre-tool-use hook), same mechanism, inverted purpose.
 - License scanning in CI on the rebuild's repos from day one.
 
-**Exit criteria:** reference chosen with rationale; `license-posture.md` recorded; `sources.yaml` written; harness hooks configured to match.
+### 2.4 Architecture playbook + target shape
+
+Two fields in `sources.yaml`'s `architecture:` block, decided here because four later phases read them:
+
+- **`playbook`** — which file supplies G4a's standing answers: an entry in `skills/rebuild-pipeline/references/playbooks/` (`web-modular-monolith`, the org default; `mobile-flutter` for a Flutter client), a workbench-local path to one you wrote, or `none` to make every G4a ADR a blank-slate decision. Read the candidate's `not-applicable-when:` frontmatter before recording it.
+- **`target_shape`** — `fullstack` (the rebuild owns both sides) or `client-only` (the API exists, is not changing, and the rebuild is one client of it). This flips G4b from drafting a contract to transcribing one, changes what lane D mines at G1, and selects GP's checklist. Getting it wrong is not a labelling error; it is mining the wrong things for a month.
+
+**Exit criteria:** reference chosen with rationale; `license-posture.md` recorded; `sources.yaml` written including `architecture:`; harness hooks configured to match.
 
 ---
 
@@ -210,45 +219,61 @@ The slice sequence is locked. New ideas and upstream reference changes (from G6)
 
 ## 6. Phase G4a — System design → GATE 3: architecture lock
 
-**Goal:** decide the system's shape against the **org-default architecture**
-(`skills/rebuild-pipeline/references/architecture-default.md` — default Go + Nuxt modular
-monolith, API-first; Fastify + Next.js alternate) where a default exists, with the
+**Goal:** decide the system's shape against the **architecture playbook this project
+selected** at G0 (`sources.yaml`'s `architecture.playbook` → one of
+`skills/rebuild-pipeline/references/playbooks/`, or a file the user wrote), with the
 reference product's own architecture (lane D) recorded as informational context rather
-than the decision driver for those concerns. This is a deliberate, scoped exception to
-design goal 4 above: for decomposition/stack and most cross-cutting concerns, there *is*
-a default answer, and the ADR exists to justify departing from it — not to derive it from
-scratch each time. The org default doesn't cover everything, though (see 6.1 step 4):
-tenancy, search, and backend/cross-cutting caching have no org-default answer at all, and
-stay fully blank-slate, mirror-or-diverge-against-the-reference decisions, exactly as
-every G4a concern worked before this default existed. (Taxonomy, slicing, and contracts
-stay per-product, blank-slate decisions too.) This phase is still the most expensive layer
-to change later — hence its own gate, before any contract exists.
+than the decision driver for the concerns the playbook answers. This is a deliberate, scoped
+exception to design goal 4 above: for decomposition/stack and most cross-cutting concerns
+there *is* a default answer, and the ADR exists to justify departing from it — not to derive
+it from scratch each time.
+
+**The playbook, not this document, is the authority on which concerns exist and where their
+answers live.** Its frontmatter carries a `concerns:` map (concern key → section(s), or `N/A`),
+a `not-applicable-when:` list, a `target-shape:`, a `scaffold-profile:`, and `decide-before:`
+ordering constraints. The org default (`playbooks/web-modular-monolith.md`, Go + Nuxt modular
+monolith, API-first, Fastify + Next.js alternate) maps eleven concerns and marks four `N/A`;
+`playbooks/mobile-flutter.md` maps twenty-one for a Flutter client against an existing API,
+of which only three — decomposition, files/media, data modeling — have a counterpart in the web
+playbook at all; the rest, from state management and offline policy to the platform floor and
+on-device migration, exist in neither the web playbook nor this document. A concern the playbook marks `N/A` stays a fully blank-slate,
+mirror-or-diverge-against-the-reference decision, exactly as every G4a concern worked before
+any default existed. (Taxonomy, slicing, and contracts stay per-product decisions too.) This
+phase is still the most expensive layer to change later — hence its own gate, before any
+contract exists.
+
+**G4a vendors the chosen playbook to `adr/playbook.md`**, which sits inside gate-3's
+`protects:` and is therefore hashed into the lock. Without that copy, an accepted ADR's
+"cites §7" points at whatever the plugin's registry says months later — and §7 means the
+auth engine in one playbook and the API client in another. `gate.mjs lock gate-3` refuses to
+lock while a selected playbook has not been vendored.
 
 Inputs: locked taxonomy (Gate 1), locked slice plan (Gate 2), `nfr-profile.yaml`, the
-reference's observed architecture from lane D, and `architecture-default.md`.
+reference's observed architecture from lane D, and `adr/playbook.md`.
 
 ### 6.1 Decision sequence
 
-0. **Applicability check (once, before any ADR is drafted):** confirm
-   `architecture-default.md`'s own "when this does NOT apply" criteria (team under ~10
-   engineers, no PMF, no concrete decoupled-API-first driver) don't describe this rebuild.
-   If they do, skip the org-default mechanism entirely for this project — every ADR below
-   reverts to the pipeline's original blank-slate model. Record the outcome as a one-line
-   note carried into the Gate 3 review.
+0. **Resolve, check, vendor (once, before any ADR is drafted):** resolve the playbook from
+   `sources.yaml`; confirm its own `not-applicable-when:` criteria don't describe this
+   rebuild (for the org default: team under ~10 engineers, no PMF, no concrete
+   decoupled-API-first driver); copy it to `adr/playbook.md`. If a criterion does apply,
+   either switch playbooks or set `playbook: none` — and then every ADR below reverts to the
+   pipeline's original blank-slate model. Record the outcome as a one-line note carried into
+   the Gate 3 review.
 1. **Bounded contexts:** confirm/adjust taxonomy domains into contexts. Each context owns its data and vocabulary.
-2. **Decomposition:** default is **modular monolith** per the org default. Before drafting this ADR, ask the human directly whether any team-composition fact (stack familiarity, existing React/Node investment) favors the Fastify + Next.js alternate — this is the one fact the pipeline never persists elsewhere, so it's asked here every time, and recorded inline in this ADR's rationale. Otherwise propose modular monolith / Go+Nuxt as the baseline; diverging requires a concrete reason from this product's NFR profile or shape — e.g. a hard scaling/isolation requirement, or an architectural-shape mismatch (e.g. the reference is fundamentally event-sourced with no queryable current-state table) — not just "the reference did it differently." Note the reference's own choice for the record; it's evidence about the *product domain*, not a vote on the rebuild's architecture.
-3. **Mirror-or-diverge, two axes per concern with a default:** every such ADR states (a) mirror-or-diverge **the org default** — the actionable axis, gated — and (b) mirror-or-diverge **the reference's own approach** — informational, for the learning record and for tracking which lane-D ground-truth facts a *behavioral* reference-divergence invalidates (a pure tech-stack/language swap forced by the fixed org-default stack doesn't count). These are independent: an ADR can mirror the org default while diverging from the reference (the common case), or diverge from the org default for a documented reason. Undocumented divergence from the org default is the primary failure mode this gate enforces against, for the concerns that have a default.
-4. **Cross-cutting concerns** — coverage is uneven, cite the exact section rather than assuming one section covers every concern:
-   - authn/authz → §7; background workers → §7+§8+§10 (decide **before** events/queues); events/queues → §7+§8 (decide **after** background workers, citing it for the job-queue substrate the outbox relay runs on); storage → §8; files/media → §8; observability → §10.
-   - **tenancy, search, backend/cross-cutting caching → no org default exists.** These three have no org-default axis (`org-default: N/A`) and are decided the original way: mirror-or-diverge against the reference only.
-5. **Infra topology:** deployment units, environments, CI/CD shape — derived from the decomposition.
+2. **Decomposition:** the playbook's default (modular monolith, for the org default; feature-first three-layer modules, for the Flutter one). Before drafting this ADR, ask the human directly whether any team-composition fact (stack familiarity, existing investment in a framework) favors the playbook's **alternate** column — this is the one fact the pipeline never persists elsewhere, so it's asked here every time, and recorded inline in this ADR's rationale. Otherwise propose the default; diverging requires a concrete reason from this product's NFR profile or shape — e.g. a hard scaling/isolation requirement, or an architectural-shape mismatch (the reference is fundamentally event-sourced with no queryable current-state table) — not just "the reference did it differently." Note the reference's own choice for the record; it's evidence about the *product domain*, not a vote on the rebuild's architecture.
+3. **Mirror-or-diverge, two axes per concern with a default:** every such ADR states (a) mirror-or-diverge **the playbook** — the actionable axis, gated — and (b) mirror-or-diverge **the reference's own approach** — informational, for the learning record and for tracking which lane-D ground-truth facts a *behavioral* reference-divergence invalidates (a pure tech-stack/language swap forced by the playbook's fixed stack doesn't count: React Native → Flutter is not a divergence event). These are independent: an ADR can mirror the playbook while diverging from the reference (the common case), or diverge from the playbook for a documented reason. Undocumented divergence from the playbook is the primary failure mode this gate enforces against, for the concerns that have an answer.
+4. **One ADR per concern in the playbook's `concerns:` map**, each declaring `concern:` (the key, verbatim) and `org-default:` (the section(s) the map names, or `N/A`). Pass the map's value to the drafter — never let it infer a section, because numbering is per-playbook. Honour `decide-before:` (the org default: background workers before events/queues, so the latter can cite the job-queue substrate its outbox relay runs on; the Flutter playbook: persistence and API client before offline/sync, persistence and session before on-device migration). Concerns mapped `N/A` are decided the original way: mirror-or-diverge against the reference only.
+   Tooling enforces the arithmetic: `npm run validate` rejects an ADR with no `concern:`, an unknown key, or a `§` citation the map never points at; `gate.mjs lock gate-3` refuses to lock while any mapped concern has no ADR. "Every cross-cutting concern decided" stops being a prose exit criterion and becomes a list.
+5. **Infra topology:** deployment units, environments, CI/CD shape — derived from the decomposition. For a `client-only` target shape, that is build flavors, signing identities and release channels rather than services and datastores.
 
 ### 6.2 ADR format
 
 ```markdown
 # ADR-007: <decision>
 status: accepted | superseded-by-ADR-0XX
-org-default: <cited section(s) of architecture-default.md, or N/A for tenancy/search/caching>
+concern: <key from the playbook's concerns: map, verbatim>
+org-default: <cited section(s) of adr/playbook.md, or N/A where it has no answer>
 decision: mirror-default | diverge-from-default | silent-default   (or mirror | diverge, for N/A concerns)
 reference-approach: <what the reference does, lane-D evidence — informational unless org-default is N/A>
 rationale: <required in depth when diverging from the org default — name the NFR/shape fact, the rejected mirror-default alternative, and any prior ADR depended on; incl. learning goal if also diverging from the reference>
@@ -256,23 +281,25 @@ consequences: <trade-offs accepted; lane-D facts invalidated by any behavioral d
 reversal-condition: <observable fact that would reopen this>
 ```
 
-`silent-default` is for a concern the org default addresses in general but not this
+`silent-default` is for a concern the playbook addresses in general but not this
 specific sub-question: propose a policy, flag it as newly introduced rather than sourced,
 skip the depth requirement (nothing to diverge from), but still explain the choice.
 
-Agents draft ADRs in parallel (except background workers before events/queues) — always with `architecture-default.md` as a fixed input, with the exact applicable section(s) or `N/A` named per concern so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
+Agents draft ADRs in parallel (except where `decide-before:` serializes them) — always with `adr/playbook.md` as a fixed input, with the concern key and the exact applicable section(s) or `N/A` named per ADR so the drafter never has to infer it — the human decides sequentially (later ADRs depend on earlier ones). This gate is the bottleneck by design — budget real time for it, especially any divergence-from-default proposal.
 
 ### 6.3 GATE 3 — architecture lock
 
-Locks the applicability-check outcome, context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, or queue downstream without reopening.
+Locks the playbook copy itself, the applicability-check outcome, context map, decomposition, all cross-cutting ADRs, and topology. No new service, datastore, queue, deployment target or top-level module downstream without reopening.
 
-**Exit criteria:** applicability check recorded; every context has a decomposition ADR; every cross-cutting concern decided (org-default-based or, for tenancy/search/caching, reference-based) or marked N/A within its own axis; every ADR with an org default states mirror/diverge/silent-default against it with evidence; the three N/A concerns state mirror/diverge against the reference; topology diagram exists.
+**Exit criteria:** playbook vendored to `adr/playbook.md`; applicability check recorded; every context has a decomposition ADR; every concern in the playbook's map has an ADR (`gate.mjs` checks this); every ADR with an answer states mirror/diverge/silent-default against it with evidence; every `N/A` concern states mirror/diverge against the reference; topology diagram exists.
 
 ---
 
 ## 7. Phase G4b — Data model + contracts → GATE 4: contract lock
 
 **Goal:** the interfaces that make G5 fan-out safe. Order: **data model first** (Gate 3 decided where data lives; this decides what it is), then three contract layers.
+
+**Two modes, per `architecture.target_shape`.** In `fullstack`, this phase *authors* the contracts and Gate 4 locks a design. In `client-only`, the API belongs to someone else: `contracts/openapi/` is a **transcription** of what G1 mined from the old client's call sites, Gate 4 locks *ground truth*, anything the rebuild needs added lives in a separate `requested.yaml` (it is a request to another team, not a design), and `contracts/data-model/` describes the **on-device** store rather than a server schema. Drafting the endpoint you wish existed generates a client that 404s.
 
 ### 7.1 Data model → `contracts/data-model/<context>.mermaid`
 
@@ -305,7 +332,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 
 1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to an E2E/integration test. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code.
 2. **Backend** — one lane per bounded context touched by the slice (whether contexts are modules or separate services per Gate 3), building against contracts. Scaffolding and codegen first.
-3. **Frontend** — against the generated typed client; may split per feature area.
+3. **Frontend** — against the generated typed client; may split per feature area. For a `client-only` rebuild this lane *is* the build and lane 2 does not exist; it splits per feature module, and the on-device migration decided at Gate 3 is its own module in whichever slice first touches session or local data — never a task appended to a feature.
 4. **Infra** — CI/CD, environments, deployment. Mostly one lane; schema migrations serialize through a single migration queue regardless of lane count.
 
 ### 8.2 Guardrails
@@ -313,7 +340,8 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 - Contract-first: no code against an interface absent from a locked contract.
 - CI on every lane: lint, tests, security scan, license scan, AC-coverage check (every AC has a test).
 - Cross-lane shared changes go through one serialized review path.
-- **Every slice ends deployed.** The deploy is part of the slice, not an afterthought — it's half the curriculum.
+- **Every slice ends deployed.** The deploy is part of the slice, not an afterthought — it's half the curriculum. For a client app, "deployed" means a build a real person can install (internal TestFlight / Play internal track, on a device that is not the build machine) — not a simulator run, not a CI artifact.
+- **Repo creation follows the locked playbook's `scaffold-profile:`.** `bigin-harness-setup` creates the repo from an empty directory and its Phase 0.5 delegates to that profile's scaffolder — `flutter` included, from `bigin-skills` 1.66.0. Only when the *installed* plugin has no profile for the playbook's stack does the order invert: the stack's own scaffolder first, then the harness in its stack-neutral `generic` profile, which installs no CI, so the playbook's own CI section is what the first slice writes by hand.
 
 **Exit criteria (per slice):** all specs approved; all ACs green; contract conformance passes; slice deployed and its `done_means` demonstrably true.
 
@@ -325,7 +353,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 
 1. **AC test suite:** "is the feature really done" is a test run, not a meeting.
 2. **Parity diff:** rebuild coverage vs. the matrix — covered / partial / missing per feature, plus anything built that isn't in the matrix (scope-creep detector).
-3. **Upstream tracking:** re-mine the reference's changelog and release notes on a schedule (e.g. monthly; content-hashed, so only real changes surface). New upstream features enter the matrix as backlog candidates for future slice boundaries — they never bypass the gates.
+3. **Upstream tracking:** re-mine the reference's changelog and release notes on a schedule (e.g. monthly; content-hashed, so only real changes surface). New upstream features enter the matrix as backlog candidates for future slice boundaries — they never bypass the gates. Skipped entirely for `reference.upstream: frozen` (a legacy app being replaced has stopped shipping) — and said so in the report, because an absent section reads as a step that failed.
 
 **Output:** a recurring parity report: AC pass rate, matrix coverage, upstream movements, scope-creep items.
 
@@ -334,6 +362,8 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 ## 10. Phase GP — Production readiness → GATE 5: prod-ready lock
 
 **Goal:** close the gap that learning projects habitually skip. Feature-complete ≠ production-ready; this gate exists so the difference is verified, not assumed. Run it when the slice plan completes (and a lightweight version at each slice's deploy).
+
+Two checklists: the service one below, and a **client-app** one in `references/gp-production.md` used in addition for anything shipped to a device and *instead* when the target shape is `client-only`. The distinction is not cosmetic — a client app cannot be rolled back, its data at risk sits on devices you cannot reach, and its deploy is gated by someone else's review queue, so "restore a backup" is replaced by "rehearse the in-place upgrade over the old app, on the oldest supported OS, once with the migration interrupted".
 
 Checklist — each item verified by doing, not by asserting:
 
@@ -367,7 +397,9 @@ Serialization points, by design: the five gates, the data model draft, the migra
 ## 12. Failure modes to watch
 
 - **Reading code instead of running the product** — lane D without lanes B/C produces a rebuild of the schema, not the product. Mitigation: running instance is a G1 exit requirement.
-- **Undocumented divergence** — from the org-default architecture, for decomposition and the six cross-cutting concerns that have one (section 6, the gated axis there); from the reference, for tenancy/search/caching (no org default exists for these — they keep the original reference-mirror-or-diverge gate) and everywhere outside G4a. Mitigation: the applicable mirror-or-diverge field(s) are mandatory in every G4a ADR; review enforces it.
+- **Undocumented divergence** — from the selected playbook, for decomposition and every concern its `concerns:` map answers (section 6, the gated axis there); from the reference, for the concerns it marks `N/A` and everywhere outside G4a. Mitigation: the applicable mirror-or-diverge field(s) are mandatory in every G4a ADR; review enforces it.
+- **A citation that means something else** — carrying "§7 is auth" from one project to the next, when the playbook changed underneath. Mitigation: the playbook is vendored into the workbench and hashed into Gate 3, `concern:` keys are checked against its map, and every cited `§` must be one that map points at. What no check catches is a plausible-looking wrong section, which is why the vendored copy exists rather than a reference to the registry.
+- **Mining the wrong lane D for the shape of the rebuild** — treating a client-only rebuild as fullstack, so a month of mining produces a server design nobody will build and the API the app actually depends on was never transcribed. Mitigation: `target_shape` is a G0 field, asked before G1 dispatches anything.
 - **Horizontal slicing** — "all backend first" delays every lifecycle lesson to the end. Mitigation: slice schema requires `done_means` phrased as user-visible behavior on a deployment.
 - **Taxonomy churn after Gate 1 / architecture by accident in G5** — same as ever: gate reopening is formal and logged; new infra requires an ADR.
 - **AC theater** — vague criteria that always pass. Mitigation: each AC names one observable behavior and maps to exactly one test; when ambiguous, the reference instance arbitrates.

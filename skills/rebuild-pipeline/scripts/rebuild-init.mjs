@@ -36,7 +36,7 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
-                 "autopilot.mjs"]) {
+                 "playbook.mjs", "autopilot.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -50,6 +50,15 @@ reference:
   repo: ""            # clone URL; leave empty in clean-room mode
   pinned_commit: ""   # fill after first clone; all lane-D evidence uses this
   license: ""         # e.g. GPL-3.0, MIT
+  kind: ""            # third-party | own-code (an app you already own and are replacing)
+  upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
+# Which architecture playbook G4a decides against, and what this rebuild's output IS.
+# Read by G4a (which vendors the playbook to adr/playbook.md and hashes it into Gate 3),
+# by G4b, G5 and GP. Leave playbook empty for the org default; \`none\` disables the
+# mechanism and makes every ADR a blank-slate decision against the reference.
+architecture:
+  playbook: ""        # e.g. web-modular-monolith | mobile-flutter | playbooks/ours.md | none
+  target_shape: ""    # fullstack | client-only (client-only = the API already exists and stays)
 allowed:
   - ""                # docs base URL, changelog URL, running-instance URL...
 denied:
@@ -153,10 +162,12 @@ history: []
 write("locks/pipeline.yaml", `
 # Marker + metadata for orchestrator state detection. Do not edit by hand.
 project: ${name}
-# 0.2.0 added contracts/data-model/ as a checked artifact. Scripts read this to decide
-# whether a missing or entity-less data model is an error (0.2.0+) or a warning (older
-# workbenches, which cannot be retro-enforced). Bump it by hand after backfilling one.
-schema_version: "0.2.0"
+# 0.2.0 added contracts/data-model/ as a checked artifact; 0.3.0 added the architecture
+# playbook (sources.yaml architecture.playbook -> adr/playbook.md, one ADR per concern in
+# its concerns: map). Scripts read this to decide whether a gap is an error (that version or
+# newer) or a warning (older workbenches, which cannot be retro-enforced). Bump it by hand
+# after backfilling.
+schema_version: "0.3.0"
 created: ${new Date().toISOString()}
 `);
 
@@ -203,7 +214,7 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 
 - \`npm run validate\` — schema-validate all artifacts, and structurally check
   \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving; every
-  \`data-model/*.mermaid\` declaring entities)
+  \`data-model/*.mermaid\` declaring entities; every ADR naming a concern its playbook maps)
 - \`npm run gate -- status\` — pipeline/gate state
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)

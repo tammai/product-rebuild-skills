@@ -7,6 +7,183 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-19
+
+G4a had exactly one architecture playbook and it was a web playbook, hardcoded by path in five
+files. A rebuild the playbook did not fit had one escape hatch: the applicability check, which
+turns the whole mechanism *off* and reverts every ADR to blank slate. So a team rebuilding their
+own legacy React Native app in Flutter could either accept standing answers about Go modules and
+Nuxt features, or get no standing answers at all. Neither is what a playbook is for.
+
+The playbook is now **one entry in a registry, selected per project, and self-describing**.
+
+**`references/playbooks/`, and a playbook declares its own concern map.** The org default moved
+to `playbooks/web-modular-monolith.md` (content unchanged; a stub stays at the old path, because
+ADRs written before this version cite `architecture-default.md §7` by name and a reader following
+that citation should land somewhere that says where it went). Both shipped playbooks gained a
+frontmatter block: `stack`, `target-shape`, `scaffold-profile`, `not-applicable-when`, a
+`decide-before` ordering map, and — the load-bearing one — `concerns:`, mapping each concern to
+the section(s) that answer it or to `N/A`.
+
+That map had to move out of `g4a-architecture.md`, and that is the actual design change rather
+than the file move. The old concern table was hardcoded to one playbook's numbering (§7 auth, §8
+storage, §10 observability) *and* to one playbook's set of no-answer concerns. A Flutter client
+playbook maps twenty-one concerns of which only three — `decomposition`, `files-media`,
+`data-modeling` — appear in the web playbook at all, and its §7 is the API client, not the auth
+engine. A phase file that owns the mapping can only ever serve one playbook; a phase file
+that reads the mapping serves any.
+
+**New: `playbooks/mobile-flutter.md`** — a Flutter client against an API that already exists, for
+the case this release was written for. Riverpod + go_router + Drift + a generated dio client,
+feature-first three-layer modules with lint-enforced boundaries, and standing answers for the
+twelve client concerns nothing in this repo previously had an opinion about — offline policy per
+feature (and the rule that no feature gets an outbox by accident), where tokens live, background
+isolates, design tokens, staged rollout with a kill switch, and on-device migration.
+
+**The Flutter playbook was audited against the actual toolchain before it shipped, and it
+needed it.** Twenty-one concerns rather than the sixteen first drafted, and five corrections
+worth naming because each was a confident sentence that was simply wrong:
+
+- **`dart run custom_lint` does not run the import boundaries.** `import_lint` is a standalone
+  analyzer plugin on Dart's first-party `plugins:` mechanism with its own CLI; `custom_lint` is
+  the older mechanism `riverpod_lint` is built on. The playbook's proudest gate — the
+  merge-blocking check that makes feature boundaries more than a folder convention — was
+  annotated onto a command that never executed it. Both commands now appear in §3, running two
+  plugin mechanisms side by side is stated as a decision rather than an assumption, and §4.3
+  now offers the option the first draft denied existed: separate packages in a melos workspace
+  are **resolver**-enforced, which is materially stronger than lint and much closer to the Go
+  backend's compiler check.
+- **"Migrate on first launch, before the first screen" was a correctness hazard.** iOS kills a
+  process that exceeds the ~20-second launch watchdog (`0x8badf00d`) and Android shows an ANR —
+  on exactly the devices carrying the most legacy data, and *before* the completion record that
+  makes the migration resumable is written. Now: before the first screen that can read migrated
+  data, on a background isolate, behind progress UI, never on the launch path.
+- **The install base has a floor, and nothing mentioned it.** Flutter supports iOS 15 and
+  Android API 24; an app serving iOS 12–14 or API 21–23 has users who cannot receive the rebuild
+  at all and are frozen on the app being replaced, permanently. That makes "one shot per user"
+  false for a measurable population, bounds forced upgrade, and changes the migration's
+  denominators. It is now its own concern (`platform-floor`), decided before the migration.
+- **Two "the lint catches it" claims were fiction.** `riverpod_lint` has no rule for
+  `ref.watch`-in-callback, and nothing off the shelf flags a magic padding number or an inline
+  `TextStyle`. Both rules are worth keeping; both are now labelled review discipline or a
+  `custom_lint` rule someone must write. A hard rule citing tooling that does not exist is worse
+  than one that admits it is a convention, because only one of the two gets noticed when skipped.
+- **Store compliance is a submission blocker upstream of the rollout plan.** Apple privacy
+  manifests have been required since May 2024 and each bundled SDK needs its own or the upload is
+  rejected; a rebuild changes the whole SDK set, so nothing is inherited from the old app.
+
+Four more concerns joined for the same reason — a concern left out is a decision nobody is asked
+to make: `localization` (ARB catalogs, plurals, formats, RTL — and it multiplies the golden
+suite), `secrets-config` (`--dart-define` compiles values into a recoverable binary and is not a
+secrets mechanism), `platform-integration` (permission strings whose absence is a hard crash,
+WebView session ownership, purchases), and OTA/hotfix folded into `release-rollout` — because the
+app being replaced could very likely hotfix via CodePush or EAS Update, so losing that is a
+regression against the old product rather than a law of the platform. Also corrected: Hive/Isar
+are years unmaintained and no longer a KV alternate, Realm is end-of-support so a Realm legacy app
+must export from the RN side, Flutter's `SharedPreferences` cannot see legacy keys without
+`setPrefix('')`, `AsyncStorage`/MMKV/WatermelonDB need no native code at all, and the Android
+Keystore master key is never restored from backup — so a restored device holds ciphertext it
+cannot decrypt, which is the platform floor rather than a bug to chase.
+
+**Three checks that make a swapped playbook trustworthy**, in the new `scripts/playbook.mjs`
+(zero-dependency, like `erd.mjs`, because `gate.mjs` runs without `node_modules`):
+
+- Every ADR declares `concern:`, a key its playbook maps. `gate.mjs lock gate-3` refuses to lock
+  while any mapped concern has no ADR — "every cross-cutting concern decided" was a prose exit
+  criterion for eleven versions, and a `concerns:` map turns it into a list, which is checkable.
+- Every `§` an ADR cites must be one the map points at. This catches a citation carried over from
+  another project. It cannot catch a plausible-looking wrong one, which is why:
+- **G4a vendors the selected playbook to `adr/playbook.md`**, inside gate-3's `protects:`, so it
+  is hashed into the lock and the PreToolUse hook guards it afterwards. Before this, an accepted
+  ADR cited a section number in a *plugin* file: upgrade the plugin and §7 could come to mean
+  something else under a locked gate, silently. The citation check narrows the window; the hash
+  closes it.
+
+**Second axis, and the reason this is a feature release rather than a refactor:
+`architecture.target_shape`.** `fullstack` or `client-only`, recorded at G0 next to the playbook,
+read by four later phases:
+
+- **G4b flips from authoring a contract to transcribing one.** When the API belongs to someone
+  else, `contracts/openapi/` is mined ground truth, not a design; what the rebuild needs *added*
+  goes in a separate `requested.yaml`, because it is a request to another team and merging it into
+  an observation is how a client gets built against an endpoint nobody agreed to; and
+  `contracts/data-model/` describes the device, not the server. The coherence check gets a
+  client-shaped direction — which API field or user action populates this local column, and which
+  screen reads it — which is the same question the property-level pass asks, aimed at the store.
+- **G1 mines a client**: call sites rather than routes, response *handling* rather than
+  serializers, two ERDs (the server's, inferred; the old client's local store, transcribed), and
+  an inventory of the on-device stores verified against a device restored from a real backup. Plus
+  the mobile NFR fields the server-shaped six never covered — offline expectations, OS floor,
+  cold start, app size.
+- **G5 reads the repo profile off the locked playbook, and gained a fallback for the case where
+  the installed plugin has none.** `bigin-harness-setup` offers only the profiles its version
+  ships, with no "none of these" answer for an empty directory, and its stack-neutral `generic`
+  profile is reachable only from a directory that already has code — so an empty directory plus an
+  unsupported stack was an unsatisfiable pair of rules. Flutter was that case when this release was
+  drafted, and stopped being it a day later: `bigin-skills` 1.66.0 adds a real `flutter` profile
+  whose Phase 0.5 delegates to `flutter create`, so the normal order holds and the harness writes
+  the CI, both lint commands and the pre-commit gate. The fallback stays for whatever the next
+  unsupported stack turns out to be, keyed to the *installed* plugin genuinely lacking a profile
+  rather than to a permanent property of the playbook — and it spells out what `generic` skips (no
+  CI at all, `TODO` placeholders for undetected commands) so those gaps get closed rather than
+  shipped. A playbook whose profile merely needs a plugin upgrade is a version gap to say out loud,
+  not a licence to hand-roll a repo.
+- **GP gets a client-app checklist.** The existing one assumes a service you can reach, restore
+  and roll back; a client app has none of those. Restore-a-backup is replaced by the in-place
+  upgrade over the old app, on the oldest supported OS, once with the migration interrupted
+  mid-flight — and the kill switch gets flipped for real, because an untested kill switch is a
+  belief.
+
+**`reference.kind: own-code` and `reference.upstream: frozen`.** Rebuilding a product you already
+own was always possible and never described. It makes lane D unrestricted, the running instance
+trivially available, and G6's upstream re-mine pointless — which is a trade, not a loss: a frozen
+reference is a permanent arbiter for ambiguous behavior, so the guidance is now to keep it
+installable for the life of the project, because losing that always happens by accident.
+
+**On-device migration is a Gate 3 ADR, not a G5 task.** If the rebuild ships under the same bundle
+ID, first launch reads secrets, key-value state, a local database and files left by the previous
+app — once per user, on a device nobody can inspect, with no server-side undo. It is the only
+decision in the pipeline that cannot be rolled back per user, and nothing previously prompted for
+it. It gets an ADR even when the answer is "new bundle ID, migrate nothing", because that answer
+has an install-base consequence that belongs in `consequences:` rather than in a release note.
+
+Workbench `schema_version` is now `0.3.0`. Older workbenches warn where new ones fail, same
+mechanism as 0.2.0's data model: a project mid-flight keeps working, and backfilling plus a
+one-line bump turns enforcement on.
+
+**A blank `architecture.playbook` means the org default, and is checked like any other
+selection.** This is the one place where the obvious shortcut would have gutted the feature: an
+empty selector is what the scaffold ships and what most fullstack projects will keep, and
+treating it as "no playbook, so nothing to check" left exactly that majority unenforced while
+three documents said otherwise. An adversarial review reproduced the consequence — a
+`client-only` rebuild that left the field blank had its target-shape mismatch, its ADR coverage
+and its citations all go unchecked, and locked Gate 3 clean. Only the explicit value `none`
+switches the mechanism off (G4a step 0b, every ADR blank-slate). The vendored copy is still
+legitimately absent until G4a runs, so `validate` reports that as a status line rather than a
+failure, and only `gate.mjs lock gate-3` — plus `validate` once gate-3 is locked — treats it as
+fatal. Same placement reasoning as the data model's check.
+
+**Two details of the citation check, both learned by having it reject correct work.** A
+citation is legal when it names a section the playbook *declares* — read from its own headings —
+not merely one its `concerns:` map points at; the map answers which section covers a concern,
+which is a different question, and conflating them rejected an ADR grounded in a real section no
+concern happens to map (§15 Testing Strategy) or in a subsection of a mapped one (§4.3 under a
+mapped §4). A subsection of a known section is known. And `org-default:` accepts a glossed
+`N/A — the reference schema is the only axis`, because that is what the ADR template's own
+prose-shaped placeholder invites; only `N/A` followed by more word characters is rejected. A
+check that fails on correct work gets switched off within a week, which makes a false failure
+as expensive as a false pass.
+
+**Every file this mechanism reads is normalized to LF first.** `sources.yaml` is hand-edited,
+JS `.` does not match `\r`, and a `(.*)$` pattern without `/m` fails on every value line of a
+CRLF file while the block header still matches — so the parser reported "no playbook selected"
+rather than "unparsable" and every check silently switched off. That was reproduced as a
+tagged Gate 3 lock carrying a fabricated `§999` citation, from a file whose LF twin refused
+correctly. One of the four readers in the module already used `/m` and was unaffected, which is
+what made the inconsistency easy to miss.
+
+`plugin.json` also goes to 0.11.0; it was left at 0.9.0 when 0.10.0 shipped.
+
 ## [0.10.0] - 2026-08-10
 
 The Gate 4 coherence and callee checks both stopped one level short, and a real rebuild paid for

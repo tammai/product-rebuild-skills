@@ -4,6 +4,39 @@ Order matters: data model FIRST (Gate 3 decided where data lives; this decides w
 is), then three contract layers. Data model drafts sequentially; contracts then draft
 per context in parallel.
 
+## Which mode this phase runs in — read `sources.yaml` before drafting anything
+
+`architecture.target_shape` decides whether this phase *authors* a contract or *freezes* one:
+
+- **`fullstack`** — the rebuild owns both sides. Everything below reads as written: three
+  layers drafted from the ADRs, Gate 4 locks a design.
+- **`client-only`** — the API exists, is not changing, and belongs to someone else. Then
+  `contracts/openapi/` is a **transcription of observed reality**, mined at G1 from the old
+  client's call sites (and the server's own spec, where one exists). Gate 4 locks
+  ground truth, not a design. Four consequences, each of which someone gets wrong the first
+  time:
+  1. **Nothing here is negotiable by drafting.** A gap between what the rebuild needs and
+     what the API gives is a *finding*, recorded in the gate review with the workaround it
+     forces. Drafting the endpoint you wish existed produces a contract that generates a
+     client that 404s.
+  2. **Mark the file's provenance in it.** A `description:` stating "transcribed from
+     <reference> at <commit>, not owned by this project; changes to this file describe the
+     server, they do not request anything of it". Six months on, this is the difference
+     between a reader treating it as a spec to satisfy and as an observation to trust.
+  3. **The parts the rebuild genuinely needs added** — a minimum-supported-version endpoint
+     for forced upgrade, a remote flag for a kill switch (the `release-rollout` ADR at G4a
+     will have named these) — go in a **separate file**, `contracts/openapi/requested.yaml`,
+     never merged into the transcription. It is a request to another team, and mixing it into
+     observed reality is how a client gets built against an endpoint nobody agreed to.
+  4. **`contracts/data-model/` describes the DEVICE**, not the server: the local store's
+     shape — what is cached, what is user-authored-but-unsent, what is derived. Its
+     starting draft is the old client's local schema
+     (`findings/ground-truth/reference-erd.<name>-local.mermaid`), not the server ERD.
+     The `internal/` layer is the interface between the app's feature modules; the
+     `asyncapi/` layer covers push payloads, realtime channels and deep links — the messages
+     the app receives without asking. If none exist, say so in the gate review; an empty
+     directory and a decision recorded as empty are different states.
+
 ## Data model → `contracts/data-model/<context>.mermaid`
 
 One Mermaid `erDiagram` per bounded context, named after the context in G4a's context map.
@@ -71,6 +104,14 @@ between drafts, because they are written by different agents from the same ADRs.
 
   Write the derivations down by name. A clean pass with unstated exceptions is the failure mode
   — the exceptions are where the next gap will be.
+- **In `client-only` mode this walk asks a different question, and it is the more useful
+  one.** Not "does the API expose this entity" — the API is fixed and the answer changes
+  nothing — but **"which API field, or which user action, populates this local column, and
+  which screen reads it?"** A local column with no writer is a cache that stays empty; one
+  with no reader is storage the app pays to migrate forever. Both are cheap now and neither
+  is visible in a code review of one feature. Run it per column, and write the derivations
+  down by name — the same discipline the property-level pass demands above, for the same
+  reason.
 - **ERD → API-or-internal.** Every entity is either reachable from the public API or
   annotated `%% internal` with the reason (outbox rows, audit trails, join tables). An
   unreachable entity that nobody marked internal is the shape of a feature that was designed
@@ -144,6 +185,11 @@ here — but the point of this check is to run it *before* spec-writing, since a
 stops to flag a missing callee method has already cost the slice a gate reopen.
 
 ## Gate 4 review (present to user)
+In `client-only` mode, open with the mode itself: what was transcribed vs. what is being
+requested (`requested.yaml`), the gaps the frozen API forces the rebuild to work around, and
+the fact that locking here locks an *observation* — if the server changes, this reopens as
+ground truth moving, not as a design change. Then, in both modes:
+
 Data model with deviations-from-reference and the coherence check's outcome in **all three**
 passes — API → ERD at resource level, API → ERD at **property** level, and ERD → API-or-internal
 (name any projection, derivation or `%% internal` entity by hand — a clean pass with

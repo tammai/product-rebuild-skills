@@ -11,6 +11,20 @@ Run after each slice and on schedule (monthly default).
    matrix as backlog candidates flagged for the next slice boundary — they NEVER bypass
    gates or reorder the current slice.
 
+   **Skip this step entirely when `sources.yaml` has `reference.upstream: frozen`** — a
+   legacy app being replaced has stopped shipping, so there is nothing to track. Say so in
+   the report rather than silently omitting the section: "upstream frozen, no re-mine" is
+   information; an absent section reads as a step that failed. Steps 1 and 2 do not change,
+   and against a frozen reference they get *stronger*, because the parity target stops
+   moving — a coverage number that drifts is then a fact about the rebuild, never about the
+   reference.
+
+   A frozen reference is also a permanent arbiter, which is the compensation for losing the
+   re-mine: when a spec is ambiguous, the old app still answers, and it will answer the same
+   way next month. Keep it installable for the life of the project — an archived build, a
+   pinned commit that still compiles, a device that still has it. Losing the ability to run
+   it costs more than any single finding, and it always happens by accident.
+
 Present the report briefly: coverage %, AC pass rate, upstream movements, creep items.
 Ask the user only when a decision is needed (e.g. adopt an upstream feature into the
 backlog or ignore it with reason).

@@ -95,19 +95,20 @@ and locks only on your explicit yes: `npm run gate -- lock gate-N` under the hoo
 
 ### 4. Gates 3–4: the learning core
 
-- **Gate 3 (architecture):** decomposition, auth, events, storage, background workers,
-  and observability start from the org's default architecture
-  ([`references/architecture-default.md`](skills/rebuild-pipeline/references/architecture-default.md)
-  — Go + Nuxt modular monolith, API-first, by default). Agents draft an ADR per concern
-  proposing to mirror that default, and only argue for diverging from it when this
-  product's shape gives a concrete reason — the reference's own architecture is recorded
-  for the learning record, but doesn't drive this decision. Tenancy, search, and backend
-  caching have no org default at all, though, and stay fully open — mirror-or-diverge
-  against the reference, decided from scratch like everything else in the pipeline. You
-  decide each ADR. *Undocumented* divergence — from the default where one exists, from
-  the reference otherwise — is the failure mode the format prevents. Only after this gate
-  do code repos get created — their count is an output of your decomposition decision.
-  Each pins the workbench as a read-only submodule at gate tags.
+- **Gate 3 (architecture):** decisions start from the **architecture playbook you picked at
+  G0** — one of [`references/playbooks/`](skills/rebuild-pipeline/references/playbooks)
+  (`web-modular-monolith`, the org default: Go + Nuxt modular monolith, API-first;
+  `mobile-flutter`, a Flutter client against an existing API), or a file you wrote yourself.
+  The playbook's frontmatter carries the list of concerns to decide and which of its sections
+  answers each one; concerns it marks `N/A` stay fully open, mirror-or-diverge against the
+  reference, decided from scratch. Agents draft one ADR per concern proposing to mirror the
+  playbook, and only argue for diverging when this product's shape gives a concrete reason —
+  the reference's own architecture is recorded for the learning record but doesn't drive it.
+  You decide each ADR. *Undocumented* divergence — from the playbook where it has an answer,
+  from the reference otherwise — is the failure mode the format prevents. The playbook is
+  copied into the workbench and locked with the ADRs, so the sections they cite can't shift
+  under you later. Only after this gate do code repos get created — their count is an output
+  of your decomposition decision. Each pins the workbench as a read-only submodule at gate tags.
 - **Gate 4 (contracts):** data model first — one Mermaid ERD per bounded context, checked
   for entities and required before the gate can lock — then three interface layers (public
   API, internal, async/events). Locking cuts the tag your code repos build against.

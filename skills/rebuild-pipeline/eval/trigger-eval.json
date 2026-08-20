@@ -13,6 +13,9 @@
   {"query": "are we ready to run this unattended? i'm heading out for a couple of hours", "should_trigger": true},
   {"query": "autopilot dừng rồi à? tiếp tục đi, hết 5 tiếng rồi mà", "should_trigger": true},
   {"query": "something blocked my edit saying the 5-hour window is at 80%, what now", "should_trigger": true},
+  {"query": "we have an old messy react native app, i want to rebuild it in flutter keeping the same features — can this pipeline do that?", "should_trigger": true},
+  {"query": "which architecture playbook is this project using for gate 3, and can i point it at one i wrote myself?", "should_trigger": true},
+  {"query": "the api isn't changing, we're only rebuilding the mobile client — how do i record that in the workbench?", "should_trigger": true},
   {"query": "help me set up a new nuxt 4 project with pinia colada", "should_trigger": false},
   {"query": "write an ADR comparing kafka vs sqs for our notification service", "should_trigger": false},
   {"query": "clone this github repo and run the tests", "should_trigger": false},
@@ -24,5 +27,6 @@
   {"query": "build me a feature comparison matrix for three pricing plans in excel", "should_trigger": false},
   {"query": "our postgres migration locked the table, how do i unblock the deploy", "should_trigger": false},
   {"query": "write a github action that auto-merges dependabot PRs without me approving them", "should_trigger": false},
-  {"query": "how close am i to my claude usage limit this week", "should_trigger": false}
+  {"query": "how close am i to my claude usage limit this week", "should_trigger": false},
+  {"query": "what's the best state management library for flutter in general?", "should_trigger": false}
 ]

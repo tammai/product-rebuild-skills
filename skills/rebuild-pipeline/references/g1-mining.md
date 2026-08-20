@@ -16,9 +16,50 @@ no evidence, no entry.
 - **B NFR**: deploy and run the reference locally (mandatory); observed limits, docs on
   scaling, status page. Aggregate into `findings/nfr/nfr-profile.yaml`: tenancy model,
   realtime, background processing, search, files, expected scale.
+  For a `client-only` target shape those six fields describe a system this rebuild does not
+  own, so mine them as *constraints* and add the ones that actually drive a client's
+  architecture: **offline expectations** (what worked with no network, and where), **sync
+  and conflict behavior**, **push and background execution**, **device and OS floor** (the
+  oldest OS the install base still runs — it decides the framework floor), **cold-start
+  time**, **app size**, **battery/data sensitivity**, and **accessibility settings the app
+  respected** (text scale, reduce-motion). Every one of these is a G4a input under the
+  Flutter playbook and none is derivable from the server.
 - **C UX flows**: operate the running product; capture trigger → steps → outcome for top
   features. Agents draft from tours/docs; the USER verifies against the live instance —
   schedule that verification explicitly with them.
+
+## Mining a client, not a server (`target_shape: client-only`)
+
+When the rebuild replaces one client of an API that stays put, lane D's targets move. The
+API is no longer something to design — it is ground truth to transcribe, and G4b will freeze
+the transcription. Mine, from the OLD CLIENT's source:
+
+- **Every call site**: method, path, query and body shape, headers, auth scheme, and which
+  screen triggers it. This becomes `contracts/openapi/` at G4b (see `g4b-contracts.md`'s
+  external-contract mode). A server-side OpenAPI document, if one exists, is better evidence
+  — but the client's call sites are what the client actually depends on, which is a smaller
+  and more honest set, and the gap between the two is worth recording.
+- **Response handling**: every field the client reads, and every field it *writes to local
+  state*. This is the input to the property-level coherence check at Gate 4, and it is where
+  a rebuild finds the fields nothing consumes.
+- **The on-device stores**, itemized, because they are migration surface and the highest-risk
+  ADR at G4a depends on this list being complete: secure-storage keys (service/account names
+  as the old stack wrote them), key-value keys, local database schema and its file location,
+  files written to disk, push registration. **Verify against a device restored from a real
+  backup, not a fresh install** — a fresh install has none of the state a two-year-old
+  install has, which is exactly the state that will break.
+- **Client-side behavior with no server counterpart**: local validation rules, caching and
+  staleness, retry policy, offline queues, deep-link and URL-scheme routing, notification
+  payload handling, biometric gates, analytics events. All of it is parity surface and all of
+  it is invisible in the API. This is the category a client rebuild loses features to.
+- **Platform integration**: permissions requested, background modes, share/intent handlers,
+  widgets/extensions, deep-link domains, app-store metadata that encodes behavior (minimum
+  OS, supported devices).
+
+Lane B/C still run against the old app on a device. Lane A's changelog is usually the app's
+own release notes plus its git history; for `reference.upstream: frozen` there is nothing to
+re-mine later (see `g6-parity.md`), which makes THIS pass the only one — mine it as though
+nobody will come back to it, because nobody will.
 
 ## Reference ERD (lane D) → `findings/ground-truth/reference-erd.mermaid`
 
@@ -38,6 +79,13 @@ Transcribe it as one Mermaid `erDiagram`.
   `*/migrations/`, `migrations/*.sql`), ORM model classes, or a published schema/ER page in
   the docs — in that order of trust. Cite path + pinned commit in the `%%` header, same
   evidence rule as every other lane-D finding.
+- **For a `client-only` rebuild there are two ERDs and they are not interchangeable.** The
+  server's shape, inferred from API responses (mark it `%% inferred` — the client cannot see
+  nullability or ownership), and the OLD CLIENT's local store, transcribed from its schema
+  files, which is the one the rebuild's own `contracts/data-model/` actually descends from.
+  Write both: `reference-erd.<name>-api.mermaid` and `reference-erd.<name>-local.mermaid`.
+  Conflating them produces a local store shaped like a server schema, which is how a mobile
+  app ends up doing joins on a phone.
 - Under **clean-room posture** there is no source to transcribe: build it from the API and
   docs, mark it `%% inferred`, and expect lower fidelity on ownership and nullability.
 
@@ -76,3 +124,9 @@ there is nothing to graph.
 Reference running locally (user-confirmed); lane D complete for schema/routes/permissions/
 jobs, including `reference-erd.mermaid`; lanes A–C complete; all findings validate;
 top-feature flows user-verified.
+
+For `client-only`: add the API call-site inventory, the on-device store inventory verified
+against a restored device, and the client-side-behavior list (offline, deep links,
+notifications, local validation) — each as findings with evidence, not as a summary. The
+architecture playbook's `on-device-migration` concern cannot be decided at G4a without the
+second of those, and G4b cannot freeze a contract without the first.
