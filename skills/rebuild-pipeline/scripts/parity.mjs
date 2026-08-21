@@ -133,6 +133,42 @@ if (ac?.unreadable) {
     `${ac.failed} failed.${skipped} Source: \`${AC_JUNIT}\`.${failed}\n`;
 }
 
+// ---------------------------------------------------------------------------
+// Weakest parity claims: features whose evidence is ALL `inferred`.
+//
+// `basis` (findings/**.yaml, evidence entries) records where a fact came from — transcribed
+// from source at the pinned commit, observed at runtime, or inferred from docs/changelogs/API
+// responses. A feature standing entirely on inferred evidence is one nobody read out of the
+// source and nobody watched happen; the parity number counts it exactly like the rest, which
+// is precisely why it is worth naming separately.
+//
+// The join from a feature to its findings is best-effort and the report says so — see
+// basis.mjs's featureBasis(). A feature that joins to nothing is reported as unjoined rather
+// than as clean, because a zero produced by a failed join is indistinguishable from a zero
+// produced by good evidence.
+// ---------------------------------------------------------------------------
+let basisSection = "";
+try {
+  const { featureBasis } = await import("./basis.mjs");
+  const { inferredOnly, unjoined } = featureBasis()(features);
+  if (inferredOnly.length || (unjoined.length && unjoined.length < features.length)) {
+    const lines = [];
+    if (inferredOnly.length) {
+      lines.push(`Inferred-only features: ${inferredOnly.length} — every piece of evidence behind ` +
+        `${inferredOnly.length === 1 ? "this feature" : "these features"} is \`basis: inferred\` ` +
+        `(docs, changelogs, API responses, reasoning). Nothing was transcribed from source and ` +
+        `nothing was observed running. These are the weakest parity claims in this report.`);
+      lines.push("", ...inferredOnly.map((f) => `- ${f.id} ${f.name}`));
+    }
+    if (unjoined.length) {
+      lines.push("", `${unjoined.length} feature(s) could not be joined to any finding, so their ` +
+        `basis is unknown rather than sound — this line exists so the count above is read with ` +
+        `its denominator.`);
+    }
+    basisSection = `\n## Evidence basis\n\n${lines.join("\n")}\n`;
+  }
+} catch { /* basis.mjs absent in a hand-upgraded workbench — validate.mjs reports that */ }
+
 // A G6 run is part generated, part hand-written: the AC suite result and the
 // upstream re-mine are authored by a human or the orchestrator. Re-running on the
 // same date must not silently eat them, so keep every `## ` section this script
@@ -143,6 +179,7 @@ const OWNED = [
   "Upstream candidates (from re-mining — decide at next slice boundary)",
   "Slice progress",
   ...(acSection ? [AC_TITLE] : []),
+  ...(basisSection ? ["Evidence basis"] : []),
 ];
 const path = `parity/${date}.md`;
 let preserved = "";
@@ -157,7 +194,7 @@ mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
-${overlayWarning}${acSection}
+${overlayWarning}${acSection}${basisSection}
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
 

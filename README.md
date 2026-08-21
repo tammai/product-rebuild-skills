@@ -221,16 +221,18 @@ skills/rebuild-pipeline/        THE skill you interact with
   references/g*.md              one file per phase, loaded only when that phase runs
   references/playbooks/         the architecture-playbook registry — one file per playbook,
                                 each declaring its own concerns → sections map; write your own
+  references/rubrics/           one scoring rubric per gate, for the judge pass at Step 5.1b
   schemas/*.schema.json         finding / feature / slice / lock schemas
   scripts/rebuild-init.mjs      workbench scaffolder
   scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
   scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
   scripts/playbook.mjs          playbook resolution + the ADR concern/citation checks
   scripts/erd.mjs               data-model checks shared by validate and gate
+  scripts/basis.mjs             evidence-basis checks shared by validate and parity
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
-agents/                         miner, adr-drafter, spec-writer subagents
+agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents
 hooks/                          PreToolUse guards: locked artifacts, and the autopilot
                                 usage threshold
 docs/PLAYBOOK.md                the full methodology
@@ -246,6 +248,16 @@ docs/PLAYBOOK.md                the full methodology
 - **The playbook you decided against is pinned to your decisions.** G4a copies it into the
   workbench and Gate 3 hashes that copy, so upgrading this plugin cannot re-point an accepted
   ADR's "§7" at different content months later.
+- **Every gate review comes with a scored second opinion.** A judge subagent reads the
+  artifact set against that gate's rubric and files a report next to the review, with a
+  citation behind every score below 4. It is advisory on purpose — it informs the lock
+  decision and never blocks it — but it closes the space between "the schemas pass" and "a
+  human liked it", which is where an unusable taxonomy or a contract with no error responses
+  used to slip through.
+- **Evidence says where it came from, not just how sure the miner was.** Every finding's
+  evidence carries `basis` — transcribed from source at the pinned commit, observed running,
+  or inferred from docs. The parity report names the features standing entirely on inference,
+  and Gate 4 flags a contract entry frozen on one.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
   hatch is a formal, logged reopen with a reason — never a quiet edit.
 - **Gates are yours.** The skill never locks a gate on its own initiative — including on

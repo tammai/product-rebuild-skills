@@ -111,8 +111,8 @@ leaving G0, give the workbench a remote and push it (g0 reference has the comman
 visibility follows the posture just decided.
 
 **4b — Delegation.** You orchestrate; subagents execute. Dispatch phase work to the
-agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, spec-writer) using the
-briefing format in `references/subagent-briefs.md`. Run independent lanes in parallel.
+agents in `${CLAUDE_PLUGIN_ROOT}/agents/` (miner, adr-drafter, spec-writer, rubric-judge)
+using the briefing format in `references/subagent-briefs.md`. Run independent lanes in parallel.
 Do the work inline only when it is small (a single merge, a single review pass) or when
 subagents are unavailable in the current environment.
 
@@ -131,8 +131,25 @@ Gates are human decisions. When a phase's exit criteria are met:
    concern its vendored playbook maps and cites only sections that map points at. It is NOT a full OpenAPI/AsyncAPI or
    Mermaid validator — passing it does not mean the spec is semantically correct, only that
    it is not broken in the ways that silently reach a code repo.
+
+   **1b — dispatch the rubric judge**, after validate passes and before the review is
+   written. Brief `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md` against
+   `references/rubrics/gate-N.md`. Everything step 1 checks is structural, and between it and
+   a human's judgement nothing measured whether the artifacts are any *good*. The judge fills
+   that gap and nothing else: **scores inform the lock decision, they never gate it.**
+   Never present a score as a reason to lock or not to lock; present it as something the
+   user should look at before deciding.
+
+   Its report lands at `plan/gate-reviews/gate-N-rubric.md` and stays there after the lock.
+   If you are about to lock a gate and no rubric report exists for this attempt, run the
+   judge first — that is an instruction to you, not a hook, and nothing will stop you
+   skipping it. Reject any dimension scored below 4 that carries no citation back to the
+   judge with that reason; an uncited low score is an assertion about work nobody examined.
+   On a reopen, archive the previous report to `gate-N-rubric.v<k>.md` before re-judging, so
+   the attempt that produced each set of scores stays identifiable.
+
 2. Present a **gate review** to the user: what is being locked, the key decisions inside
-   it, open risks, and what becomes immutable afterward.
+   it, open risks, what the rubric report flagged, and what becomes immutable afterward.
 3. Only after explicit user approval, run `node scripts/gate.mjs lock <gate-id>`.
 4. **Push the lock commit *and* its tag**: `git push && git push --tags`. Both are needed —
    `git push` sends no tags, and `--follow-tags` does not help because gate tags are
@@ -217,7 +234,12 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 - Skipping state detection and acting on stale conversational memory.
 - Doing lane work inline that should fan out to parallel subagents.
 - Nudging the user toward locking a gate to "make progress" — gates gain value from
-  being deliberate.
+  being deliberate. A rubric report full of 5s is not an argument for locking, and one with a
+  2 in it is not a veto: it is advisory, and presenting it as either turns a soft signal into
+  the decision the pipeline keeps manual on purpose.
+- Locking a gate with no rubric report for the attempt, or accepting a below-4 score that
+  cites nothing. The first means the semantic check silently did not happen; the second means
+  it happened and produced an opinion.
 - Editing locked artifacts instead of proposing a reopen.
 - Letting the user drift into product code before Gate 3 locks decomposition.
 - Carrying a playbook's concern list or section numbers over from another project instead of

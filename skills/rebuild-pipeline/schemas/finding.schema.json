@@ -21,7 +21,8 @@
             "url": { "type": "string", "format": "uri" },
             "path": { "type": "string" },
             "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
-            "note": { "type": "string" }
+            "note": { "type": "string" },
+            "basis": { "enum": ["transcribed", "observed", "inferred"] }
           },
           "anyOf": [ { "required": ["url"] }, { "required": ["path", "commit"] } ]
         }

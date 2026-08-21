@@ -28,6 +28,45 @@ no evidence, no entry.
   features. Agents draft from tours/docs; the USER verifies against the live instance —
   schedule that verification explicitly with them.
 
+## Where a fact came from — `basis` on every evidence entry
+
+Every evidence entry carries `basis`, and it is **not** a synonym for `confidence`. The miner's
+certainty is `confidence`; where the fact came from is `basis`. A route transcribed from a
+routes file at the pinned commit and a route inferred from a docs page can both be
+`confidence: high` — the miner is genuinely equally sure — and G4b must not treat them the same
+when it freezes a contract, so the two facts need two fields.
+
+- **`transcribed`** — copied from the reference's source at the pinned commit: schema files,
+  route tables, call sites, config. The strongest basis, because a second person can open the
+  same file at the same commit and see the same thing.
+- **`observed`** — seen at runtime, on the running reference or on a device restored from a
+  real backup. Strong for behavior; weak for shape, because runtime shows you what happened
+  once, not what is allowed.
+- **`inferred`** — derived from docs, changelogs, API responses, or reasoning. Legitimate and
+  often unavoidable (it is the whole of clean-room posture), but it is the basis that a later
+  reader has no way to re-check without redoing the inference.
+
+Defaults per lane, to be overridden per entry rather than assumed wholesale:
+
+| Lane | Default | Override when |
+|---|---|---|
+| D ground truth (source work) | `transcribed` | the fact came from a docs page or an API response, not the tree → `inferred` |
+| B NFR / C UX flows (device or running instance) | `observed` | the number came from documentation rather than a measurement → `inferred` |
+| A features (changelog, docs, pricing) | `inferred` | the entry is pinned to a source file or a tagged release commit → `transcribed` |
+
+Clean-room posture has no lane-D source to read, so nearly everything is `inferred`, and that
+is the point of recording it: the posture's cost becomes visible in the parity report instead
+of living in `license-posture.md` where nothing downstream reads it.
+
+The ERD convention is the same vocabulary. `%% inferred` on a reference ERD means exactly what
+`basis: inferred` means on a finding — keep the words aligned rather than inventing a second
+scale for diagrams.
+
+**What reads it.** `validate.mjs` counts entries with no `basis` per file; `parity.mjs` names
+features whose evidence is *entirely* inferred as the weakest parity claims in the report; and
+`g4b-contracts.md` flags an external-contract entry backed only by inferred evidence at the
+Gate 4 review, because that is a contract being frozen on a guess.
+
 ## Mining a client, not a server (`target_shape: client-only`)
 
 When the rebuild replaces one client of an API that stays put, lane D's targets move. The
@@ -128,7 +167,9 @@ there is nothing to graph.
 
 ## Orchestration
 - Dispatch miners with the brief format in `subagent-briefs.md`; one output file per run
-  under `findings/<lane>/`.
+  under `findings/<lane>/`. State the lane's default `basis` in the brief — a miner given the
+  default writes it deliberately, and a miner given nothing writes whatever the last example
+  it saw used.
 - After each batch: run `validate.mjs`; reject schema violations back to the lane, do not
   hand-fix silently.
 - Findings are content-hashed by the validator; re-runs are idempotent.

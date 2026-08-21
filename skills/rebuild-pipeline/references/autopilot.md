@@ -71,9 +71,12 @@ the `gate.mjs lock` the user will run at the halt.
 
 ## Halting
 
-**At a gate.** Write the full gate review to `plan/gate-reviews/gate-N.md` — what is being
-locked, the key decisions inside it, open risks, what becomes immutable, and every point
-where the draft diverged from `adr/playbook.md` or from the reference. Commit it,
+**At a gate.** Run `validate.mjs`, then dispatch the **rubric judge** (SKILL.md Step 5.1b) —
+an unattended run is exactly where a semantic read of the artifacts is worth most, because
+nobody has been looking over its shoulder for the last several hours. Then write the full gate
+review to `plan/gate-reviews/gate-N.md` — what is being locked, the key decisions inside it,
+open risks, what the rubric report flagged, what becomes immutable, and every point where the
+draft diverged from `adr/playbook.md` or from the reference. Commit both files,
 then `disengage --reason gate-review --next "..."`, run `pause-check.mjs`, and present the
 review. The user decides; the file is there so the decision does not depend on scrollback.
 

@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-21
+
+Two gaps, both of them a place where the pipeline recorded *that* something was checked but not
+*how well*, or *that* a fact was known but not where it came from.
+
+### A rubric judge at every gate
+
+`validate.mjs` is structural, and says so itself: passing "does not mean the spec is
+semantically correct." Between it and the human at the gate review there was nothing measuring
+whether the artifacts were any good — a feature matrix with wildly inconsistent granularity, a
+slice plan whose `done_means` clauses restate the slice titles, an ADR set whose consequences
+are all upside, and a contract with no error responses all validate perfectly.
+
+**New: `references/rubrics/gate-{1..5}.md` and the `rubric-judge` subagent.** One rubric per
+gate, four to five dimensions each, scored 1–5, with the 5/3/1 descriptions written out so two
+runs of the judge land in the same place. SKILL.md Step 5 gains **1b**: after validate passes
+and before the review is written, dispatch the judge; its report lands at
+`plan/gate-reviews/gate-N-rubric.md` and stays there after the lock. Autopilot does the same at
+its gate halt, where it matters most — nobody has been watching for hours.
+
+**It is a soft gate and the wording is load-bearing.** Scores inform the lock decision; they
+never block it. A report full of 5s is not an argument for locking and a 2 is not a veto —
+presenting either way turns an advisory signal into the decision the pipeline deliberately
+keeps manual.
+
+**Every score below 4 carries a citation**, file plus line or file plus artifact id, and the
+orchestrator sends an uncited low score back to the judge. A judge that can grade harshly with
+no evidence is worse than no judge: it produces exactly the plausible-sounding criticism that
+costs a day to disprove. If it cannot point at anything, the honest answer is a 4 with a stated
+reservation.
+
+### `basis` on every piece of evidence
+
+`finding.schema.json` recorded the miner's `confidence` and nothing about where the fact came
+from. A route transcribed from a routes file at the pinned commit and a route inferred from a
+docs page can both be `confidence: high` — the miner is genuinely equally sure in both cases —
+and G4b should not treat them alike when it freezes a contract.
+
+**Evidence entries gain an optional `basis`: `transcribed` | `observed` | `inferred`.** The
+field is optional in the schema and enforced by `validate.mjs`, which is where the grace lives:
+this release warns everywhere, with a per-file count of entries that lack it. It becomes an
+error only for workbenches scaffolded at `schema_version` 0.4.0 or later, which arrives in the
+next minor — so a project mid-mining today keeps validating green and is never asked to
+backfill, exactly as the non-goal said.
+
+Three consumers, so the field is not bookkeeping: `g1-mining.md` documents the definitions and
+the per-lane defaults (lane D source work → `transcribed`, lane B/C device work → `observed`,
+lane A → `inferred` unless pinned to source), and the `%% inferred` ERD convention becomes the
+same vocabulary rather than a second scale. `parity.mjs` names **inferred-only features** in
+the report — the weakest parity claims it contains — and states how many features its
+feature-to-finding join could not resolve, because a zero from a failed join reads exactly like
+a clean bill of health. `g4b-contracts.md` adds a fifth `client-only` consequence: an external
+contract entry backed only by inferred evidence is flagged by name in the Gate 4 review, with
+what would raise it. Freezing a contract on a guess is still allowed; doing it silently is not.
+
 ## [0.12.0] - 2026-08-21
 
 The Flutter playbook assigned the acceptance-criteria flow layer to `integration_test`, which

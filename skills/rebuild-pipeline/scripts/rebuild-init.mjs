@@ -37,7 +37,7 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
-                 "playbook.mjs", "autopilot.mjs"]) {
+                 "playbook.mjs", "basis.mjs", "autopilot.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 

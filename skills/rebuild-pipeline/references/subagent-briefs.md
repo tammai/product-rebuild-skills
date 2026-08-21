@@ -23,6 +23,35 @@ Every dispatch is self-contained — subagents share no conversational context. 
    evidence. Ambiguity resolves by flagging `confidence: low`, never by guessing.
 5. **Done means**: a checkable condition (validates against schema X; covers files Y).
 
+## The judge brief (`rubric-judge`, at every gate — Step 5.1b)
+
+Same five parts, with these values. It runs once per gate attempt, after `validate.mjs`
+passes and before the gate review is written.
+
+1. **Role file**: `${CLAUDE_PLUGIN_ROOT}/agents/rubric-judge.md`.
+2. **Inputs**: the **gate id**; the **rubric** `${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/references/rubrics/gate-N.md`;
+   the absolute paths of the artifacts under that gate's `protects:`; and the supporting
+   paths the rubric's own header says to read (findings, the NFR profile, the vendored
+   `adr/playbook.md`, the latest parity report — they differ per gate, so take them from the
+   rubric rather than from this list). For gate 4, say which mode G4b ran in — a
+   `client-only` transcription is scored on two dimensions a `fullstack` draft is not.
+3. **Output contract**: `plan/gate-reviews/gate-N-rubric.md`, in the format the role file
+   specifies. Not schema-validated — it is a report for a human, not a pipeline artifact.
+4. **Boundaries**: read-only over every input; no edits to the artifacts being scored (they
+   are about to be hashed); no file written other than the output path; no recommendation to
+   lock or not to lock. Uncertainty goes in the report's "What I could not check" section
+   rather than being resolved by guessing.
+5. **Done means**: every dimension the rubric defines has an integer score, and every score
+   below 4 carries a file-plus-line or file-plus-id citation. Send a report back with the
+   uncited dimensions named if it does not — same rule as a schema violation, and for the
+   same reason: the fix has to come from a run that could have produced it.
+
+Two things to get right when you dispatch it. **Route it to a high tier** — it is reading a
+whole artifact set for judgement, which is the most expensive thing this pipeline asks of a
+subagent and the least useful to do cheaply. And **do not paste the gate review into the
+brief**: the judge scores the artifacts, and a judge that has read your summary of them will
+grade the summary.
+
 Parallelism: dispatch independent lanes/modules in the same turn. Route model tiers if
 the environment supports it: extraction → low tier; merge/spec → mid; ADR drafting →
 high. On subagent output failing validation, send it back with the validator error —

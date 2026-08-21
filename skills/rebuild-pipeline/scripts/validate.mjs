@@ -3,7 +3,8 @@
 // Requires ajv, ajv-formats and yaml from the workbench's own `npm install`. The plugin
 // ships no dependencies, so running the plugin's copy of this file cannot work.
 // Checks, in order:
-//   1. Every findings/**.yaml against finding.schema.json (+ evidence rule)
+//   1. Every findings/**.yaml against finding.schema.json (+ evidence rule, + evidence
+//      `basis` — where the fact came from, distinct from the miner's `confidence`)
 //   2. matrix/features.yaml against feature.schema.json
 //   3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
 //   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream)
@@ -68,6 +69,50 @@ const check = (file, validator) => {
 for (const f of yamlFilesUnder("findings")) {
   if (f.endsWith("nfr-profile.yaml")) { ok(f + " (profile, free-form)"); continue; }
   check(f, validators.finding);
+}
+
+// ---------------------------------------------------------------------------
+// Evidence `basis` — where each fact came from, orthogonal to the miner's `confidence`.
+//
+// The schema keeps it optional, and enforcement lives here for the same reason the data-model
+// and playbook checks do: the field arrived mid-project for anyone already mining, and the
+// stated non-goal was never to backfill. So a workbench that predates schema_version 0.4.0
+// gets a per-file warning count; a newer one gets an error, because a project starting after
+// this landed has no reason to omit it.
+//
+// Imported like erd.mjs and playbook.mjs — a hand-upgraded workbench may not have copied it,
+// and that should be one reported failure rather than an unresolved import that takes out
+// every other check.
+// ---------------------------------------------------------------------------
+let basisLib = null;
+try { basisLib = await import("./basis.mjs"); }
+catch { warn("scripts/basis.mjs", "missing — evidence basis not checked. Copy it from the plugin's skills/rebuild-pipeline/scripts/."); }
+if (basisLib) {
+  const { checkBasis, isPreBasisWorkbench, BASIS_REMEDY } = basisLib;
+  const res = checkBasis();
+  const gaps = res.files.filter((f) => f.missing);
+  if (!res.files.length) {
+    // No findings yet, or none carrying evidence — normal before G1.
+  } else if (!gaps.length) {
+    console.log(`ok   findings/ (evidence basis: ${res.totalEvidence}/${res.totalEvidence} entries)`);
+  } else {
+    const legacy = isPreBasisWorkbench();
+    for (const g of gaps) {
+      const sample = g.findingIds.slice(0, 5).join(", ") + (g.findingIds.length > 5 ? ", …" : "");
+      const msg = `${g.missing}/${g.evidence} evidence entr${g.missing === 1 ? "y has" : "ies have"} ` +
+        `no \`basis\` (${sample})`;
+      if (legacy) warn(g.file, msg); else fail(g.file, msg);
+    }
+    const total = `${res.totalMissing}/${res.totalEvidence} evidence entries across ${gaps.length} file(s) have no \`basis\`.`;
+    if (legacy) {
+      warn("findings/", `${total}\n  ${BASIS_REMEDY}\n  Warning only: this workbench predates ` +
+        `schema_version 0.4.0. After backfilling, set schema_version: "0.4.0" in locks/pipeline.yaml ` +
+        `to make it enforced. Backfilling old findings is optional — the non-goal was explicit — but ` +
+        `then leave the version where it is, or every re-validation will fail on history.`);
+    } else {
+      console.error(`  ${total}\n  ${BASIS_REMEDY}`);
+    }
+  }
 }
 let features = null, slices = null;
 if (existsSync("matrix/features.yaml")) features = check("matrix/features.yaml", validators.feature);

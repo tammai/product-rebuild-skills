@@ -13,7 +13,7 @@ per context in parallel.
 - **`client-only`** — the API exists, is not changing, and belongs to someone else. Then
   `contracts/openapi/` is a **transcription of observed reality**, mined at G1 from the old
   client's call sites (and the server's own spec, where one exists). Gate 4 locks
-  ground truth, not a design. Four consequences, each of which someone gets wrong the first
+  ground truth, not a design. Five consequences, each of which someone gets wrong the first
   time:
   1. **Nothing here is negotiable by drafting.** A gap between what the rebuild needs and
      what the API gives is a *finding*, recorded in the gate review with the workaround it
@@ -28,7 +28,17 @@ per context in parallel.
      will have named these) — go in a **separate file**, `contracts/openapi/requested.yaml`,
      never merged into the transcription. It is a request to another team, and mixing it into
      observed reality is how a client gets built against an endpoint nobody agreed to.
-  4. **`contracts/data-model/` describes the DEVICE**, not the server: the local store's
+  4. **An entry backed only by `inferred` evidence gets flagged in the Gate 4 review**, by
+     name, before the lock. Freezing a contract means committing to it: codegen descends from
+     it, and after the tag it takes a reopen to change. An endpoint transcribed from the old
+     client's call sites at the pinned commit is a fact; an endpoint whose only evidence is
+     `basis: inferred` — a docs page, a response body somebody read once, a shape reasoned
+     out from a sibling endpoint — is a guess with a version tag on it. Both may be right;
+     only one of them should be locked silently. List them, say what would raise each to
+     `transcribed` or `observed` (usually: one more look at the old client, or one call
+     against the running API), and let the human decide whether to look now or lock and
+     accept the risk. Do not resolve it by drafting — consequence 1 still holds.
+  5. **`contracts/data-model/` describes the DEVICE**, not the server: the local store's
      shape — what is cached, what is user-authored-but-unsent, what is derived. Its
      starting draft is the old client's local schema
      (`findings/ground-truth/reference-erd.<name>-local.mermaid`), not the server ERD.
@@ -186,9 +196,10 @@ stops to flag a missing callee method has already cost the slice a gate reopen.
 
 ## Gate 4 review (present to user)
 In `client-only` mode, open with the mode itself: what was transcribed vs. what is being
-requested (`requested.yaml`), the gaps the frozen API forces the rebuild to work around, and
-the fact that locking here locks an *observation* — if the server changes, this reopens as
-ground truth moving, not as a design change. Then, in both modes:
+requested (`requested.yaml`), the gaps the frozen API forces the rebuild to work around, the
+**inferred-only entries** named one by one with what would raise each of them, and the fact
+that locking here locks an *observation* — if the server changes, this reopens as ground truth
+moving, not as a design change. Then, in both modes:
 
 Data model with deviations-from-reference and the coherence check's outcome in **all three**
 passes — API → ERD at resource level, API → ERD at **property** level, and ERD → API-or-internal
