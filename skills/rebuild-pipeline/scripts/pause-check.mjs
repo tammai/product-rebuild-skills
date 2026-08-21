@@ -9,8 +9,8 @@
 // check: git cleanliness across the workbench and every repo in repos.yaml, whether that work
 // has actually left the machine (a remote exists; no unpushed commits — including on a
 // detached HEAD — no unpushed tags, no stash entries), any gate left mid-decision (reopened
-// but not re-locked), docker-compose stacks left running, and host-native dev servers
-// (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
+// but not re-locked), AC flow assertions left unlocked, docker-compose stacks left running,
+// and host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
 // is communicated in the report, not a process-failure exit code, since nothing here should
 // ever block a tool call the way the gate-guard hook does.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.
@@ -282,6 +282,22 @@ for (const id of ORDER) {
   } else {
     notes.push(`${id}: open (not yet reached — normal mid-pipeline state).`);
   }
+}
+
+// --- 2b. AC flow assertions left unlocked ---
+// `flows.mjs unlock` suspends the PreToolUse guard on parity/flows/ for one deliberate
+// assertion change. Left on, the guard is simply off — and the next agent to hit a red build
+// can loosen an assertion with nothing noticing. Same category as a reopened gate: a decision
+// mid-flight, safe for an hour and not safe to sleep on.
+const unlockFile = join("parity", "flows", ".unlocked.yaml");
+if (existsSync(unlockFile)) {
+  const text = readFileSync(unlockFile, "utf8");
+  const get = (k) => (text.match(new RegExp(`^${k}:\\s*(.*)$`, "m")) || [])[1]?.trim().replace(/^"|"$/g, "");
+  issues.push(`parity/flows: AC flow assertions still UNLOCKED (since ${get("at") || "?"}, ` +
+    `by ${get("by") || "?"}: ${get("reason") || "no reason recorded"}) — the guard is off. ` +
+    `Re-lock with \`npm run flows -- relock\`.`);
+} else if (existsSync(join("parity", "flows"))) {
+  notes.push("parity/flows: AC flow assertions protected.");
 }
 
 // --- 3. Running docker-compose stacks left up ---

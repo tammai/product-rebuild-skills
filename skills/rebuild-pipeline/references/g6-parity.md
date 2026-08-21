@@ -76,6 +76,41 @@ new assertions, fixing a selector that never matched anything, and deleting a fl
 feature that was dropped from the matrix. What needs the logged decision: weakening or removing
 an assertion that has ever been green against the legacy app.
 
+**The mechanism, from 0.14.0.** A PreToolUse guard blocks Write/Edit on any flow file under
+`parity/flows/` that git already tracks. *Committed* is the line on purpose: recording a flow
+is iterative — write, run against the old app, tweak until green — and a guard that fired
+through that loop would be switched off within a week. Committing the flow is the act that
+says "this is the recorded reference".
+
+To change one deliberately:
+
+```sh
+npm run flows -- unlock --reason "..."   # logged to parity/flows/DECISIONS.md
+# make the change
+npm run flows -- relock
+```
+
+`--reason` is required, exactly as it is for a gate reopen, and "the tests are failing" is not
+one — that is the situation the rule exists for. `npm run pause-check` reports a workbench left
+unlocked as unsafe to pause, because an unlock that outlives its change is a guard that is
+simply off.
+
+## Screenshots: reviewed evidence, never a gate
+
+Visual comparison between the reference and the rebuild is worth doing and worth keeping. It is
+not worth gating on, and the reason is structural rather than a matter of tolerance tuning: two
+different rendering stacks do not produce the same pixels. React Native composes platform
+widgets; Flutter paints its own. Text metrics, font fallback, shadow rasterisation, ripple
+timing and scroll physics all differ *correctly*. A pixel gate over that produces failures on
+every screen from day one, and a suite that is red for reasons nobody intends to fix gets
+muted — which costs you the real regressions too.
+
+So: capture before/after screenshots per flow, attach them to the parity report as evidence a
+human looks at, and let a person say whether a difference matters. Record the verdict, not the
+diff percentage. Goldens are a different tool for a different job — they catch *the rebuild*
+drifting from itself on a pinned platform (`mobile-flutter.md` §15), and that comparison is
+between two runs of the same renderer, which is why it can be a gate and this cannot.
+
 ## Recording progress — `plan/progress.yaml`, never the locked artifacts
 
 At slice completion, write status to **`plan/progress.yaml`** (ungated, validated against

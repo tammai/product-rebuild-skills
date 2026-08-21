@@ -192,7 +192,8 @@ This is NOT one of the five hash-pinned gates — it locks nothing, has no gate-
 enforcement, and is safe to run any number of times. It reports, across the workbench and
 every repo registered in `repos.yaml`: uncommitted/untracked git changes, work that has not
 left the machine (no remote, unpushed commits including on a detached HEAD, unpushed tags,
-stash entries), any gate left mid-decision (reopened but not re-locked), and docker-compose
+stash entries), any gate left mid-decision (reopened but not re-locked), AC flow assertions
+left unlocked (the `parity/flows/` guard suspended and never restored), and docker-compose
 stacks or host-native dev servers left running. Report
 its verdict to the user plainly. If it flags issues, resolve them (commit or explicitly
 flag draft work, decide on a reopened gate, stop or consciously keep services running)

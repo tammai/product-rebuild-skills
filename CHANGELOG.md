@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-21
+
+Three things that were rules on paper in 0.12.0 and 0.13.0 become mechanisms.
+
+**`basis` is now required on new workbenches.** `rebuild-init.mjs` scaffolds
+`schema_version: "0.4.0"`, and `validate.mjs` errors rather than warns on an evidence entry
+with no `basis` at that version or above. Nothing changes for a workbench scaffolded earlier —
+it stays on warnings for the life of the project, which is what "no backfill" was always
+supposed to mean. To opt an existing project in, backfill and set `schema_version: "0.4.0"` by
+hand; to stay out, do nothing.
+
+**The `parity/flows/` guard, with the line drawn at *committed*.** A third PreToolUse hook
+blocks Write/Edit on any AC flow git already tracks. Committed is the load-bearing choice:
+recording a flow is a write-run-tweak loop against the legacy app, and a guard that fired
+through that loop would be switched off within a week — so an untracked flow is free and a
+committed one is the recorded reference. New flows, new assertions and deletions all stay
+unguarded, because the failure being prevented is narrow: loosening an assertion that was
+green against the reference.
+
+The escape hatch is a logged decision, deliberately shaped like a gate reopen —
+`npm run flows -- unlock --reason "..."`, make the change, `relock`. `--reason` is required,
+and both events append to `parity/flows/DECISIONS.md`. `pause-check` reports a workbench left
+unlocked as unsafe to pause, because an unlock that outlives its change is a guard that is
+simply off, and `.unlocked.yaml` is gitignored so an active one can never be pushed to a clone
+where nobody knows about it.
+
+**Screenshots are named as reviewed evidence, never a gate** (`g6-parity.md`). React Native
+composes platform widgets and Flutter paints its own, so text metrics, font fallback, shadow
+rasterisation and scroll physics all differ *correctly* between the reference and the rebuild.
+A pixel gate over that is red on every screen from day one, and a suite red for reasons nobody
+intends to fix gets muted — taking the real regressions with it. Capture before/after per flow,
+attach them to the parity report, record the human's verdict rather than a diff percentage.
+Goldens stay a gate because they compare two runs of the *same* renderer on a pinned platform,
+which is a different question.
+
 ## [0.13.0] - 2026-08-21
 
 Two gaps, both of them a place where the pipeline recorded *that* something was checked but not

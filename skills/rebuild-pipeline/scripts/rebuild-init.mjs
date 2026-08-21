@@ -37,7 +37,7 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
-                 "playbook.mjs", "basis.mjs", "autopilot.mjs"]) {
+                 "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -186,6 +186,20 @@ flow for a dropped feature. Needs the logged decision: **weakening or removing a
 that has ever been green against the legacy app.** An agent that loosens an assertion to make
 a build pass has silently redefined parity, and the report still reads green.
 
+A PreToolUse guard enforces it on any flow file git already tracks — *committed* is the line,
+because recording a flow is iterative and a guard that fired through the write-run-tweak loop
+would be switched off within a week. To change one deliberately:
+
+\`\`\`sh
+npm run flows -- unlock --reason "..."   # logged to parity/flows/DECISIONS.md
+# make the change
+npm run flows -- relock
+\`\`\`
+
+\`--reason\` is required, same as a gate reopen, and "the tests are failing" is not one — that
+is the situation the rule exists for. \`npm run pause-check\` reports a workbench left unlocked
+as unsafe to pause: an unlock that outlives its change is a guard that is simply off.
+
 ## Running it
 
 \`\`\`sh
@@ -219,10 +233,11 @@ write("locks/pipeline.yaml", `
 project: ${name}
 # 0.2.0 added contracts/data-model/ as a checked artifact; 0.3.0 added the architecture
 # playbook (sources.yaml architecture.playbook -> adr/playbook.md, one ADR per concern in
-# its concerns: map). Scripts read this to decide whether a gap is an error (that version or
-# newer) or a warning (older workbenches, which cannot be retro-enforced). Bump it by hand
-# after backfilling.
-schema_version: "0.3.0"
+# its concerns: map); 0.4.0 made evidence \`basis\` required (transcribed | observed | inferred
+# on every finding's evidence entries). Scripts read this to decide whether a gap is an error
+# (that version or newer) or a warning (older workbenches, which cannot be retro-enforced).
+# Bump it by hand after backfilling.
+schema_version: "0.4.0"
 created: ${new Date().toISOString()}
 `);
 
@@ -234,6 +249,7 @@ write("package.json", JSON.stringify({
     validate: "node scripts/validate.mjs",
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
+    flows: "node scripts/flows.mjs",
     "pause-check": "node scripts/pause-check.mjs",
     autopilot: "node scripts/autopilot.mjs",
   },
@@ -259,7 +275,12 @@ jobs:
       - run: npm run validate
 `);
 
-write(".gitignore", "node_modules/\n");
+// `.unlocked.yaml` is transient state, and gitignoring it is not tidiness. Committed while
+// active it would ship a workbench whose flow guard is off to every clone, silently; and
+// `gate.mjs lock` refuses to lock against a dirty tree, so an untracked one would block a gate
+// on a file that has nothing to do with the gate. `DECISIONS.md` is the opposite — it is the
+// log, and it is meant to be committed.
+write(".gitignore", "node_modules/\nparity/flows/.unlocked.yaml\n");
 
 write("README.md", `
 # ${name} — rebuild workbench
@@ -271,6 +292,8 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
   \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving; every
   \`data-model/*.mermaid\` declaring entities; every ADR naming a concern its playbook maps)
 - \`npm run gate -- status\` — pipeline/gate state
+- \`npm run flows -- status\` — are the recorded AC flows protected? (\`unlock --reason "..."\`
+  / \`relock\` around a deliberate assertion change — see \`parity/flows/README.md\`)
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)
 - \`npm run autopilot -- preflight\` — is this project ready to run unattended between gates?

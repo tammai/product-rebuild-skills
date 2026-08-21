@@ -229,12 +229,13 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/playbook.mjs          playbook resolution + the ADR concern/citation checks
   scripts/erd.mjs               data-model checks shared by validate and gate
   scripts/basis.mjs             evidence-basis checks shared by validate and parity
+  scripts/flows.mjs             the logged-decision log for AC flow assertions (unlock/relock)
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
 agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents
-hooks/                          PreToolUse guards: locked artifacts, and the autopilot
-                                usage threshold
+hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
+                                the autopilot usage threshold
 docs/PLAYBOOK.md                the full methodology
 ```
 
@@ -272,7 +273,8 @@ docs/PLAYBOOK.md                the full methodology
   against the *old* app before the slice starts. Replayed unchanged against the rebuild, they
   measure parity; written afterwards they would only agree with whatever got built. Loosening
   an assertion to make a build pass takes a logged human decision, same register as a gate
-  reopen.
+  reopen — a guard blocks the edit, and `unlock --reason "..."` writes the decision to
+  `parity/flows/DECISIONS.md` before it is allowed.
 - **The work leaves the machine.** Every repo gets a remote when it is created, private
   unless the license posture says otherwise, and the pause check tells you when something
   still hasn't been pushed. Months of decisions that re-mining cannot reproduce should not
