@@ -52,6 +52,19 @@ the transcription. Mine, from the OLD CLIENT's source:
   staleness, retry policy, offline queues, deep-link and URL-scheme routing, notification
   payload handling, biometric gates, analytics events. All of it is parity surface and all of
   it is invisible in the API. This is the category a client rebuild loses features to.
+- **The selector inventory**: every `testID` (React Native) or accessibility identifier the
+  old client sets, with the screen and the element it names — plus the elements that have
+  none. These are call-site-adjacent surface, and they are mined here for one specific
+  reason: under `playbooks/mobile-flutter.md` §15 the acceptance-criteria flow suite is
+  **recorded against the old app and replayed against the rebuild**, which works only if both
+  apps expose the same selector strings. The rebuild assigns the identical string to its own
+  accessibility identifier; the inventory is the contract between the two.
+  Mine it in this pass. Flows are recorded per slice from G5 onward, and an inventory that
+  arrives then leaves two bad options — edit already-recorded flows (the one edit the
+  assertion rule forbids) or match on visible text (which breaks on any copy change, for
+  reasons that have nothing to do with parity). Record the gaps as findings too: an element
+  with no `testID` is a flow that needs another way in, and that is cheap to know now and
+  expensive to discover while a flow is red.
 - **Platform integration**: permissions requested, background modes, share/intent handlers,
   widgets/extensions, deep-link domains, app-store metadata that encodes behavior (minimum
   OS, supported devices).
@@ -126,7 +139,8 @@ jobs, including `reference-erd.mermaid`; lanes A–C complete; all findings vali
 top-feature flows user-verified.
 
 For `client-only`: add the API call-site inventory, the on-device store inventory verified
-against a restored device, and the client-side-behavior list (offline, deep links,
-notifications, local validation) — each as findings with evidence, not as a summary. The
-architecture playbook's `on-device-migration` concern cannot be decided at G4a without the
-second of those, and G4b cannot freeze a contract without the first.
+against a restored device, the client-side-behavior list (offline, deep links,
+notifications, local validation), and the selector inventory — each as findings with
+evidence, not as a summary. The architecture playbook's `on-device-migration` concern cannot
+be decided at G4a without the second of those, G4b cannot freeze a contract without the
+first, and under a mobile playbook G5 cannot record a slice's AC flows without the last.

@@ -120,6 +120,32 @@ then resolves against the code repo's own remote, so a fresh
 `git clone --recurse-submodules` works with no per-machine configuration.
 
 ## Per-slice sequence
+
+0. **Record this slice's AC flows against the legacy app — before any module starts.**
+   Applies when the locked playbook says so: `playbooks/mobile-flutter.md` §15, i.e. a
+   `client-only` mobile rebuild whose legacy app is still runnable. Other shapes and
+   playbooks skip step 0 entirely; their AC suite is written with the code, as step 1 has
+   always said.
+
+   The precondition, checked before dispatching anything: every acceptance criterion in this
+   slice has a Maestro flow under the workbench's `parity/flows/<feature-id>/`, and
+   `maestro test parity/flows/<feature-id>` is **green against the legacy app**. If flows are
+   missing or red there, recording them *is* this slice's first work — not a prerequisite
+   somebody else clears.
+
+   **Refuse to start the slice otherwise, and name the missing flows** rather than starting
+   the modules and circling back. A flow written after the rebuild exists is a flow written
+   against the rebuild: it asserts what was built, says nothing about the reference, and
+   every later run agrees with the code by construction. That property cannot be recovered
+   afterwards short of reinstalling the old app and re-recording — which is exactly the work
+   that was skipped, now with a build in the way.
+
+   Where a flow genuinely cannot be recorded — Maestro cannot drive that surface, or the
+   legacy app no longer builds that screen — record *that*, per flow, in the flow file's
+   header. It is then a normal test rather than a parity test and the slice proceeds. An
+   unrecorded flow nobody declared is indistinguishable from one nobody wrote, which is how
+   a parity suite quietly becomes a regression suite.
+
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice. Spec inputs: the
    module's matrix features + flows + ground truth + contracts. Every spec ends with
    acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration

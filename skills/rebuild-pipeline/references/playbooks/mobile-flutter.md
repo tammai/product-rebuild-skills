@@ -193,9 +193,18 @@ flutter analyze --fatal-infos                       # needs the analyzer exclude
 dart run custom_lint            # riverpod_lint + any hand-written rules (§4.3, §5, §12)
 dart run import_lint            # the layer/feature import boundaries (§4.3) — SEPARATE tool
 flutter test
-flutter test integration_test
+flutter test integration_test        # only if the dir has tests — it is the §15 FALLBACK layer
+maestro test <workbench>/parity/flows --format junit --output ac-junit.xml   # §15 AC suite
 dart run build_runner build --delete-conflicting-outputs && git diff --exit-code
 ```
+
+**The AC suite lives in the workbench, not in this repo** (§15, `g6-parity.md`). `<workbench>`
+is the pinned submodule path, so CI must check out submodules to run it and the flows it sees
+are exactly the ones that existed at the pinned gate tag. Two consequences worth planning for
+rather than discovering: the job needs a booted emulator or simulator (Android headless in CI,
+iOS on a Mac runner), and `flutter test integration_test` fails outright when
+`integration_test/` holds no tests — guard it, because under this playbook an empty
+`integration_test/` is the normal state, not a gap.
 
 **`--output=none` is not optional in a gate.** Plain `dart format --set-exit-if-changed .`
 *reformats every unformatted file it finds* and then exits 1 — the flag controls the exit
@@ -612,8 +621,37 @@ platform) errors.
 | Data | repository impls against a fake API client + in-memory Drift | `flutter test` |
 | Presentation | controllers with overridden providers; widget tests per screen | `flutter test` |
 | Design system | golden tests, light/dark × text scale | `flutter test`, pinned platform |
-| Flows | `integration_test` on a real device/simulator, one per acceptance criterion | CI + local |
+| Flows (AC) | **Maestro flows, owned by the workbench** (`parity/flows/<feature-id>/*.yaml`), one per acceptance criterion, recorded against the legacy app *before* the slice builds | CI + local |
+| Flows (fallback) | `integration_test` on a real device/simulator — **optional**, for the flows Maestro cannot drive | CI + local |
 
+- **The AC flow layer is a characterization harness, and that is the reason it is Maestro and
+  not `integration_test`.** Maestro drives the compiled binary through the platform
+  accessibility layer, so it is framework-agnostic: one flow recorded against the legacy RN
+  app replays unchanged against this Flutter build. `integration_test` is Dart-side and can
+  only ever run against the new app, so a suite written in it cannot be green on the
+  reference *before* the port — which is the whole property that makes it a parity harness
+  rather than a fresh test suite that agrees with whatever was built. It stays in the table
+  as the fallback for surfaces Maestro cannot reach (some platform views, purchase sheets,
+  certain OS permission dialogs); those flows have no reference recording, so mark them
+  reference-less per flow rather than letting them pass as parity evidence.
+- **Authorship direction is the guarantee.** A slice's flows are recorded against the legacy
+  app and green *there* first — `g5-build.md`'s per-slice step 0 refuses to start the slice
+  otherwise. The frozen reference therefore stays installable for the life of the project
+  (`g6-parity.md`): under this playbook it is the recording target, not only the arbiter.
+- **One selector namespace, both apps.** The legacy app's `testID` values are mined as a
+  lane-D finding (`g1-mining.md`, client-only section); this build assigns the *identical*
+  string to the Flutter `Semantics` `identifier` for the same element. Where a legacy element
+  has no `testID`, add one there if the old app still builds; otherwise the flow has to match
+  another way and that flow is reference-less. Do not quietly fall back to matching visible
+  text unless the text *is* the assertion — copy changes are normal in a rebuild and a flow
+  keyed to them fails for a reason that has nothing to do with parity.
+- **Assertions in a recorded flow change only by a logged human decision**, same register as
+  a gate reopen; `g6-parity.md` states the rule and the mechanism that enforces it. An agent
+  that loosens an assertion to make a build pass has silently redefined parity, and nothing
+  downstream can tell that apart from a build that got better.
+- **Maestro needs macOS or Linux** (WSL on Windows). Android runs headless in CI; iOS runs on
+  simulators only, so the iOS leg needs a Mac runner. Decide which machine that is before the
+  first slice — it is a capacity question with a lead time, not a CI config line.
 - **Goldens need one pinned platform or they are useless.** They are font- and
   platform-sensitive, so they must run on a single pinned CI image (or shard per platform)
   and be regenerated there — otherwise they fail on every machine that is not the author's
@@ -622,8 +660,10 @@ platform) errors.
   assertion count, decides whether §12's golden suite exists in six months.
 - **Migration tests are mandatory** for every Drift `schemaVersion` step (§9) and for the
   §22 legacy migration, including the interrupted-and-resumed case.
-- **G5's rule holds here: each acceptance criterion maps 1:1 to one integration test.** The
-  previous app is the arbiter when behavior is ambiguous — run it, do not guess.
+- **G5's rule holds here: each acceptance criterion maps 1:1 to one AC flow.** The previous
+  app is the arbiter when behavior is ambiguous — run it, do not guess. Under this playbook
+  that arbitration is mechanised rather than remembered: the flow that asserts the criterion
+  is the same artifact that was run against the old app.
 - No mocking of the generated client's HTTP layer with string fixtures pasted from a
   browser; fixtures come from the contract's examples so they break when the contract does.
 
@@ -927,10 +967,19 @@ depth requirement.
    before the first internal build, not before the first release.
 8. **Store-compliance artifacts** (§20) before the first internal build: privacy manifest
    from the *new* dependency set, data-safety declaration, permission strings.
-9. First feature vertically: one screen, one controller, one repository, one DAO, one
-   integration test, one golden on the pinned image. That is the template every later feature
-   copies.
-10. **§22 spike before the first slice that touches session or local data**: on a device
+9. **Maestro CLI wherever the AC suite will run, and the selector map before the first
+   flow** (§15). Install Maestro on the dev machines and the CI runners — Android runs
+   headless, iOS needs a Mac runner, so confirm which machine that is now. Then take the
+   legacy app's `testID` inventory from lane D (`findings/ground-truth/`) and write, per
+   screen in scope, which Flutter widget will carry each identifier. Do this *before* the
+   first flow is recorded: the map is what lets a recorded flow replay unchanged, and
+   deriving it afterwards means editing recorded flows, which is the one edit §15's
+   assertion rule exists to prevent.
+10. First feature vertically: one screen, one controller, one repository, one DAO, **one
+   Maestro AC flow already green against the legacy app**, one golden on the pinned image.
+   That is the template every later feature copies — including the ordering, which is the
+   part that is easy to drop.
+11. **§22 spike before the first slice that touches session or local data**: on a device
     restored from a real backup, read one legacy keychain item and one legacy KV value, and
     confirm which stores need native work. Its outcome is an input to the migration ADR, not
     a G5 task.

@@ -227,7 +227,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
   scripts/playbook.mjs          playbook resolution + the ADR concern/citation checks
   scripts/erd.mjs               data-model checks shared by validate and gate
-  scripts/parity.mjs            G6 coverage report
+  scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
 agents/                         miner, adr-drafter, spec-writer subagents
@@ -254,6 +254,13 @@ docs/PLAYBOOK.md                the full methodology
   consume it one-way, pinned at gate tags.
 - **Every slice ships.** Deployment is part of the definition of done — it's half the
   curriculum.
+- **A parity suite is recorded against the reference, not written after the rebuild.** Where
+  the playbook supports it (today: a Flutter client replacing a runnable legacy mobile app),
+  the acceptance-criteria flows are framework-agnostic Maestro flows in the workbench, green
+  against the *old* app before the slice starts. Replayed unchanged against the rebuild, they
+  measure parity; written afterwards they would only agree with whatever got built. Loosening
+  an assertion to make a build pass takes a logged human decision, same register as a gate
+  reopen.
 - **The work leaves the machine.** Every repo gets a remote when it is created, private
   unless the license posture says otherwise, and the pause check tells you when something
   still hasn't been pushed. Months of decisions that re-mining cannot reproduce should not

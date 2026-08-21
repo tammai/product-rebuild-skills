@@ -28,7 +28,8 @@ if (existsSync(root)) {
 const dirs = [
   "findings/ground-truth", "findings/feature", "findings/nfr", "findings/flow",
   "matrix", "plan", "adr", "contracts/data-model", "contracts/openapi",
-  "contracts/internal", "contracts/asyncapi", "locks", "parity", "schemas", "scripts",
+  "contracts/internal", "contracts/asyncapi", "locks", "parity", "parity/flows",
+  "schemas", "scripts",
   ".github/workflows",
 ];
 for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
@@ -140,6 +141,60 @@ reference behavior maps onto the rebuild, and a structural one needs an ADR at G
 Keep this file, or delete it once the first real diagram lands — but delete it **before**
 Gate 4 locks. Gate 4 hashes everything under \`contracts/\`, so removing it afterwards
 fails \`npm run validate\` with \`locked file missing\` and needs a gate reopen to undo.
+`);
+
+write("parity/flows/README.md", `
+# AC flows — the acceptance-criteria suite
+
+One directory per feature, one flow file per acceptance criterion:
+\`parity/flows/<feature-id>/<criterion>.yaml\`.
+
+**Only populated under a playbook that says so** — today that is
+\`playbooks/mobile-flutter.md\` §15 (a \`client-only\` mobile rebuild whose legacy app still
+runs), where the flows are [Maestro](https://maestro.dev) YAML. Other target shapes keep
+their AC suite in the code repo with the code it tests, and this directory stays empty.
+
+## Why the flows live in the workbench and not in the code repo
+
+They describe the **product** — what a user does and what must be true afterwards — which is
+this repo's charter. Code repos reach them through the submodule pin they already have, and
+that pin does the versioning for free: a repo checked out at \`gate-4/v1\` sees exactly the
+flows that existed at that tag.
+
+## Recorded against the legacy app FIRST
+
+This is what makes the suite a characterization harness rather than a test suite that agrees
+with whatever got built. Maestro drives the compiled binary through the accessibility layer,
+so it is framework-agnostic: a flow recorded against the old app replays unchanged against the
+rebuild, provided both expose the same selector strings (the selector inventory is mined at G1
+— see \`g1-mining.md\`). \`g5-build.md\`'s per-slice step 0 refuses to start a slice whose flows
+are missing or red against the legacy app.
+
+A flow that genuinely cannot be recorded against the reference says so in its own header. It
+is then a normal test, not parity evidence.
+
+## The one rule with teeth
+
+> **An assertion in a recorded flow changes only with a logged human decision.**
+
+These files are deliberately NOT hashed into a gate — flows are recorded per slice, and
+hash-locking them would mean a formal gate reopen every slice. The rule is the substitute, and
+it is the same register as a reopen: a human decides, the reason is written down.
+
+Freely allowed: new flows, new assertions, fixing a selector that never matched, deleting a
+flow for a dropped feature. Needs the logged decision: **weakening or removing an assertion
+that has ever been green against the legacy app.** An agent that loosens an assertion to make
+a build pass has silently redefined parity, and the report still reads green.
+
+## Running it
+
+\`\`\`sh
+maestro test parity/flows --format junit --output parity/$(date -u +%F)-ac.xml
+npm run parity     # reads that XML and puts the AC pass rate in parity/<date>.md
+\`\`\`
+
+Maestro needs macOS or Linux (WSL on Windows). Android runs headless in CI; iOS runs on
+simulators only, so the iOS leg needs a Mac runner.
 `);
 
 const gates = [

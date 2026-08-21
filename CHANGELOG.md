@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-21
+
+The Flutter playbook assigned the acceptance-criteria flow layer to `integration_test`, which
+is Dart-side and can only ever run against the new app. So the suite that is supposed to prove
+the rebuild behaves like the reference could not be run against the reference — it could only
+be written after the port, against the port, where it agrees with whatever was built by
+construction. That is a regression suite wearing a parity suite's name, and `g6-parity.md`
+step 1 ("AC suite") named no implementation at all, so nothing contradicted it.
+
+**Maestro is now the AC flow layer for a `client-only` mobile rebuild with a runnable legacy
+app.** Maestro drives the compiled binary through the platform accessibility layer, so it is
+framework-agnostic: one flow recorded against the legacy React Native app replays *unchanged*
+against the Flutter build. `integration_test` drops to optional, for the surfaces Maestro
+cannot drive — and those flows are marked reference-less, because a flow with no reference
+recording is a normal test, not parity evidence. Other target shapes keep §15 as it was.
+
+**Authorship direction is the whole guarantee, so it is enforced rather than described.**
+`g5-build.md` gains a per-slice **step 0**: a slice does not start until its acceptance
+criteria have flows under the workbench's `parity/flows/<feature-id>/` that are green against
+the *legacy* app. Not a prerequisite somebody else clears — recording them is the slice's first
+work. The property cannot be recovered afterwards short of reinstalling the old app and
+re-recording, which is exactly the work that was skipped, now with a build in the way.
+
+**One selector namespace, both apps.** The legacy app's `testID` inventory joins lane D's
+client-only mining targets in `g1-mining.md`, gaps included, and the rebuild assigns the
+identical string to its Flutter `Semantics` `identifier`. Mining it later leaves two bad
+options — edit already-recorded flows, or match on visible text, which breaks on any copy
+change for reasons that have nothing to do with parity.
+
+**The AC pass rate is now generated, not transcribed.** `g6-parity.md` step 1 names the command
+(`maestro test parity/flows --format junit --output parity/<date>-ac.xml`), and `parity.mjs`
+reads that file: the pass rate, the failed flow names, and an explicit count of skipped ACs go
+into `parity/<date>.md`. A JUnit file it cannot parse is reported as unreadable rather than
+counted as zero failures. This is the same rule G5 already states for verification scripts — an
+artifact a human reads afterwards must name only what actually ran.
+
+**Flows are not hash-locked, and the substitute rule has teeth.** They live in the workbench
+because they describe the product, and code repos reach them through the gate-tag submodule pin
+they already have — so a repo at `gate-4/v1` sees exactly the flows that existed at that tag.
+Hash-locking them would force a gate reopen per slice. Instead: **an assertion in a recorded
+flow changes only with a logged human decision**, same register as a reopen. Narrow on purpose
+— new flows, new assertions, and fixing a selector that never matched are all free. Only
+weakening an assertion that has ever been green against the legacy app needs the decision. An
+agent with a red build and a flow in reach will loosen the assertion, and the result is
+indistinguishable from a build that got better. Enforcement is instruction-level here.
+
+Also: `rebuild-init.mjs` scaffolds `parity/flows/` with a README carrying the rule; §26's
+checklist gains a Maestro-CLI-and-selector-map step *before* the first vertical feature; and §3's
+CI block gains the `maestro test` line, a note that the flows come from the pinned submodule, and
+a warning that `flutter test integration_test` fails outright on an empty `integration_test/` —
+which under this playbook is now the normal state.
+
 ## [0.11.1] - 2026-08-20
 
 The Flutter playbook shipped two commands that do the wrong thing, and named a `bigin-skills`

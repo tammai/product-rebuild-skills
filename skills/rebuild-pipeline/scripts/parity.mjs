@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // parity.mjs — G6 parity report. Run from the workbench root.
-// Diffs matrix feature statuses and writes parity/<date>.md.
+// Diffs matrix feature statuses and writes parity/<date>.md, and — when the AC suite left a
+// JUnit file at parity/<date>-ac.xml — the AC pass rate that suite actually produced.
 //
 // Progress lives in plan/progress.yaml, NOT in the gate-locked artifacts. Both
 // matrix/features.yaml (gate-1) and plan/slices.yaml (gate-2) carry a `status:`
@@ -73,6 +74,65 @@ const date = new Date().toISOString().slice(0, 10);
 const pct = features.length ? Math.round((buckets.covered.length / features.length) * 100) : 0;
 const list = (arr) => arr.length ? arr.map((f) => `- ${f.id} ${f.name}`).join("\n") : "- none";
 
+// ---------------------------------------------------------------------------
+// AC pass rate, from the AC suite's own JUnit output — not from a hand-written summary.
+//
+// g6-parity.md step 1 runs `maestro test parity/flows --format junit --output
+// parity/<date>-ac.xml`. Reading that file here rather than asking a human to transcribe the
+// result is the same rule g5-build.md states for verification scripts: an artifact a human
+// reads afterwards must name only what actually ran. A transcribed pass rate is exactly the
+// banner that survives after the run that produced it is forgotten.
+//
+// Deliberately not an XML parser (the plugin ships no dependencies, and the workbench's three
+// are for schema validation). JUnit's shape is fixed enough that counting <testcase> elements
+// and the ones carrying a <failure>/<error> child is reliable; anything it cannot read is
+// reported as unreadable rather than silently counted as zero failures.
+// ---------------------------------------------------------------------------
+const AC_JUNIT = `parity/${date}-ac.xml`;
+const readAcSuite = () => {
+  if (!existsSync(AC_JUNIT)) return null;
+  let xml;
+  try { xml = readFileSync(AC_JUNIT, "utf8"); }
+  catch (e) { return { unreadable: e.message }; }
+  // Split on the opening tag so each chunk is one test case plus whatever it contained.
+  const chunks = xml.split(/<testcase\b/).slice(1);
+  if (!chunks.length) return { unreadable: "no <testcase> elements" };
+  const cases = chunks.map((chunk) => {
+    // Everything up to this case's end — self-closing, or the matching </testcase>.
+    const end = chunk.indexOf("</testcase>");
+    const body = end === -1 ? chunk.split(/<testcase\b/)[0] : chunk.slice(0, end);
+    const attr = (n) => (body.match(new RegExp(`\\b${n}="([^"]*)"`)) || [])[1] || "";
+    const name = [attr("classname"), attr("name")].filter(Boolean).join(" › ") || "(unnamed)";
+    if (/<skipped\b/.test(body)) return { name, state: "skipped" };
+    if (/<(failure|error)\b/.test(body)) return { name, state: "failed" };
+    return { name, state: "passed" };
+  });
+  const count = (st) => cases.filter((c) => c.state === st).length;
+  return {
+    total: cases.length, passed: count("passed"), failed: count("failed"),
+    skipped: count("skipped"), failures: cases.filter((c) => c.state === "failed"),
+  };
+};
+const ac = readAcSuite();
+// The section is owned only when there is a JUnit file to own it from. Without one, the title
+// stays out of OWNED so a previously generated section — or a hand-written `## AC suite` for a
+// project whose AC suite is not Maestro — is preserved by the merge below instead of erased.
+const AC_TITLE = "AC suite (Maestro JUnit)";
+let acSection = "";
+if (ac?.unreadable) {
+  acSection = `\n## ${AC_TITLE}\n\n- \`${AC_JUNIT}\` exists but could not be read as JUnit ` +
+    `(${ac.unreadable}). Pass rate NOT reported — do not read its absence as a pass.\n`;
+  console.warn(`warning: ${AC_JUNIT} is not readable as JUnit (${ac.unreadable}) — no AC pass rate in the report.`);
+} else if (ac) {
+  const rate = ac.total ? Math.round((ac.passed / ac.total) * 100) : 0;
+  const failed = ac.failures.length
+    ? "\n\nFailed:\n" + ac.failures.map((c) => `- ${c.name}`).join("\n")
+    : "";
+  const skipped = ac.skipped ? ` ${ac.skipped} skipped — a skipped AC is not a passing one.` : "";
+  acSection = `\n## ${AC_TITLE}\n\nAC pass rate: ${ac.passed}/${ac.total} (${rate}%), ` +
+    `${ac.failed} failed.${skipped} Source: \`${AC_JUNIT}\`.${failed}\n`;
+}
+
 // A G6 run is part generated, part hand-written: the AC suite result and the
 // upstream re-mine are authored by a human or the orchestrator. Re-running on the
 // same date must not silently eat them, so keep every `## ` section this script
@@ -82,6 +142,7 @@ const OWNED = [
   "Partial",
   "Upstream candidates (from re-mining — decide at next slice boundary)",
   "Slice progress",
+  ...(acSection ? [AC_TITLE] : []),
 ];
 const path = `parity/${date}.md`;
 let preserved = "";
@@ -96,7 +157,7 @@ mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
-${overlayWarning}
+${overlayWarning}${acSection}
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
 
@@ -109,4 +170,5 @@ ${list(buckets.upstream)}
 ## Slice progress
 ${slices.map((s) => `- ${s.id} ${s.name}: ${s.status}${notes[s.id] ? `\n  - ${notes[s.id].trim().replace(/\n/g, "\n    ")}` : ""}`).join("\n") || "- no slice plan yet"}
 ${preserved}`);
-console.log(`Wrote ${path} — coverage ${pct}%.${preserved ? " Hand-written sections preserved." : ""}`);
+const acNote = ac && !ac.unreadable ? ` AC ${ac.passed}/${ac.total} passed.` : "";
+console.log(`Wrote ${path} — coverage ${pct}%.${acNote}${preserved ? " Hand-written sections preserved." : ""}`);
