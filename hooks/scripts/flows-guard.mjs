@@ -65,6 +65,20 @@ if (!tracked) process.exit(0);
 const unlockFile = join(root, "parity", "flows", ".unlocked.yaml");
 if (existsSync(unlockFile)) process.exit(0);
 
+// A workbench scaffolded at 0.12.0 or 0.13.0 has parity/flows/ but no scripts/flows.mjs — the
+// directory arrived a release before the mechanism did. Every other script this plugin added
+// late degrades a CHECK when it is missing; this one would degrade into a hard block with an
+// escape hatch that does not exist, which is the one failure mode a guard must never have. So
+// when the script is absent, say so and name the upgrade in the same breath.
+const hasFlowsScript = existsSync(join(root, "scripts", "flows.mjs"));
+const escapeHatch = hasFlowsScript
+  ? `  npm run flows -- unlock --reason "..."   # then make the change, then: npm run flows -- relock\n`
+  : `  This workbench has no scripts/flows.mjs — it predates the mechanism. Copy it from the\n` +
+    `  plugin's skills/rebuild-pipeline/scripts/, add "flows": "node scripts/flows.mjs" to\n` +
+    `  package.json's scripts, and add parity/flows/.unlocked.yaml to .gitignore (an active\n` +
+    `  unlock must never be committed). Then:\n` +
+    `    npm run flows -- unlock --reason "..."   # change it, then: npm run flows -- relock\n`;
+
 console.error(
   `Blocked: ${rel} is a recorded AC flow (committed under parity/flows/).\n` +
   `These flows were recorded against the LEGACY app before the slice was built — that ` +
@@ -75,7 +89,7 @@ console.error(
   `better.\n` +
   `If the assertion is genuinely wrong, that is a human decision and it gets logged, same ` +
   `register as a gate reopen:\n` +
-  `  npm run flows -- unlock --reason "..."   # then make the change, then: npm run flows -- relock\n` +
+  escapeHatch +
   `Recording NEW flows and ADDING assertions need none of this — only an existing committed ` +
   `flow is guarded.`
 );

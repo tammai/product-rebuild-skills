@@ -26,6 +26,13 @@ committed one is the recorded reference. New flows, new assertions and deletions
 unguarded, because the failure being prevented is narrow: loosening an assertion that was
 green against the reference.
 
+A workbench scaffolded at 0.12.0 or 0.13.0 has `parity/flows/` but not the script — the
+directory arrived a release before the mechanism. The guard names the upgrade (copy
+`flows.mjs`, add the npm script, gitignore `.unlocked.yaml`) in its block message rather than
+pointing at a command that is not there. Every other late-added script degrades a *check* when
+absent; this one would have degraded into a block with no way out, which is the one failure
+mode a guard must not have.
+
 The escape hatch is a logged decision, deliberately shaped like a gate reopen —
 `npm run flows -- unlock --reason "..."`, make the change, `relock`. `--reason` is required,
 and both events append to `parity/flows/DECISIONS.md`. `pause-check` reports a workbench left
