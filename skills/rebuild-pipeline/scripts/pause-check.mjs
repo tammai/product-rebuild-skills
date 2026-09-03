@@ -9,7 +9,8 @@
 // check: git cleanliness across the workbench and every repo in repos.yaml, whether that work
 // has actually left the machine (a remote exists; no unpushed commits — including on a
 // detached HEAD — no unpushed tags, no stash entries), any gate left mid-decision (reopened
-// but not re-locked), AC flow assertions left unlocked, docker-compose stacks left running,
+// but not re-locked), AC flow assertions left unlocked, shipped slices with no slice review,
+// docker-compose stacks left running,
 // and host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
 // is communicated in the report, not a process-failure exit code, since nothing here should
 // ever block a tool call the way the gate-guard hook does.
@@ -298,6 +299,54 @@ if (existsSync(unlockFile)) {
     `Re-lock with \`npm run flows -- relock\`.`);
 } else if (existsSync(join("parity", "flows"))) {
   notes.push("parity/flows: AC flow assertions protected.");
+}
+
+// --- 2c. Shipped slices with no slice review ---
+// A NOTE, never an issue, and that is a deliberate choice rather than an oversight: the slice
+// review is advisory by design. It locks nothing and blocks nothing, so it must not be able to
+// turn a session end "unsafe" — a check that cries wolf about a report nobody is required to run
+// is a check that gets ignored, taking the real warnings with it.
+//
+// Read from plan/progress.yaml only, which is where g6-parity.md says slice completion is
+// recorded ("never in the gate-locked plan/slices.yaml"). Parsed with the same fixed-subset
+// regex style as the rest of this file — it stays zero-dependency because it must run in a
+// workbench whose `npm install` has not happened. `notes:` is keyed by slice id too, so the
+// scan is scoped to the `slices:` block rather than matching S-ids anywhere in the file.
+const progressSliceStatuses = () => {
+  const p = join("plan", "progress.yaml");
+  if (!existsSync(p)) return null;
+  let lines;
+  try { lines = readFileSync(p, "utf8").split("\n"); } catch { return null; }
+  const i = lines.findIndex((l) => /^slices:/.test(l));
+  if (i === -1) return new Map();
+  const out = new Map();
+  const inline = lines[i].slice(lines[i].indexOf(":") + 1).trim();
+  if (inline.startsWith("{")) {
+    // Flow mapping — `slices: { S1: deployed }` is the shape g6-parity.md itself shows, and it
+    // may wrap. Accumulate until the closing brace rather than assuming one line.
+    let buf = inline;
+    for (let j = i; !buf.includes("}") && j + 1 < lines.length; j++) buf += " " + lines[j + 1].trim();
+    for (const m of buf.matchAll(/(S\d+)\s*:\s*([A-Za-z-]+)/g)) out.set(m[1], m[2]);
+    return out;
+  }
+  for (let j = i + 1; j < lines.length; j++) {
+    if (/^\S/.test(lines[j])) break; // back to column 0 — a different top-level key
+    const m = /^\s+(S\d+)\s*:\s*(\S+)/.exec(lines[j]);
+    if (m) out.set(m[1], m[2].replace(/["']/g, ""));
+  }
+  return out;
+};
+const sliceStatuses = progressSliceStatuses();
+if (sliceStatuses) {
+  const shippedSlices = [...sliceStatuses].filter(([, st]) => st === "done" || st === "deployed").map(([id]) => id);
+  const unreviewed = shippedSlices.filter((id) => !existsSync(join("plan", "slice-reviews", `${id}.md`)));
+  if (unreviewed.length) {
+    notes.push(`slice reviews: ${unreviewed.join(", ")} shipped without one — ` +
+      `\`npm run slice-review -- ${unreviewed[0]}\`. Advisory: this does not make it unsafe to pause, ` +
+      `but a boundary is the cheap moment to change the plan and it is about to pass.`);
+  } else if (shippedSlices.length) {
+    notes.push(`slice reviews: all ${shippedSlices.length} shipped slice(s) have one.`);
+  }
 }
 
 // --- 3. Running docker-compose stacks left up ---

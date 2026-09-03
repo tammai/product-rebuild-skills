@@ -39,9 +39,50 @@ Run after each slice and on schedule (monthly default).
    pinned commit that still compiles, a device that still has it. Losing the ability to run
    it costs more than any single finding, and it always happens by accident.
 
-Present the report briefly: coverage %, AC pass rate, upstream movements, creep items.
-Ask the user only when a decision is needed (e.g. adopt an upstream feature into the
-backlog or ignore it with reason).
+4. **Slice review**: `npm run slice-review -- <Sn>` — the standing report for the boundary,
+   written to `plan/slice-reviews/<Sn>.md`. Run it after step 2 so it can cite that report.
+
+Present both reports briefly: coverage %, AC pass rate, upstream movements, creep items, and
+from the slice review — what regressed since the last run, where the slice leaves the roadmap,
+and which pending slices are orderable now. Ask the user only when a decision is needed (adopt
+an upstream feature into the backlog or ignore it with reason; reorder the tail or leave it).
+
+## The slice review — advisory, generated, and not a sixth gate
+
+**What it adds that this phase does not.** `parity.mjs` answers *how much of the reference do
+we cover* — a coverage diff against the matrix. Two questions it does not answer, and nothing
+else did either:
+
+- **Does the whole product still run?** Every per-slice deploy criterion asserts only that
+  slice's own features, so a regression in an earlier slice had nowhere to surface. The review
+  compares this AC run against the previous one **by test name** and names what was passing then
+  and is not now. It also separates a failure that was *already* failing last run — no delta will
+  ever surface that one again, and it has now survived a whole slice.
+- **Where does that put us?** Position in the execution order, what is next, and which pending
+  slices are orderable *right now* because their dependencies have shipped. That last one is the
+  input to the reorder conversation this boundary exists for.
+
+**Its coverage figure differs from `parity.mjs`'s, on purpose.** The review counts only
+explicit `plan/progress.yaml` entries; parity fills gaps with `matrix/features.yaml`'s
+`status:`. Both are right for their own question — parity's is about the reference, the
+review's is about the rebuild — and the review prints the gap rather than letting two reports
+quietly disagree. A matrix full of mined `covered` reads as a finished rebuild before a line of
+code exists, which is exactly why a *standing* report cannot inherit that denominator.
+
+**Generated, never written.** Every figure comes off disk. A slice review an agent composes is a
+summary of what that agent believes it did — the failure `verifier`, `rubric-judge` and
+g5-build.md's "a verification script names only what it RAN" all exist to prevent, and a slice
+review is precisely the artifact that outlives the session that produced it. Judgement goes in
+the conversation on top of the file, not inside it.
+
+**And it is not a gate.** Gates are hash-pinned, tagged, and consumed by submodule pins; a
+per-slice gate would mean a tag per slice and a formal reopen every time a review found
+something. That is the bookkeeping-versus-decisions line `plan/progress.yaml` and
+`parity/flows/` each drew already. So the review blocks nothing — `pause-check` mentions a
+shipped slice that has none as a *note*, never as ⚠️, because a check that cries wolf about an
+optional report takes the real warnings down with it. The teeth in this design are on the
+**reorder**, not the review: `sequence.mjs` requires `--reason` and logs every move, so a plan
+that drifts leaves a record even when nobody read the review.
 
 ## The AC flows — `parity/flows/`, and the one rule with teeth
 

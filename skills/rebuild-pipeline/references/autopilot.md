@@ -80,6 +80,11 @@ draft diverged from `adr/playbook.md` or from the reference. Commit both files,
 then `disengage --reason gate-review --next "..."`, run `pause-check.mjs`, and present the
 review. The user decides; the file is there so the decision does not depend on scrollback.
 
+**At a slice boundary.** Run the between-slices sequence in `g5-build.md` — record progress,
+parity, `slice-review.mjs`, commit all of it — *before* halting for the "marking a slice done"
+decision. The review is the artifact that decision gets made against, and an unattended run that
+halts without writing one hands the user a question and none of the evidence for it.
+
 **On trouble** — stop, do not work around:
 
 | Situation | `--reason` |
@@ -113,6 +118,11 @@ scattered across the phase references; this is the whole list:
 - spec approval before any code is written (G5)
 - **marking a slice done** — the slice is not done until deployed and `done_means` is
   demonstrably true
+- **reordering the slice sequence** (`sequence.mjs reorder`). Generating the review that
+  surfaces a reorder candidate is autopilot's; deciding to move a slice is not. It is a change
+  to the plan, in the same register as a gate reopen, and `--reason` exists so that a human
+  said why. `sync` after a gate-2 reopen *is* autopilot's — that is bookkeeping, and the
+  decision was the reopen.
 - adopting an upstream feature into the backlog (G6)
 - the GP drills — the user performs them
 - any gate reopen, and the reason for it

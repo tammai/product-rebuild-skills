@@ -27,8 +27,27 @@ const notes = progress.notes || {};
 
 const features = (readYaml("matrix/features.yaml", []) || [])
   .map((f) => ({ ...f, status: featureProgress[f.id] || f.status || "planned" }));
-const slices = (readYaml("plan/slices.yaml", []) || [])
+let slices = (readYaml("plan/slices.yaml", []) || [])
   .map((s) => ({ ...s, status: sliceProgress[s.id] || s.status || "pending" }));
+
+// Slice ORDER lives in plan/sequence.yaml, not in this array. plan/slices.yaml is hashed whole
+// by gate-2, so its array order could only be revised by a formal reopen — which is why the
+// sequence became an overlay (see sequence.mjs's header). Reading it here keeps the "Slice
+// progress" section in the order actually being executed rather than the order Gate 2 first
+// wrote. Imported guarded, like erd.mjs and playbook.mjs: a workbench that predates the overlay
+// has no such file and no such script, and must keep reporting exactly as it did.
+let sequenceLib = null;
+try { sequenceLib = await import("./sequence.mjs"); } catch { /* pre-0.15.0 workbench */ }
+if (sequenceLib) {
+  const { order, present } = sequenceLib.readSequence();
+  if (present) {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Anything absent from the overlay sorts last rather than vanishing: a non-permutation is
+    // validate.mjs's failure to report, and silently dropping a slice from the report is the
+    // one behaviour that would hide it.
+    slices = [...slices].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+  }
+}
 
 const by = (s) => features.filter((f) => f.status === s);
 const buckets = {
@@ -83,37 +102,26 @@ const list = (arr) => arr.length ? arr.map((f) => `- ${f.id} ${f.name}`).join("\
 // reads afterwards must name only what actually ran. A transcribed pass rate is exactly the
 // banner that survives after the run that produced it is forgotten.
 //
-// Deliberately not an XML parser (the plugin ships no dependencies, and the workbench's three
-// are for schema validation). JUnit's shape is fixed enough that counting <testcase> elements
-// and the ones carrying a <failure>/<error> child is reliable; anything it cannot read is
-// reported as unreadable rather than silently counted as zero failures.
+// The parsing itself lives in acsuite.mjs (shared with slice-review.mjs, which needs a richer
+// read of the same file) — including why it is not a real XML parser, and why anything it cannot
+// read is reported as unreadable rather than counted as zero failures.
+//
+// This report reads TODAY's file only, never the newest on disk: it is dated, and borrowing
+// another day's numbers would put a pass rate under a heading that did not produce it.
 // ---------------------------------------------------------------------------
 const AC_JUNIT = `parity/${date}-ac.xml`;
-const readAcSuite = () => {
-  if (!existsSync(AC_JUNIT)) return null;
-  let xml;
-  try { xml = readFileSync(AC_JUNIT, "utf8"); }
-  catch (e) { return { unreadable: e.message }; }
-  // Split on the opening tag so each chunk is one test case plus whatever it contained.
-  const chunks = xml.split(/<testcase\b/).slice(1);
-  if (!chunks.length) return { unreadable: "no <testcase> elements" };
-  const cases = chunks.map((chunk) => {
-    // Everything up to this case's end — self-closing, or the matching </testcase>.
-    const end = chunk.indexOf("</testcase>");
-    const body = end === -1 ? chunk.split(/<testcase\b/)[0] : chunk.slice(0, end);
-    const attr = (n) => (body.match(new RegExp(`\\b${n}="([^"]*)"`)) || [])[1] || "";
-    const name = [attr("classname"), attr("name")].filter(Boolean).join(" › ") || "(unnamed)";
-    if (/<skipped\b/.test(body)) return { name, state: "skipped" };
-    if (/<(failure|error)\b/.test(body)) return { name, state: "failed" };
-    return { name, state: "passed" };
-  });
-  const count = (st) => cases.filter((c) => c.state === st).length;
-  return {
-    total: cases.length, passed: count("passed"), failed: count("failed"),
-    skipped: count("skipped"), failures: cases.filter((c) => c.state === "failed"),
-  };
-};
-const ac = readAcSuite();
+// The reader itself lives in acsuite.mjs, shared with slice-review.mjs. Imported guarded, like
+// erd.mjs and playbook.mjs: a hand-upgraded workbench that copied this file without it loses
+// the AC section with a warning rather than dying on an unresolved import. Losing the section
+// is safe here precisely because AC_TITLE then stays out of OWNED below, so a previously
+// generated one is preserved instead of erased.
+let acLib = null;
+try { acLib = await import("./acsuite.mjs"); }
+catch {
+  console.warn("note: scripts/acsuite.mjs is missing — no AC pass rate in this report. " +
+    "Copy it from the plugin's skills/rebuild-pipeline/scripts/. Do not read its absence as a pass.");
+}
+const ac = acLib ? acLib.readAcSuite(AC_JUNIT) : null;
 // The section is owned only when there is a JUnit file to own it from. Without one, the title
 // stays out of OWNED so a previously generated section — or a hand-written `## AC suite` for a
 // project whose AC suite is not Maestro — is preserved by the merge below instead of erased.

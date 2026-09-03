@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-03
+
+Four of the five gates close before a line of product code exists, and the fifth is terminal.
+Everything between them — the longest stretch of any project this pipeline runs — had no
+scheduled moment to stop and look, and the per-slice human touchpoints that did exist were
+prose rules with no artifact behind them.
+
+**Slice order comes out of the gate-2 hash.** `plan/slices.yaml` is an array, so order was
+positional, and gate-2 hashes the file whole — which made the one thing G3 calls the decision
+("decide SEQUENCE, not scope") the most expensive thing in the pipeline to revise: a formal
+reopen, a new hash, and a moved submodule pin for every code repo, all to say "build S6 before
+S4". The predictable result of that is not an order that never changes; it is an order that
+changes in someone's head and nowhere on disk. So the file splits along the line
+`plan/progress.yaml` and `parity/flows/` each drew already — gate-2 keeps the **boundaries**
+(`features`, `depends_on`, `done_means`), and the **sequence** moves to an ungated
+`plan/sequence.yaml` where changing it is a logged decision: `npm run sequence -- reorder S6
+--before S4 --reason "..."`, appended to `plan/sequence-decisions.md`, same register as a gate
+reopen.
+
+Cheap in mechanism, deliberately not cheap in ceremony — and "cheap" never means
+"unconstrained". `sequence.mjs` refuses to reorder **while a slice is in progress** (reordering
+is a between-slices act), refuses to move anything in the **frozen head** (only the pending tail
+moves), and refuses any order that violates `depends_on` — that field is gate-2 locked, so a
+violating order is a contradiction between two artifacts rather than a preference. The
+dependency graph is machine-checkable; the learning-value tradeoff G3 asks about is not, and the
+script does not pretend otherwise. `validate.mjs` fails on an order that is not a permutation of
+the slice plan, because a slice missing from the order is a slice that never runs;
+`sequence -- sync` reconciles the two after a gate-2 reopen and needs no reason, since the
+decision *was* the reopen.
+
+**A slice review, generated and advisory.** `npm run slice-review -- <Sn>` writes
+`plan/slice-reviews/<Sn>.md` from `plan/progress.yaml`, `plan/sequence.yaml`,
+`matrix/features.yaml` and the AC suite's JUnit output. Two questions it answers that nothing
+else did:
+
+- **Does the whole product still run?** Every per-slice deploy criterion asserts only its own
+  slice's features, so "did S3 break S1" had no home — the AC pass rate is one number, and a
+  number that moves does not say which way or which test. The review compares this run against
+  the previous one **by test name**, and separately names a failure that was *already* failing
+  last run, which no delta will ever surface again.
+- **Where does that put us?** Position in the execution order, what is next, and which pending
+  slices are orderable *right now* because their dependencies have shipped — the input to the
+  reorder conversation the boundary exists for.
+
+Its coverage figure deliberately differs from `parity.mjs`'s: the review counts **only explicit
+`plan/progress.yaml` entries**, where parity fills gaps with `matrix/features.yaml`'s
+`status:`. That field is gate-1 mining output about the *reference*, and it shares the words
+`covered`, `partial` and `missing` with this rebuild's progress vocabulary — so a matrix full
+of mined `covered` reads as a finished rebuild before a line of code exists. Both numbers are
+right for their own question, and the review prints the gap rather than letting two reports
+quietly disagree.
+
+Generated, never written: a slice review an agent composes is an account of what that agent
+believes it did, which is the failure `verifier`, `rubric-judge` and g5-build.md's "a
+verification script names only what it RAN" all exist to prevent — and it is precisely the
+artifact that outlives the session that produced it.
+
+**And it is not a sixth gate.** Gates are hash-pinned, tagged, and consumed by submodule pins; a
+per-slice gate would mean a tag per slice and a formal reopen every time a review found
+something. So the review blocks nothing, and `pause-check` reports a shipped slice with no
+review as a **note**, never a ⚠️ — a check that cries wolf about an optional report takes the
+real warnings down with it. The teeth sit on the reorder instead, which is the change that
+actually needs a record.
+
+**A mid-slice finding has a home already.** "S6 should come before S4", noticed while building
+S3, goes in `plan/progress.yaml` `notes:` on the slice you are *in*. `parity.mjs` already
+carried notes into its report; the slice review now surfaces them beside the reorder candidates.
+Observed when it is real, acted on when it is safe — no new machinery.
+
+**The README diagram now shows the loop** (`docs/img/pipeline.png`), with `docs/img/pipeline.html`
+added beside it as the source it never had — the old PNG was a binary with no way to edit it. The
+build stretch reads as a cycle rather than a straight line: G5 into a slice boundary (record, G6
+parity, slice review, reorder the tail) and back round to the next slice. A third legend register
+appears with it — dashed amber for *advisory*, distinct from a filled amber gate that locks.
+
+**Upgrading an existing workbench.** Copy `sequence.mjs`, `slice-review.mjs` and
+`acsuite.mjs` into `scripts/` and `sequence.schema.json` into `schemas/`, add the `sequence`
+and `slice-review` npm scripts, then `npm run sequence -- init`. Nothing is required: without
+those files `parity.mjs` falls back to positional order and reports no AC pass rate (with a
+note saying so, since its absence is not a pass), `validate.mjs` skips the sequence checks, and
+the pipeline behaves exactly as it did at 0.14.0. Also unchanged: the AC JUnit reader moved out
+of `parity.mjs` into `acsuite.mjs` because the review needs a richer read of the same file,
+and two divergent JUnit readers is the worse outcome.
+
 ## [0.14.0] - 2026-08-21
 
 Three things that were rules on paper in 0.12.0 and 0.13.0 become mechanisms.

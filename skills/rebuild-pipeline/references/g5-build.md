@@ -230,4 +230,33 @@ and it is worth naming before the slice rather than discovering mid-verification
   bearer token, and sending it as one produces a 401 that reads like an infrastructure
   problem from inside a CI job. Check the scheme before blaming the tunnel.
 
-Between slices: run G6 parity, then return here for the next slice.
+## Between slices — the boundary is the only cheap place to change the plan
+
+Four steps, in order, then return here for the next slice:
+
+1. **Record the slice's outcome** in `plan/progress.yaml` — `slices:` *and* `features:`.
+   Filling in only the first is the natural thing to do and it is the documented trap: every
+   feature then falls through to `matrix/features.yaml`'s `status:`, which is gate-1 MINING
+   output about the reference, and the two vocabularies share the words `covered`, `partial`
+   and `missing` so nothing looks wrong.
+2. **Run G6 parity** — `g6-parity.md`.
+3. **Run the slice review** — `npm run slice-review -- <Sn>`. Generated from what is on disk,
+   never composed: does the whole product still run (cumulative AC suite, and what regressed
+   since the last run), what shipped, where that puts us in the order, what is pressing on the
+   plan. **Advisory** — it locks nothing and blocks nothing. Present it, and say what you think.
+4. **Act on the plan now, or not at all until the next boundary.** Slice *order* is
+   `npm run sequence -- reorder <Sn> --before <Sm> --reason "..."` — logged, cheap, and refused
+   once the next slice starts. What is IN a slice is still a gate-2 reopen.
+
+**The one thing that has no home anywhere else** is step 3's regression check. Every deploy
+criterion in this phase asserts only its own slice's features, so "did S3 break S1" was a
+question the pipeline could not answer — the AC pass rate is one number, and a number that moves
+does not say which way or which test. The review compares this run against the previous one by
+test name. Both files are already on disk; nothing new has to be run to get it.
+
+**A finding that arrives mid-slice does not wait in someone's head.** Write it to
+`plan/progress.yaml` `notes:` on the slice you are *in* — "S6 has no dependents, could come
+before S4". `parity.mjs` already carries notes into its report and the slice review surfaces
+them beside the reorder candidates, so an observation recorded at the moment it is real gets
+acted on at the moment it is safe. That is also why `sequence.mjs` refuses to reorder while a
+slice is in progress: the finding is welcome, the mid-flight reshuffle is not.

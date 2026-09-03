@@ -20,10 +20,12 @@ The full methodology and its rationale live in [`docs/PLAYBOOK.md`](docs/PLAYBOO
 
 ## The pipeline in one picture
 
-![Rebuild pipeline: G0 reference/license posture, into G1 parallel mining (ground truth, features, NFR, UX flows), into G2 feature matrix, Gate 1 taxonomy lock, G3 milestone slicing, Gate 2 slice-plan lock, G4a system design, Gate 3 architecture lock, G4b data model + contracts, Gate 4 contract lock, into G5 parallel build per slice (specs+AC, backend, frontend, infra) repeating per slice, into G6 parity loop, into GP production readiness, Gate 5 prod-ready lock.](docs/img/pipeline.png)
+![Rebuild pipeline: G0 reference/license posture, into G1 parallel mining (ground truth, features, NFR, UX flows), into G2 feature matrix, Gate 1 taxonomy lock, G3 milestone slicing, Gate 2 slice-plan lock (locks slice boundaries; the order stays revisable), G4a system design, Gate 3 architecture lock, G4b data model + contracts, Gate 4 contract lock, into a repeating per-slice loop: G5 parallel build (specs+AC, backend, frontend, infra) into a slice boundary (record progress, G6 parity, slice review, reorder the tail) and back round to the next slice in the order plan/sequence.yaml says, then out to GP production readiness and Gate 5 prod-ready lock.](docs/img/pipeline.png)
 
-Green is parallel or automated work; amber is a gate — a human decision. Grey phases
-are yours to drive with the skill's help.
+Green is parallel or automated work; amber is a gate — a human decision that locks. Dashed
+amber is advisory: you look, you decide, and nothing blocks if you don't. Grey phases are yours
+to drive with the skill's help. The loop is the shape of the build: every slice ends deployed,
+then stops at a boundary before the next one starts.
 
 Two ideas carry everything:
 
@@ -116,7 +118,11 @@ breaks on upgrade.
 - **Gate 2 (slice plan):** everything will be built (that's the point), so you decide
   *order*: vertical slices, dependency-sorted, weighted toward the lifecycle lessons you
   want first (first deploy, first live migration, first background job...). Every slice
-  ends deployed.
+  ends deployed. The gate locks slice **boundaries**; the **sequence** lives in an ungated
+  `plan/sequence.yaml`, so reordering the pending tail between slices is a logged decision
+  (`npm run sequence -- reorder S6 --before S4 --reason "..."`) rather than a gate reopen.
+  Only the tail moves, dependencies are still enforced, and every move lands in
+  `plan/sequence-decisions.md`.
 
 At every gate the skill presents a review — what locks, the judgment calls, the risks —
 and locks only on your explicit yes: `npm run gate -- lock gate-N` under the hood.
@@ -178,9 +184,41 @@ Ask the skill "where are we?" anytime, or run in the workbench:
 npm run gate -- status     # gate states + current phase
 npm run validate           # artifacts vs schemas, contract $refs, lock integrity
 npm run parity             # coverage report into parity/<date>.md
+npm run slice-review -- S3 # the between-slices standing report (advisory)
+npm run sequence -- status # execution order: what's frozen, what's orderable now
 npm run pause-check        # safe to stop? (includes what hasn't been pushed off-machine)
 npm run autopilot -- preflight   # ready to run unattended between gates?
 ```
+
+## The slice boundary
+
+Four of the five gates close before a line of product code exists, and the fifth is terminal.
+That leaves the build — the longest stretch of the project — with no scheduled moment to stop
+and look, which is where "the pipeline runs, but where are we?" comes from.
+
+So after each slice: record progress, run parity, then
+
+```bash
+npm run slice-review -- S3
+```
+
+It generates `plan/slice-reviews/S3.md` from what is on disk — never composed — and answers
+four things:
+
+1. **Does it run?** The cumulative AC suite, compared against the previous run *by test name*.
+   Every per-slice deploy criterion asserts only its own slice's features, so until now "did S3
+   break S1" had nowhere to surface.
+2. **What shipped**, against the matrix, with anything deferred named.
+3. **Where that puts us** — slices shipped, features recorded covered, position in the order,
+   what is next.
+4. **What is pressing on the plan** — findings you recorded mid-slice, which pending slices are
+   orderable right now, and how far the order has drifted from its Gate 2 baseline.
+
+It is **advisory**: it locks nothing, and nothing stops the next slice starting without it. The
+teeth in this design sit on the *reorder* instead — that one needs a reason and is logged — so a
+plan that drifts leaves a record either way. A mid-slice finding goes in `plan/progress.yaml`
+`notes:` and surfaces at the boundary by itself; reordering while a slice is in flight is
+refused.
 
 ## Autopilot
 
@@ -222,7 +260,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   references/playbooks/         the architecture-playbook registry — one file per playbook,
                                 each declaring its own concerns → sections map; write your own
   references/rubrics/           one scoring rubric per gate, for the judge pass at Step 5.1b
-  schemas/*.schema.json         finding / feature / slice / lock schemas
+  schemas/*.schema.json         finding / feature / slice / sequence / progress / lock schemas
   scripts/rebuild-init.mjs      workbench scaffolder
   scripts/gate.mjs              gate status / lock / reopen (hashes + tags)
   scripts/validate.mjs          schema, contract-$ref and lock-integrity validation (also in CI)
@@ -231,6 +269,9 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/basis.mjs             evidence-basis checks shared by validate and parity
   scripts/flows.mjs             the logged-decision log for AC flow assertions (unlock/relock)
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
+  scripts/acsuite.mjs           JUnit reader shared by parity and slice-review
+  scripts/sequence.mjs          slice execution order — the logged-decision reorder mechanism
+  scripts/slice-review.mjs      the between-slices standing report (generated, advisory)
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
 agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents

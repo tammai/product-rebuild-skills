@@ -97,8 +97,8 @@ per-phase by design to keep context lean:
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |
 | G4a | `references/g4a-architecture.md` (+ the playbook `sources.yaml` names, vendored to `adr/playbook.md` — its `concerns:` map is the ADR list) | Vendor the playbook, dispatch ADR drafts, Gate 3 review |
 | G4b | `references/g4b-contracts.md` | Data model (`contracts/data-model/`), three contract layers, Gate 4 |
-| G5 | `references/g5-build.md` | Per-slice fan-out to build subagents |
-| G6 | `references/g6-parity.md` | Parity report, upstream re-mine |
+| G5 | `references/g5-build.md` | Per-slice fan-out to build subagents; the between-slices sequence at the end of it |
+| G6 | `references/g6-parity.md` | Parity report, slice review, upstream re-mine |
 | GP | `references/gp-production.md` | Readiness checklist, Gate 5 review |
 
 **4a — Onboarding (no workbench).** Interview the user: which reference product, why,
@@ -226,6 +226,13 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   these repos' workflows are written for local or self-hosted execution and fail on a hosted
   runner (private-submodule checkout, unset secrets, gitignored paths), so leaving them
   enabled just emails a failure on every push.
+- The slice boundary is the only cheap place to change the plan, so stop there deliberately:
+  record progress, run parity, run `npm run slice-review -- <Sn>`, and act on the sequence if
+  it needs acting on. All of it is advisory — none of it blocks the next slice — which is
+  exactly why it has to be a habit rather than a mechanism you can lean on.
+- Slice ORDER is a logged decision (`npm run sequence -- reorder ... --reason "..."`), slice
+  BOUNDARIES are a gate-2 reopen. Never conflate them, and never hand-edit
+  `plan/sequence.yaml` — the file's value is that every change to it carries a reason.
 - All model-facing artifacts are English.
 
 ## Failure modes to actively prevent
@@ -255,6 +262,15 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   governance gates the harness installs are silently absent for the life of the project.
 - Trusting codegen from the scaffold's starter `openapi.yaml`. Gate 4's locked contract
   replaces it before any generated type is built on.
+- Starting the next slice straight off the back of the last one. Nothing blocks it — the slice
+  review is advisory by design — which is why it is listed here instead: the boundary is where
+  a reorder is still cheap, and once the next slice starts `sequence.mjs` refuses one outright.
+- Reordering, or proposing a reorder, mid-slice. The finding is welcome; write it to
+  `plan/progress.yaml` `notes:` on the slice in flight, where the parity report and the next
+  slice review both pick it up. The reshuffle waits for the boundary.
+- Writing a slice review by hand, or "summarising" one into chat instead of running the script.
+  It is generated from disk on purpose: a composed one is an account of what an agent believes
+  it did, and it is exactly the artifact that outlives the session that produced it.
 - Ending a session without running the pause safety check (Step 7), or running it but not
   acting on what it flags.
 - Engaging autopilot on a partial preflight, or on an inferred yes — "can you autopilot

@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "sequence.schema.json",
+  "title": "Slice execution order (mutable overlay over the gate-2 slice plan)",
+  "description": "plan/slices.yaml is an ARRAY, so order is positional and gate-2 hashes it whole — reordering there costs a formal reopen and rewrites the hash dependent submodule pins consume. Gate 2 locks slice BOUNDARIES (features, depends_on, done_means); this file carries the SEQUENCE, which G3 calls the actual decision, and makes changing it a logged decision instead of a gate reopen. Written by scripts/sequence.mjs.",
+  "type": "object",
+  "required": ["baseline", "order"],
+  "additionalProperties": false,
+  "properties": {
+    "baseline": {
+      "description": "The order as it stood when gate-2 was locked. Never reordered afterwards — it is what makes drift measurable. sync only adds or removes ids alongside a gate-2 reopen.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^S[0-9]+$" }
+    },
+    "order": {
+      "description": "The order being executed. Must be a permutation of plan/slices.yaml's ids and must satisfy every depends_on edge; validate.mjs checks both.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^S[0-9]+$" }
+    },
+    "recorded": {
+      "description": "When this file was initialised, ISO 8601.",
+      "type": "string"
+    }
+  }
+}

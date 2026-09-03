@@ -37,7 +37,8 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 // Pin schemas + tooling scripts into the workbench (self-contained, versioned copy).
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
-                 "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs"]) {
+                 "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs",
+                 "sequence.mjs", "slice-review.mjs", "acsuite.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -250,6 +251,8 @@ write("package.json", JSON.stringify({
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
     flows: "node scripts/flows.mjs",
+    sequence: "node scripts/sequence.mjs",
+    "slice-review": "node scripts/slice-review.mjs",
     "pause-check": "node scripts/pause-check.mjs",
     autopilot: "node scripts/autopilot.mjs",
   },
@@ -294,6 +297,11 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 - \`npm run gate -- status\` — pipeline/gate state
 - \`npm run flows -- status\` — are the recorded AC flows protected? (\`unlock --reason "..."\`
   / \`relock\` around a deliberate assertion change — see \`parity/flows/README.md\`)
+- \`npm run sequence -- status\` — the slice execution order, what is frozen, what is orderable
+  (\`init\` once at G3; \`reorder <Sn> --before <Sm> --reason "..."\` between slices — slice ORDER
+  is a logged decision here, slice BOUNDARIES are still a gate-2 reopen)
+- \`npm run slice-review -- <Sn>\` — the between-slices standing report: does the whole product
+  still run, what shipped, where that puts us, what is pressing on the plan. Advisory
 - \`npm run pause-check\` — safe to stop and resume in a new session? (also reports what has
   not been pushed yet)
 - \`npm run autopilot -- preflight\` — is this project ready to run unattended between gates?

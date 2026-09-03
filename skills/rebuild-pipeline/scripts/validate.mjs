@@ -7,7 +7,9 @@
 //      `basis` — where the fact came from, distinct from the miner's `confidence`)
 //   2. matrix/features.yaml against feature.schema.json
 //   3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
-//   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream)
+//   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream), and
+//      plan/sequence.yaml against sequence.schema.json (+ it must be a PERMUTATION of the
+//      slice ids and must satisfy every gate-2 `depends_on` edge)
 //   5. contracts/**.yaml structural checks — YAML validity, duplicate keys, and every
 //      $ref resolving. G5 generates code from these; nothing else in this pipeline
 //      checked them, so a dangling $ref first surfaced as a codegen failure in a code
@@ -44,6 +46,9 @@ if (existsSync(join("schemas", "progress.schema.json"))) {
 }
 if (existsSync(join("schemas", "autopilot.schema.json"))) {
   validators.autopilot = ajv.compile(schema("autopilot.schema.json"));
+}
+if (existsSync(join("schemas", "sequence.schema.json"))) {
+  validators.sequence = ajv.compile(schema("sequence.schema.json"));
 }
 
 let failures = 0;
@@ -153,6 +158,63 @@ if (validators.progress && existsSync("plan/progress.yaml")) {
     crossRef("notes", sliceIds, "slice");
   }
 }
+// ---------------------------------------------------------------------------
+// plan/sequence.yaml — the slice execution order.
+//
+// gate-2 locks slice BOUNDARIES; the ORDER lives here so that revising it is a logged decision
+// rather than a formal reopen (see scripts/sequence.mjs). Two checks earn their keep, and
+// neither is expressible in the schema:
+//
+//   - PERMUTATION. An id in the order that no longer exists in plan/slices.yaml, or a slice
+//     added by a gate-2 reopen that never reached the order, is silently a slice that never
+//     runs. parity.mjs sorts unknown ids last rather than dropping them precisely so this
+//     check is the thing that reports it, not a slice quietly missing from a report.
+//   - DEPENDENCIES. `depends_on` is gate-2 locked, so an order that violates it is a
+//     contradiction between two artifacts rather than a preference. sequence.mjs refuses to
+//     write one; this catches a hand-edited file, which is why the file says not to hand-edit it.
+//
+// Absent is normal and always will be: every workbench scaffolded before 0.15.0 has none, and
+// order falls back to plan/slices.yaml's array exactly as it did before.
+// ---------------------------------------------------------------------------
+if (validators.sequence && existsSync("plan/sequence.yaml")) {
+  const seq = check("plan/sequence.yaml", validators.sequence);
+  if (seq && Array.isArray(seq.order) && Array.isArray(slices)) {
+    const planIds = slices.map((s) => s.id).filter(Boolean);
+    const problems = [];
+    const dupes = seq.order.filter((id, i) => seq.order.indexOf(id) !== i);
+    if (dupes.length) problems.push(`order lists ${[...new Set(dupes)].join(", ")} more than once`);
+    const unknown = seq.order.filter((id) => !planIds.includes(id));
+    const absent = planIds.filter((id) => !seq.order.includes(id));
+    if (unknown.length) problems.push(`order names slice(s) not in plan/slices.yaml: ${unknown.join(", ")}`);
+    if (absent.length) {
+      problems.push(`slice(s) in plan/slices.yaml missing from the order: ${absent.join(", ")} — ` +
+        `they would never be scheduled`);
+    }
+    const baselineUnknown = (seq.baseline || []).filter((id) => !planIds.includes(id));
+    if (baselineUnknown.length) problems.push(`baseline names slice(s) not in plan/slices.yaml: ${baselineUnknown.join(", ")}`);
+    if (problems.length) {
+      problems.push("Reconcile with: npm run sequence -- sync  (bookkeeping after a gate-2 reopen; " +
+        "the decision was the reopen, so it needs no reason)");
+    } else {
+      // Imported guarded, like erd.mjs and playbook.mjs, so one missing script is a reported gap
+      // rather than an unresolved import that takes out every other check.
+      let seqLib = null;
+      try { seqLib = await import("./sequence.mjs"); }
+      catch { warn("scripts/sequence.mjs", "missing — slice order not checked against depends_on. Copy it from the plugin's skills/rebuild-pipeline/scripts/."); }
+      if (seqLib) {
+        const byId = new Map(slices.filter((s) => s?.id).map((s) => [s.id, s]));
+        const v = seqLib.dependencyViolation(seq.order, byId);
+        if (v) {
+          problems.push(`order puts ${v.slice} before ${v.dep}, which it depends on. ` +
+            `\`depends_on\` is gate-2 locked, so this is a contradiction between two artifacts, ` +
+            `not a preference — fix the order (npm run sequence -- reorder) or reopen gate-2.`);
+        }
+      }
+    }
+    if (problems.length) fail("plan/sequence.yaml", problems.join("\n  "));
+  }
+}
+
 // Autopilot run state. Nothing downstream reads it — it is a breadcrumb for whoever picks
 // the session back up — but a malformed one means autopilot.mjs is round-tripping badly,
 // and the file it is round-tripping records what an unattended run did.

@@ -33,3 +33,38 @@ with the user.
   boundaries; they never reorder slices mid-flight.
 
 Lock only on explicit approval: `gate.mjs lock gate-2`.
+
+## Right after the lock: record the sequence
+
+```sh
+npm run sequence -- init      # writes plan/sequence.yaml, baseline = order = the locked plan
+```
+
+**What gate-2 locks and what it does not.** Gate 2 hashes `plan/slices.yaml` whole, so what is
+IN each slice — `features`, `depends_on`, `done_means` — is immutable until a formal reopen.
+That is right: those are the boundaries. But the file is an ARRAY, so *order* was locked by the
+same hash, which made the one thing this phase calls the decision ("decide SEQUENCE, not scope")
+the most expensive thing in the pipeline to revise — a reopen, a new hash, and a moved submodule
+pin for every code repo, all to say "build S6 before S4".
+
+The predictable outcome of that is not an order that never changes. It is an order that changes
+in someone's head and nowhere on disk. So the sequence moves to `plan/sequence.yaml`, ungated,
+where revising it is a *logged decision* — `npm run sequence -- reorder <Sn> --before <Sm>
+--reason "..."`, appended to `plan/sequence-decisions.md`. Same register as a gate reopen: a
+human decides, the reason is written down. Cheap in mechanism, deliberately not cheap in ceremony.
+
+Three things the script refuses, so "cheap" never means "unconstrained":
+
+- **While a slice is in progress.** Reordering is a between-slices act. A finding that lands
+  mid-slice goes in `plan/progress.yaml` `notes:` on the slice you are *in*; it reaches the
+  parity report and the next slice review by itself, and gets acted on at the boundary.
+- **Moving anything in the frozen head.** Only the pending tail reorders. The past is not a plan.
+- **Any order violating `depends_on`.** That field is gate-2 locked, so a violating order is a
+  contradiction between two artifacts rather than a preference. The dependency graph is
+  machine-checkable; the learning-value tradeoff above is not, and the script does not pretend
+  otherwise — that half stays yours.
+
+After a gate-2 reopen that adds or drops a slice, `npm run sequence -- sync` reconciles the two
+files. It needs no reason: the decision was the reopen. `validate.mjs` fails on an order that is
+not a permutation of the slice plan, because a slice missing from the order is a slice that
+never runs.

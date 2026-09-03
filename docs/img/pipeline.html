@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The rebuild pipeline</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#ffffff;
+    --box:#fafafa; --box-line:#e4e4e7; --ink:#18181b; --sub:#6b7280;
+    --green-bg:#e6f4ec; --green-line:#9fd3b8; --green-ink:#15734e;
+    --amber-bg:#fcf0e0; --amber-line:#e3b378; --amber-ink:#95591b;
+    --advis-bg:#fefaf5; --advis-line:#e3b378; --advis-ink:#95591b;
+    --arrow:#9ca3af; --dash:#cbd5d1;
+  }
+  html{width:1360px}
+  body{width:1360px;background:var(--bg);color:var(--ink);
+    font:400 16px/1.4 -apple-system,"Helvetica Neue","Segoe UI",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .page{width:1360px;padding:54px 60px 46px;display:flex;flex-direction:column;align-items:center}
+
+  /* --- primitives ------------------------------------------------------- */
+  .box{width:650px;border-radius:14px;padding:18px 26px;text-align:center;
+    background:var(--box);border:2px solid var(--box-line)}
+  .box .t{font-size:27px;font-weight:700;letter-spacing:-.01em}
+  .box .s{margin-top:5px;font-size:22px;color:var(--sub)}
+  .box.green{background:var(--green-bg);border-color:var(--green-line)}
+  .box.green .t{color:var(--green-ink)} .box.green .s{color:#4f8f74}
+  .box.gate{background:var(--amber-bg);border-color:var(--amber-line);width:560px}
+  .box.gate .t{color:var(--amber-ink)} .box.gate .s{color:#a9773f}
+  .box.advisory{background:var(--advis-bg);border:2px dashed var(--advis-line)}
+  .box.advisory .t{color:var(--advis-ink)} .box.advisory .s{color:#a9773f}
+
+  .arrow{width:2px;height:34px;background:var(--arrow);position:relative;margin:6px 0}
+  .arrow::after{content:"";position:absolute;left:-6px;bottom:-1px;
+    border-left:7px solid transparent;border-right:7px solid transparent;border-top:11px solid var(--arrow)}
+  .arrow.short{height:22px}
+
+  .group{width:1010px;border:2px dashed var(--dash);border-radius:18px;padding:20px 24px 24px}
+  .group > .gt{text-align:center;font-size:25px;font-weight:700;margin-bottom:16px}
+  .group .lanes{display:flex;gap:16px}
+  .group .lanes .box{flex:1;width:auto;padding:14px 12px}
+  .group .lanes .box .t{font-size:24px}
+  .group .lanes .box .s{font-size:19px;margin-top:3px}
+
+  .note{font-size:21px;color:var(--sub);margin:11px 0}
+  .note b{color:#374151;font-weight:600}
+
+  /* --- the per-slice loop ----------------------------------------------- */
+  .loop{position:relative;display:flex;flex-direction:column;align-items:center;width:100%;padding:0 0 0 0}
+  /* Feedback arm: leaves the bottom-left of the boundary, returns to the top-left of G5.
+     Arms sit at the wrapper's own top and bottom edges, so they stay attached whatever
+     the groups' heights turn out to be. */
+  /* Feedback arm geometry, in .loop-relative px.
+     Horizontal: .loop spans the page's 1240px content box; the groups are 1010px centred
+     inside it, so their left border sits at x=115. The arm runs 22 -> 102 and the arrowhead's
+     11px tip lands at 113 — two pixels shy of that border. Overshooting it puts the head
+     inside the group, pointing at its empty top padding, which reads as a broken arrow.
+     Vertical: the arms attach at each group's mid-height rather than at the wrapper's edges,
+     so they meet the blocks' sides instead of grazing their rounded corners. Both offsets are
+     measured from the render — re-check them if either group's height changes. */
+  .loopline{position:absolute;left:22px;top:93px;bottom:129px;width:2px;background:var(--arrow)}
+  .loopline::before,.loopline::after{content:"";position:absolute;left:0;height:2px;background:var(--arrow)}
+  /* The two arms stop at different x on purpose: the top one leaves 11px for its arrowhead,
+     which closes the gap to the border; the bottom one has no head, so it has to reach the
+     border itself or it reads as a line that stops in mid-air. */
+  .loopline::before{top:0;width:80px}
+  .loopline::after{bottom:0;width:93px}
+  .loophead{position:absolute;left:102px;top:86px;
+    border-top:7px solid transparent;border-bottom:7px solid transparent;border-left:11px solid var(--arrow)}
+
+  .boundary{border-color:var(--advis-line);background:#fffdfa}
+  .boundary > .gt{color:var(--advis-ink)}
+  .boundary .cap{text-align:center;font-size:20px;color:#a9773f;margin:-10px 0 16px}
+  .boundary .cap.foot{margin:16px 0 0}
+  .note tt,.box .s tt{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:.92em}
+
+  /* --- legend ------------------------------------------------------------ */
+  .legend{display:flex;gap:40px;margin-top:38px;font-size:21px;color:#4b5563}
+  .legend div{display:flex;align-items:center;gap:11px}
+  .sw{width:26px;height:26px;border-radius:7px;border:2px solid}
+  .sw.g{background:var(--green-bg);border-color:var(--green-line)}
+  .sw.a{background:var(--amber-bg);border-color:var(--amber-line)}
+  .sw.v{background:var(--advis-bg);border:2px dashed var(--advis-line)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="box"><div class="t">G0 · Reference + license posture</div><div class="s">1 primary reference, intent recorded</div></div>
+  <div class="arrow"></div>
+
+  <div class="group">
+    <div class="gt">G1 · parallel mining</div>
+    <div class="lanes">
+      <div class="box green"><div class="t">Ground truth</div><div class="s">Schema, routes</div></div>
+      <div class="box green"><div class="t">Features</div><div class="s">Changelogs</div></div>
+      <div class="box green"><div class="t">NFR</div><div class="s">Run the ref</div></div>
+      <div class="box green"><div class="t">UX flows</div><div class="s">Live instance</div></div>
+    </div>
+  </div>
+  <div class="arrow"></div>
+
+  <div class="box green"><div class="t">G2 · Feature matrix</div><div class="s">Ground truth attached</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 1 · taxonomy lock</div></div>
+  <div class="arrow"></div>
+  <div class="box green"><div class="t">G3 · Milestone slicing</div><div class="s">Vertical, dependency-ordered</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 2 · slice-plan lock</div><div class="s">locks slice boundaries — the order stays revisable</div></div>
+  <div class="arrow"></div>
+  <div class="box"><div class="t">G4a · System design</div><div class="s">Mirror-or-diverge ADRs</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 3 · architecture lock</div></div>
+  <div class="arrow"></div>
+  <div class="box"><div class="t">G4b · Data model + contracts</div><div class="s">Public, internal, async</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 4 · contract lock</div></div>
+  <div class="arrow"></div>
+
+  <!-- per-slice loop: build → boundary → next slice -->
+  <div class="loop">
+    <div class="loopline"></div><div class="loophead"></div>
+
+    <div class="group">
+      <div class="gt">G5 · parallel build, per slice</div>
+      <div class="lanes">
+        <div class="box green"><div class="t">Specs + AC</div><div class="s">1 per module</div></div>
+        <div class="box green"><div class="t">Backend</div><div class="s">Per context</div></div>
+        <div class="box green"><div class="t">Frontend</div><div class="s">Typed client</div></div>
+        <div class="box green"><div class="t">Infra</div><div class="s">CI/CD, deploy</div></div>
+      </div>
+    </div>
+    <div class="note">↻ every slice ends <b>deployed</b> — a build a real person can install</div>
+    <div class="arrow short"></div>
+
+    <div class="group boundary">
+      <div class="gt">Slice boundary</div>
+      <div class="cap">the only cheap place to change the plan · advisory — nothing blocks the next slice</div>
+      <div class="lanes">
+        <div class="box green"><div class="t">Record</div><div class="s">progress.yaml</div></div>
+        <div class="box green"><div class="t">G6 · Parity</div><div class="s">AC suite + upstream</div></div>
+        <div class="box green"><div class="t">Slice review</div><div class="s">Runs? · standing</div></div>
+        <div class="box advisory"><div class="t">Reorder the tail</div><div class="s">logged, needs a reason</div></div>
+      </div>
+      <div class="cap foot">↻ the upstream re-mine also runs on its own schedule</div>
+    </div>
+  </div>
+  <div class="note">↻ <b>next slice</b> — in the order <tt>plan/sequence.yaml</tt> says</div>
+  <div class="arrow short"></div>
+
+  <div class="box"><div class="t">GP · Production readiness</div><div class="s">Restore + incident drills</div></div>
+  <div class="arrow"></div>
+  <div class="box gate"><div class="t">Gate 5 · prod-ready lock</div></div>
+
+  <div class="legend">
+    <div><span class="sw g"></span> Parallel / automated</div>
+    <div><span class="sw a"></span> Gate — human decision, locks</div>
+    <div><span class="sw v"></span> Advisory — you decide, nothing blocks</div>
+  </div>
+</div>
+</body>
+</html>
