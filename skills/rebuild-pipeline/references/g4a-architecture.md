@@ -170,7 +170,9 @@ divergence from the *reference* is still the thing that gates.
 ## Dispatch
 
 Send drafts to the `adr-drafter` agent (one per ADR, parallel except where `decide-before:`
-serializes them) — pass `adr/playbook.md`'s path, the exact `concerns:` value for that
+serializes them), briefed per `subagent-briefs.md` — including part 6, the model
+`scripts/routing.mjs` resolved for this role, which is the deep tier. Pass
+`adr/playbook.md`'s path, the exact `concerns:` value for that
 concern (or `N/A`), and the concern key itself, alongside the per-ADR brief. Present each to
 the user for decision IN DEPENDENCY ORDER; later ADRs cite earlier ones.
 

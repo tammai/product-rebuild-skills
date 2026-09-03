@@ -38,7 +38,7 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
                  "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs",
-                 "sequence.mjs", "slice-review.mjs", "acsuite.mjs"]) {
+                 "sequence.mjs", "slice-review.mjs", "acsuite.mjs", "routing.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -255,6 +255,7 @@ write("package.json", JSON.stringify({
     "slice-review": "node scripts/slice-review.mjs",
     "pause-check": "node scripts/pause-check.mjs",
     autopilot: "node scripts/autopilot.mjs",
+    routing: "node scripts/routing.mjs",
   },
   devDependencies: { ajv: "^8.17.0", "ajv-formats": "^3.0.0", yaml: "^2.5.0" },
 }, null, 2) + "\n");
@@ -306,6 +307,10 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
   not been pushed yet)
 - \`npm run autopilot -- preflight\` — is this project ready to run unattended between gates?
   (\`check\` / \`engage\` / \`log\` / \`disengage\` / \`status\` drive a run; gates always halt for you)
+- \`npm run routing\` — which model each subagent role is dispatched on, and why that rung.
+  Set the ladder in \`.claude/model-routing.json\`: \`{ "profile": "lean" }\`, or override one
+  tier or role with \`{ "models": { "miner": "haiku" } }\`. Absent file = the \`opus-centric\`
+  default. Effort is fixed per role and not settable here — \`scripts/routing.mjs\` says why
 - Decision history = \`git log\` on adr/, locks/, matrix/
 
 ## Keep it off-machine

@@ -116,6 +116,34 @@ using the briefing format in `references/subagent-briefs.md`. Run independent la
 Do the work inline only when it is small (a single merge, a single review pass) or when
 subagents are unavailable in the current environment.
 
+**Resolve the model ladder once per session, before the first dispatch**, from the workbench
+root:
+
+```sh
+node scripts/routing.mjs --agents ${CLAUDE_PLUGIN_ROOT}/agents
+```
+
+A workbench scaffolded before 0.16.0 has no vendored copy. Run the plugin's, pointed at the
+workbench — no upgrade step, and nothing to copy in:
+
+```sh
+node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/routing.mjs \
+  --root . --agents ${CLAUDE_PLUGIN_ROOT}/agents
+```
+
+It prints, per role, the `tier`, the `model` to pass on the Agent call, the `effort` its agent
+file pins, and `why` that rung. **Pass `model:` explicitly on every dispatch**, even when it
+matches the agent file's own frontmatter, so the brief and the actual run cannot disagree. Cache
+the result for the session — the ladder is a project setting, not a per-dispatch decision, and
+re-running it between every fan-out is pure noise.
+
+**Relay any non-empty `warnings` to the user** and do not otherwise act on them. A malformed
+`.claude/model-routing.json` degrades to the `opus-centric` default rather than failing, so a
+config the user believes is active but is not would otherwise be invisible — the same reasoning
+that keeps a rubric score from blocking a lock, applied to a dispatch. Effort warnings are
+expected under `frontier` and `lean` and are not a problem to fix: effort is pinned per role and
+is not movable at spawn time (`scripts/routing.mjs` has the argument).
+
 **4c — When intent is ambiguous, ask — with options.** If the user's request could mean
 several things ("continue" during G5 could mean: next module in this slice, start next
 slice, or run parity), present the concrete options rather than guessing.

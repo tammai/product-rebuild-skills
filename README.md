@@ -274,6 +274,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/slice-review.mjs      the between-slices standing report (generated, advisory)
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
   scripts/autopilot.mjs         unattended-run state: preflight / check / engage / log / disengage
+  scripts/routing.mjs           which model each subagent role dispatches on (.claude/model-routing.json)
 agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
                                 the autopilot usage threshold

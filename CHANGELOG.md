@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-03
+
+**Which model a subagent runs on was a rule with no mechanism.** `subagent-briefs.md` had
+carried the ladder as prose since the beginning — "extraction → low tier; merge/spec → mid; ADR
+drafting → high", and "route it to a high tier" for the judge — while the four agent files
+carried no `model:` at all. So every dispatch inherited whatever model the orchestrator session
+happened to be running: the G1 fan-out, the rubric score at every gate, and every module spec,
+all on one model, usually opus. The paragraph describing otherwise was true of nothing, which is
+the same failure `plan/sequence.yaml` fixed for slice order in 0.15.0 — a decision the pipeline
+names but gives nowhere to live.
+
+**`scripts/routing.mjs` is the mechanism.** It maps each role to a tier, resolves the tier
+through the project's ladder, and prints the `model` the orchestrator passes on the Agent call.
+SKILL.md 4b runs it once per session; `subagent-briefs.md` gains a sixth brief part so the
+resolved model is on the record and not merely a parameter — a dispatch that silently ran on the
+wrong rung otherwise looks exactly like one that ran on the right one.
+
+The ladder is `bigin-skills`' `model-router` ladder — `opus-centric` (default), `frontier`,
+`lean` — **copied, not imported.** A rebuild project cannot depend on an unrelated plugin being
+installed. What is not copied is the tier assignment: `model-router` scores a task to pick a
+tier, whereas these roles are fixed, so the mapping is made once, by what each role's mistakes
+cost:
+
+- `miner` and `rubric-judge` → **verifier tier** (`sonnet`/high). `validate.mjs` can tell that a
+  finding is schema-valid but not that it is true, so a wrong finding that parses ships. That
+  puts extraction on the same footing as judgement, and both at full effort on a cheaper model
+  rather than the reverse — **extraction is not the cheap tier here**, which is exactly where
+  the old prose rule had it.
+- `spec-writer` → **standard tier** (`opus`/medium). The spec format is established and the
+  inputs arrive resolved (matrix, flows, ground truth, locked contracts); the judgment left is
+  in the acceptance criteria.
+- `adr-drafter` → **deep tier** (`opus`/high). A wrong structural call propagates into every
+  slice built on it.
+
+**Effort does not move, and that is a decision, not a limitation.** Effort cannot be passed at
+spawn time, so it comes only from an agent file's frontmatter; `bigin-skills` solves that by
+duplicating agent files at different pins (`verifier-medium`, `standard-worker-high`) behind a
+drift check. This pipeline does not, because for a *fixed* role the argument that set its effort
+is about what its mistakes cost, and that argument does not change when a project wants cheaper
+models — a miner's omissions are just as invisible on a tight budget as on a loose one. So a
+profile moves the model and leaves effort where each role's own reasoning put it. Where the
+chosen ladder disagrees (`lean` puts the verifier tier at medium; this pipeline runs both its
+verifier-tier roles at high) it comes back in `warnings` rather than silently, and the saving is
+bought back by overriding the model. Setting `effort` in the config warns and is ignored.
+
+Configuration is `<workbench>/.claude/model-routing.json`, and `models` accepts a **tier** key
+or a **role** key, role winning — because the most likely real override in this pipeline is a
+single role, since G1 dispatches miners many at a time and nothing else fans out like it. Every
+malformed input degrades to the `opus-centric` default and lands in `warnings`; this file can
+never block a dispatch, for the reason a rubric score can never block a lock. A role resolved to
+`haiku` warns that its effort pin is inert — Haiku 4.5 accepts no effort level.
+
+**A workbench scaffolded before this release needs no upgrade step.** `rebuild-init.mjs`
+vendors `routing.mjs` like every other script, so only new workbenches get a local copy —
+which would have made SKILL.md 4b's command a path that does not exist, the same shape as the
+`flows` guard breakage after 0.14.0. `routing.mjs` takes `--root`, so the plugin's own copy
+resolves against any workbench, and 4b carries that as the second command. `preflight` says so
+rather than going quiet.
+
+**`autopilot -- preflight` reports the resolved ladder, as a note and never a blocker.** Silent
+degradation is the right behaviour attended, where the orchestrator relays the warning and a
+human reads it. Unattended there is nobody to relay to, and a whole run of dispatches on a
+silently-defaulted ladder is the kind of thing you find out about from the bill.
+
 ## [0.15.0] - 2026-09-03
 
 Four of the five gates close before a line of product code exists, and the fifth is terminal.

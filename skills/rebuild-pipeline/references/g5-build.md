@@ -146,7 +146,9 @@ then resolves against the code repo's own remote, so a fresh
    unrecorded flow nobody declared is indistinguishable from one nobody wrote, which is how
    a parity suite quietly becomes a regression suite.
 
-1. **Specs + AC** — dispatch `spec-writer` per module in the slice. Spec inputs: the
+1. **Specs + AC** — dispatch `spec-writer` per module in the slice, briefed per
+   `subagent-briefs.md` — including part 6, the model `scripts/routing.mjs` resolved for this
+   role, which is the standard tier. Spec inputs: the
    module's matrix features + flows + ground truth + contracts. Every spec ends with
    acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration
    test. Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,

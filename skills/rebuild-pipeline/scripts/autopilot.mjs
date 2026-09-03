@@ -258,6 +258,31 @@ if (cmd === "preflight") {
     blockers.push("node_modules/ is missing — run `npm install`; validate and parity need it.");
   }
 
+  // 2b. The model ladder. A malformed .claude/model-routing.json degrades to the opus-centric
+  //     default rather than failing, which is right for an attended dispatch — the orchestrator
+  //     relays the warning and the user sees it. Unattended there is nobody to relay to, and a
+  //     whole run's worth of dispatches on a silently-defaulted ladder is exactly the kind of
+  //     thing you find out about from the bill. So surface it here, as a NOTE and never a
+  //     blocker: the default is a working configuration, just not the one the file asked for.
+  if (!existsSync(join("scripts", "routing.mjs"))) {
+    notes.push("no scripts/routing.mjs — this workbench predates 0.16.0, so the model ladder is\n" +
+      "    resolved from the plugin's copy instead (SKILL.md 4b has the command). Nothing to fix.");
+  } else {
+    try {
+      const r = JSON.parse(execFileSync("node", ["scripts/routing.mjs"], { encoding: "utf8" }));
+      const real = (r.warnings ?? []).filter((w) => !/effort/i.test(w));
+      if (real.length) {
+        notes.push("model ladder has warnings — dispatches will run on the resolved values below, not the file's:\n" +
+          real.map((w) => `    - ${w}`).join("\n"));
+      }
+      notes.push(`model ladder: ${r.profile} (${r.profileSource}) — ` +
+        Object.entries(r.roles).map(([k, v]) => `${k}:${v.model}`).join(" · "));
+    } catch (e) {
+      notes.push(`could not resolve the model ladder (${String(e.message).split("\n")[0]}) — ` +
+        "dispatches will fall back to whatever model the session runs on.");
+    }
+  }
+
   // 3. Everything a session-end check already covers: dirty trees, unpushed work across
   //    repos.yaml, stashes, gates reopened but not re-locked, stray services. Reuse it
   //    rather than reimplementing any of it.
