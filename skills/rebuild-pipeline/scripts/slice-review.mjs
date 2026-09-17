@@ -177,6 +177,59 @@ if (!acLib) {
   }
 }
 
+// --- 1b. equivalence against the legacy system ---------------------------
+// Same question as the AC block above, one layer down and against a different authority: not
+// "does it do what the spec says" but "does it still produce what the OLD system produced".
+// Compared by trace name against the previous boundary for exactly the reason the AC run is —
+// every per-slice deploy criterion asserts only its own slice, so a trace this slice quietly
+// broke has no other place to surface.
+//
+// The lane does not apply to a third-party reference. Absent traces and an inapplicable lane
+// are reported differently on purpose: one of them means nobody recorded anything.
+if (acLib?.equivJunitFiles) {
+  const traces = acLib.readEquivTraces ? acLib.readEquivTraces(".") : [];
+  const efiles = acLib.equivJunitFiles();
+  if (traces.length || efiles.length) {
+    const ecurr = efiles.length ? acLib.readAcSuite(efiles[0].path) : null;
+    if (!efiles.length) {
+      md.run.push(`- **Equivalence: ${traces.length} trace(s) recorded, none replayed.** No ` +
+        `\`parity/<date>-equiv.xml\` exists, so nothing has checked this build against the legacy ` +
+        `system. Recorded is not green — \`npm run equiv -- replay --all\`.`);
+      term.run.push(`Equivalence: ${traces.length} recorded, 0 replayed — not checked against the legacy system.`);
+    } else if (ecurr?.unreadable) {
+      md.run.push(`- \`${efiles[0].path}\` exists but could not be read as JUnit (${ecurr.unreadable}). ` +
+        `Equivalence NOT reported — do not read its absence as a pass.`);
+      term.run.push(`${efiles[0].path} unreadable — equivalence not reported. Not a pass.`);
+    } else {
+      const unreplayed = traces.length - ecurr.total;
+      md.run.push(`- **Equivalence ${ecurr.passed}/${ecurr.total} traces green** against the legacy ` +
+        `system${ecurr.failed ? `, ${ecurr.failed} red` : ""}. ${traces.length} recorded` +
+        `${unreplayed > 0 ? ` — **${unreplayed} never replayed in this run**, neither green nor red` : ""}. ` +
+        `Source: \`${efiles[0].path}\`.`);
+      term.run.push(`Equivalence ${ecurr.passed}/${ecurr.total} green` +
+        (unreplayed > 0 ? `, ${unreplayed} recorded but not replayed` : ""));
+      const eprev = efiles[1] ? acLib.readAcSuite(efiles[1].path) : null;
+      const ecmp = acLib.compareRuns(eprev, ecurr);
+      if (!ecmp) {
+        md.run.push(`  - No previous equivalence run to compare against, so a trace that broke ` +
+          `during this slice cannot be distinguished from one that was never green.`);
+      } else if (ecmp.regressed.length) {
+        md.run.push(`  - **${ecmp.regressed.length} trace(s) regressed since \`${efiles[1].date}\`** — ` +
+          `equivalent then, not now: ${ecmp.regressed.map((r) => r.name).join(", ")}. This slice ` +
+          `changed behavior the old system had.`);
+        term.run.push(`EQUIVALENCE REGRESSED since ${efiles[1].date}: ${ecmp.regressed.map((r) => r.name).join(" · ")}`);
+      } else {
+        md.run.push(`  - No equivalence regressions since \`${efiles[1].date}\`.`);
+      }
+      if (ecurr.failed) {
+        md.run.push(`  - Red traces are real differences from the legacy system. If one is intended, ` +
+          `it goes on the record — \`npm run equiv -- accept "<trace>" --reason "..."\` — and Gate 5 ` +
+          `refuses to lock while any red trace has no decision naming it.`);
+      }
+    }
+  }
+}
+
 // --- 2. what shipped -----------------------------------------------------
 const featureName = new Map(matrix.filter((f) => f?.id).map((f) => [f.id, f.name || ""]));
 const sliceFeatures = slice.features || [];
@@ -267,6 +320,59 @@ press(parityReports.length
     : `- No parity report on disk yet (\`npm run parity\`), so creep and upstream candidates were ` +
       `not looked at for this boundary.`);
 
+// --- 5. the runbook ------------------------------------------------------
+// The question nothing asked: what did this slice teach that plan/BUILD_RUNBOOK.md did not
+// already know? The runbook is required reading for every lane from S2 on, so it is the one
+// artifact whose staleness compounds — a lane reads it, believes it, and rediscovers the
+// truth the hard way. Asking at the boundary is asking while the answer is still in reach.
+//
+// `runbook_amended:` in plan/progress.yaml is what makes "nothing to add" distinguishable
+// from "nobody asked". Both look like an unchanged file otherwise, and only one is fine.
+const RUNBOOK = join("plan", "BUILD_RUNBOOK.md");
+const runbookMd = [];
+const amended = Array.isArray(progress.runbook_amended) ? progress.runbook_amended : [];
+const isS1 = sliceId === "S1";
+if (!existsSync(RUNBOOK)) {
+  runbookMd.push(isS1
+    ? `- **No \`${RUNBOOK}\` yet — this boundary is where it gets written.** S1 is the slice that ` +
+      `discovered how the locked contracts, the harness scaffold and the reference's quirks ` +
+      `actually combine, and none of it is written anywhere S2's lanes will read. Write it from ` +
+      `what the S1 lanes REPORTED, not from memory (g5-build.md, between-slices step 5). ` +
+      `\`runbook-guard.mjs\` blocks writes into a code repo once a slice after S1 is in progress ` +
+      `without it, so this is also the thing standing between you and starting the next slice.`
+    : `- ⚠ **No \`${RUNBOOK}\`, and ${sliceId} is past S1.** Every lane in this slice rediscovered ` +
+      `S1's lessons on its own. Write it now from what the lanes reported; the guard will block ` +
+      `the next slice's code writes until it exists.`);
+} else {
+  const text = readFileSync(RUNBOOK, "utf8");
+  const amendments = [...text.matchAll(/^##\s+Amendment after (S\d+)/gm)].map((m) => m[1]);
+  const prevShipped = shippedSlices.filter((id) => id !== sliceId);
+  const prev = prevShipped[prevShipped.length - 1];
+  const since = prev
+    ? amendments.slice(amendments.indexOf(prev) + 1).filter(Boolean)
+    : amendments;
+  if (amendments.includes(sliceId) || amended.includes(sliceId)) {
+    runbookMd.push(`- \`${RUNBOOK}\` was amended at this boundary` +
+      (amendments.includes(sliceId) ? ` (\`## Amendment after ${sliceId}\`).` : ` (recorded in \`runbook_amended:\`).`));
+  } else if (amended.length || amendments.length) {
+    runbookMd.push(`- 🟡 **No amendment recorded for ${sliceId}.** Amendments so far: ` +
+      `${(amendments.length ? amendments : amended).join(", ")}. ` +
+      `What did this slice teach that the runbook did not know? If genuinely nothing, add ` +
+      `${sliceId} to \`runbook_amended:\` in \`plan/progress.yaml\` so the next reader can tell ` +
+      `"nothing to add" from "nobody asked" — those look identical in the file itself.`);
+  } else {
+    runbookMd.push(`- 🟡 **\`${RUNBOOK}\` exists but carries no \`## Amendment after S<n>\` section ` +
+      `and \`runbook_amended:\` is empty.** Either no boundary has revisited it since it was ` +
+      `written, or boundaries have and did not say so. Both are worth a minute now.`);
+  }
+  if (since.length) {
+    runbookMd.push(`- Amendments since ${prev || "it was written"}: ${since.join(", ")}.`);
+  }
+  runbookMd.push(`- Append, never rewrite. The runbook is a record of what was learned and ` +
+    `when; rewriting destroys the sequence, which is what tells a reader whether a claim ` +
+    `predates the thing they are debugging.`);
+}
+
 // --- write ---------------------------------------------------------------
 const bar = (n, m) => { const w = 14, on = m ? Math.round((n / m) * w) : 0; return "█".repeat(on) + "░".repeat(w - on); };
 mkdirSync(REVIEW_DIR, { recursive: true });
@@ -316,6 +422,15 @@ Next: **${next ? `${next} ${byId.get(next)?.name || ""}` : "nothing pending — 
 ## 4. Pressure on the plan
 
 ${md.pressure.join("\n")}
+
+## 5. What did this slice teach the runbook?
+
+\`plan/BUILD_RUNBOOK.md\` is required reading for every backend, frontend and infra lane from
+S2 on, which makes it the one artifact whose staleness compounds: a lane reads it, believes
+it, and rediscovers the truth the expensive way. This is the boundary where the answer is
+still in reach.
+
+${runbookMd.join("\n")}
 
 ## The decision
 

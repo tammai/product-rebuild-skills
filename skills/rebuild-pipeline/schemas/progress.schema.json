@@ -19,6 +19,12 @@
         "enum": ["planned", "covered", "partial", "missing", "upstream-candidate"]
       }
     },
+    "runbook_amended": {
+      "description": "Slice ids whose boundary wrote something into plan/BUILD_RUNBOOK.md — the S1 entry for the initial write, one per `## Amendment after S<n>` thereafter. Exists so slice-review.mjs can tell a boundary that had nothing to add from one that skipped the question: without it, both look like silence, and only one of them is fine.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^S[0-9]+$" },
+      "uniqueItems": true
+    },
     "notes": {
       "description": "Free-form per-slice remarks carried into the parity report.",
       "type": "object",

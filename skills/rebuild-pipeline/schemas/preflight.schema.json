@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "preflight.schema.json",
+  "title": "G0 preflight result — is the reference provably buildable and runnable before G1 dispatches miners",
+  "description": "Written by scripts/preflight.mjs as the last G0 action, alongside the human-readable PREFLIGHT.md. Read by autopilot.mjs preflight and by SKILL.md's phase detection: a workbench with sources.yaml filled but no preflight.json is still in G0. Contains no timestamp on purpose — two runs on an unchanged tree must produce a byte-identical file, and staleness is answered by reference.pinned_commit and reference.checkout_head, which move when the thing being checked moves.",
+  "type": "object",
+  "required": ["verdict", "reference", "lanes", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "preflight.schema.json" },
+    "verdict": {
+      "enum": ["Ready", "Ready-with-gaps", "Not-ready"],
+      "description": "Not-ready blocks G1 dispatch only. sources.yaml and license-posture.md commit and push regardless — none of the Not-ready causes changes a G0 decision."
+    },
+    "reference": {
+      "type": "object",
+      "required": ["pinned_commit", "checkout", "checkout_head"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "kind": { "type": ["string", "null"], "description": "third-party | own-code, as recorded in sources.yaml. own-code plus a running instance is E8's gating condition." },
+        "pinned_commit": { "type": ["string", "null"], "description": "From sources.yaml. Every lane-D citation is written against it." },
+        "checkout": { "type": ["string", "null"], "description": "Path to the reference checkout that was actually inspected." },
+        "checkout_head": { "type": ["string", "null"], "description": "git rev-parse HEAD in that checkout. Differing from pinned_commit is the one Not-ready this script cannot be talked out of." }
+      }
+    },
+    "lanes": {
+      "type": "object",
+      "required": ["A", "B", "C", "D"],
+      "additionalProperties": false,
+      "description": "Per-lane, because the causes are not interchangeable: a wrong commit poisons lane D's citations and nothing else, an unreachable instance takes out B and C and leaves D untouched.",
+      "properties": {
+        "A": { "$ref": "#/definitions/laneVerdict" },
+        "B": { "$ref": "#/definitions/laneVerdict" },
+        "C": { "$ref": "#/definitions/laneVerdict" },
+        "D": { "$ref": "#/definitions/laneVerdict" }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status", "detail"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": ["pinned-commit", "build", "instance", "test-suite", "scope-boundary", "interview", "tooling"]
+          },
+          "title": { "type": "string", "minLength": 1 },
+          "status": {
+            "enum": ["pass", "gap", "fail", "skip"],
+            "description": "Only `fail` makes the run Not-ready. `gap` is a named, costed degradation — a build detected but not executed is a gap, never a pass."
+          },
+          "detail": { "type": "string", "minLength": 1 },
+          "effect": {
+            "type": ["string", "null"],
+            "description": "What this costs downstream, and how to close it. Required in spirit for every non-pass: a gap nobody can act on is noise."
+          }
+        }
+      }
+    },
+    "blockers": { "type": "array", "items": { "type": "string" } },
+    "gaps": { "type": "array", "items": { "type": "string" } }
+  },
+  "definitions": {
+    "laneVerdict": { "enum": ["ready", "degraded", "blocked"] }
+  }
+}

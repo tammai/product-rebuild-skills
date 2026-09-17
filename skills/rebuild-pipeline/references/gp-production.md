@@ -24,6 +24,21 @@ Checklist — each item needs EVIDENCE (log, recording, doc link), not assertion
   ADR state.
 - Incident dry-run: one simulated failure (kill DB / fill disk) handled using only the
   runbook. The USER performs the drills; you prepare and observe.
+- **Equivalence against the legacy system** (`reference.kind: own-code` only): every trace
+  recorded across all slices replays green on the **production candidate** — not on a dev
+  box, not on the build that happened to be around when the slice closed — or the difference
+  is a logged decision in `parity/equiv/DECISIONS.md`. Run `npm run equiv -- replay --all`
+  against the candidate and cite the `parity/<date>-equiv.xml` it produces.
+
+  This is the one checklist line with teeth of its own: `gate.mjs lock gate-5` refuses while
+  the newest equivalence run has a failing trace that no decision names. A red trace says the
+  rebuild returns something the old system did not, on traffic recorded from the old system
+  before the rebuild existed — and Gate 5 is terminal, so nothing downstream catches it.
+
+  Accepting a difference does not make the trace green and is not meant to. It makes it
+  explained, which is exactly what this checklist asks of every other thing that is still
+  imperfect. A project with three accepted differences and a sentence about each is in better
+  shape than one with an equivalence suite nobody ran, and the report can tell them apart.
 
 ## The client-app checklist (`target_shape: client-only`, or any shipped client)
 

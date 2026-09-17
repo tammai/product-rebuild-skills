@@ -142,6 +142,171 @@ if (ac?.unreadable) {
 }
 
 // ---------------------------------------------------------------------------
+// Rules table — per-Rule-Card pass/fail, from the same JUnit run as the AC rate above.
+//
+// The question coverage could never answer. Coverage counts FEATURES: how much of the
+// reference this rebuild has built. A feature can be fully built, marked covered, and
+// subtly wrong — the invoice total rounds before tax instead of after, the state machine
+// allows a transition the reference forbade. Those are Rule Cards (lane R, G1), and until
+// an AC cited one there was nothing to report against.
+//
+// Rendered only when findings/rules/ is non-empty: a project that never ran lane R gets no
+// empty table, for the same reason parity says which parity mechanisms apply rather than
+// showing blank columns.
+// ---------------------------------------------------------------------------
+const RULES_TITLE = "Rules (lane R)";
+let rulesSection = "";
+if (acLib?.readRuleCards) {
+  const cards = acLib.readRuleCards(".", parse);
+  if (cards.length) {
+    if (!ac || ac.unreadable) {
+      rulesSection = `\n## ${RULES_TITLE}\n\n${cards.length} Rule Card(s) on disk, but ` +
+        `${ac?.unreadable ? `\`${AC_JUNIT}\` could not be read` : `no \`${AC_JUNIT}\` for today`} — ` +
+        `no rule can be reported green or red. Do not read this as a pass.\n`;
+    } else {
+      const { byRule, untested, green, red, skippedOnly } = acLib.groupByRule(ac.cases, cards.map((c) => c.id));
+      const byDomain = new Map();
+      for (const c of cards) {
+        if (!byDomain.has(c.domain)) byDomain.set(c.domain, []);
+        byDomain.get(c.domain).push(c);
+      }
+      const rows = [...byDomain.entries()].sort().map(([domain, list]) => {
+        const g = list.filter((c) => green.includes(c.id)).length;
+        const r = list.filter((c) => red.includes(c.id)).length;
+        const u = list.filter((c) => untested.includes(c.id)).length;
+        return `| ${domain} | ${g} of ${list.length} | ${r} | ${u} |`;
+      });
+      const detail = [];
+      if (red.length) {
+        detail.push("", "Red:", ...red.map((id) => {
+          const g = byRule.get(id);
+          const card = cards.find((c) => c.id === id);
+          return `- ${id} (${card?.kind || "?"}, ${card?.domain || "?"}) — ${g.failed} of ${g.total} test(s) failing`;
+        }));
+      }
+      if (skippedOnly.length) {
+        detail.push("", `Skipped only (neither green nor red — a skipped AC is not a passing one): ` +
+          `${skippedOnly.join(", ")}`);
+      }
+      if (untested.length) {
+        detail.push("", `**Untested: ${untested.length}** — ${untested.join(", ")}.`,
+          `A rule is joined to the suite by its id appearing in a test NAME (g5-build.md step 1). ` +
+          `A rule with no test and a rule whose test forgot to name it are indistinguishable here, ` +
+          `and both mean the same thing: nothing on disk demonstrates the rule holds.`);
+      }
+      rulesSection = `\n## ${RULES_TITLE}\n\n` +
+        `${green.length} of ${cards.length} Rule Cards green, ${red.length} red, ` +
+        `${untested.length} untested. Source: \`${AC_JUNIT}\`.\n\n` +
+        `| Domain | Green | Red | Untested |\n|---|---|---|---|\n${rows.join("\n")}\n` +
+        `${detail.join("\n")}\n`;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Equivalence (lane E8) — does the rebuild produce what the OLD system produced?
+//
+// The AC suite asks whether the rebuild does what the spec says. Coverage asks how much of the
+// reference exists. Neither asks whether `POST /invoices` returns the same totals the old system
+// returned, and for a rebuild of your own legacy system that is the question the project is
+// actually about.
+//
+// THREE NUMBERS, NOT ONE. Recorded, replayed, green. A trace that exists and was never replayed
+// is not a pass and not a failure — it is evidence nobody checked, and it is invisible in the
+// JUnit because the JUnit contains only what ran. Reporting "6/6 green" over a directory holding
+// eight traces is the exact overclaim this section exists to prevent.
+//
+// WHEN THE LANE DOES NOT APPLY, SAY SO. A third-party reference cannot have an equivalence lane
+// — there is no legal or practical way to replay traffic against a product you do not operate.
+// An absent section and an empty column read identically to someone scanning the report, and
+// only one of them means "this was checked and there is nothing".
+// ---------------------------------------------------------------------------
+const EQUIV_TITLE = "Equivalence (vs the legacy system)";
+let equivSection = "";
+if (acLib?.readEquivTraces) {
+  const refKind = (() => {
+    const t = existsSync("sources.yaml") ? readFileSync("sources.yaml", "utf8") : "";
+    const b = t.match(/^reference:\n((?:(?:[ \t]+.*)?\n)*)/m);
+    return (b?.[1].match(/^\s+kind:\s*(.*)$/m) || [])[1]?.trim().split(/\s+#/)[0].replace(/^["']|["']$/g, "") || "";
+  })();
+  const traces = acLib.readEquivTraces(".");
+  const EQUIV_JUNIT = `parity/${date}-equiv.xml`;
+  const eq = acLib.readAcSuite(EQUIV_JUNIT);
+
+  if (refKind !== "own-code" && !traces.length) {
+    equivSection = `\n## ${EQUIV_TITLE}\n\nDoes not apply: \`reference.kind\` is ` +
+      `\`${refKind || "(unset)"}\`, not \`own-code\`. Replaying recorded traffic against a product ` +
+      `you do not operate is neither legal nor practical, so parity for this project rests on the ` +
+      `AC suite and the coverage figures above. This line exists so an absent section is not read ` +
+      `as an unchecked one.\n`;
+  } else if (traces.length) {
+    const byFeature = new Map();
+    for (const t of traces) {
+      if (!byFeature.has(t.feature)) byFeature.set(t.feature, { recorded: [], replayed: 0, green: 0, red: [] });
+      byFeature.get(t.feature).recorded.push(t.name);
+    }
+    let replayedTotal = 0, greenTotal = 0;
+    const redCases = [];
+    const ruleLines = [];
+    if (eq && !eq.unreadable) {
+      const { groupByRule, readRuleCards } = acLib;
+      for (const c of eq.cases) {
+        // classname carries "<feature-id> <rule-id>…" — equiv.mjs writes it that way precisely
+        // so this join needs no second index.
+        const feature = (c.classname || "").split(/\s+/)[0];
+        const g = byFeature.get(feature);
+        replayedTotal++;
+        if (c.state === "passed") greenTotal++;
+        if (g) {
+          g.replayed++;
+          if (c.state === "passed") g.green++; else g.red.push(c.caseName || c.name);
+        }
+        if (c.state !== "passed") redCases.push(c);
+      }
+      // Per Rule Card, where a trace cites one — the same grouping the AC rules table uses.
+      if (readRuleCards && groupByRule) {
+        const cards = readRuleCards(".", parse);
+        if (cards.length) {
+          const { byRule, green, red } = groupByRule(eq.cases, cards.map((c) => c.id));
+          if (byRule.size) {
+            ruleLines.push("", `Per Rule Card: ${green.length} green, ${red.length} red, ` +
+              `${cards.length - byRule.size} card(s) cited by no trace.`);
+            if (red.length) ruleLines.push(`Red rules: ${red.join(", ")}.`);
+          }
+        }
+      }
+    }
+    const rows = [...byFeature.entries()].sort().map(([f, g]) =>
+      `| ${f} | ${g.recorded.length} | ${g.replayed} | ${g.green} | ${g.red.length ? g.red.join(", ") : "—"} |`);
+    const header = eq?.unreadable
+      ? `\`${EQUIV_JUNIT}\` exists but could not be read as JUnit (${eq.unreadable}). Replay ` +
+        `results NOT reported — do not read their absence as a pass.`
+      : eq
+        ? `${traces.length} trace(s) recorded, ${replayedTotal} replayed, ${greenTotal} green. ` +
+          `Source: \`${EQUIV_JUNIT}\`.`
+        : `${traces.length} trace(s) recorded; **no \`${EQUIV_JUNIT}\` for today**, so none of them ` +
+          `has been replayed against the current build. Recorded is not green — run ` +
+          `\`npm run equiv -- replay --all\`.`;
+    const unreplayed = traces.length - replayedTotal;
+    const detail = [];
+    if (eq && !eq.unreadable && unreplayed > 0) {
+      detail.push("", `**${unreplayed} recorded trace(s) were not replayed** in this run. They are ` +
+        `neither green nor red — nothing has checked them against the current build.`);
+    }
+    if (redCases.length) {
+      detail.push("", "Red:", ...redCases.map((c) => `- ${c.name}`),
+        "", "A red trace is a real difference between the old system and the rebuild. Either the " +
+        "rebuild is wrong, or the difference is intended — and if it is intended it goes on the " +
+        "record: `npm run equiv -- accept \"<trace>\" --reason \"...\"`. `gate.mjs lock gate-5` " +
+        "refuses while the newest run has a failure no decision names.");
+    }
+    equivSection = `\n## ${EQUIV_TITLE}\n\n${header}\n\n` +
+      `| Feature | Recorded | Replayed | Green | Red |\n|---|---|---|---|---|\n${rows.join("\n")}\n` +
+      `${ruleLines.join("\n")}${detail.join("\n")}\n`;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Weakest parity claims: features whose evidence is ALL `inferred`.
 //
 // `basis` (findings/**.yaml, evidence entries) records where a fact came from — transcribed
@@ -187,6 +352,8 @@ const OWNED = [
   "Upstream candidates (from re-mining — decide at next slice boundary)",
   "Slice progress",
   ...(acSection ? [AC_TITLE] : []),
+  ...(rulesSection ? [RULES_TITLE] : []),
+  ...(equivSection ? [EQUIV_TITLE] : []),
   ...(basisSection ? ["Evidence basis"] : []),
 ];
 const path = `parity/${date}.md`;
@@ -202,7 +369,7 @@ mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
 Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
-${overlayWarning}${acSection}${basisSection}
+${overlayWarning}${acSection}${rulesSection}${equivSection}${basisSection}
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
 
@@ -216,4 +383,7 @@ ${list(buckets.upstream)}
 ${slices.map((s) => `- ${s.id} ${s.name}: ${s.status}${notes[s.id] ? `\n  - ${notes[s.id].trim().replace(/\n/g, "\n    ")}` : ""}`).join("\n") || "- no slice plan yet"}
 ${preserved}`);
 const acNote = ac && !ac.unreadable ? ` AC ${ac.passed}/${ac.total} passed.` : "";
-console.log(`Wrote ${path} — coverage ${pct}%.${acNote}${preserved ? " Hand-written sections preserved." : ""}`);
+const ruleNote = rulesSection.match(/^(\d+) of (\d+) Rule Cards green/m)
+  ? ` Rules ${rulesSection.match(/^(\d+) of (\d+) Rule Cards green/m).slice(1, 3).join("/")} green.` : "";
+const equivNote = equivSection.match(/^(\d+) trace\(s\) recorded, (\d+) replayed, (\d+) green/m);
+console.log(`Wrote ${path} — coverage ${pct}%.${acNote}${ruleNote}${equivNote ? ` Equivalence ${equivNote[3]}/${equivNote[1]} green.` : ""}${preserved ? " Hand-written sections preserved." : ""}`);

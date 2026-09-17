@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// flows-guard.mjs — PreToolUse hook: block edits to a COMMITTED AC flow under parity/flows/.
+// flows-guard.mjs — PreToolUse hook: block edits to a COMMITTED recorded artifact under
+// parity/flows/ (Maestro AC flows) or parity/equiv/ (equivalence traces).
 // Reads the hook payload from stdin, finds the nearest workbench root above the target file
-// (marker: locks/pipeline.yaml), and denies writes to flow files git already tracks.
+// (marker: locks/pipeline.yaml), and denies writes to files git already tracks.
 // Exit 0 = allow. Exit 2 = block (stderr is fed back to the model).
 // Fails open on anything unexpected — the guard must never break unrelated edits.
 //
@@ -13,6 +14,17 @@
 // `protects:`, because flows are recorded per slice and gate-locking them would force a formal
 // reopen every slice. The rule instead: an assertion in a recorded flow changes only with a
 // logged human decision — `npm run flows -- unlock --reason "..."`.
+//
+// ONE GUARD, TWO DIRECTORIES
+//
+// `parity/equiv/` holds equivalence traces: what the OLD system actually returned, captured
+// before the rebuild's backend lane started. Different layer — HTTP and database rows rather
+// than the accessibility tree — and a different question (does the system produce what the old
+// system produced, rather than does the UI do what the old UI did). But structurally it is the
+// same artifact under the same rule: recorded against the legacy system first, not gate-locked
+// because it is recorded per slice, and worthless the moment an agent is free to edit it to
+// make a build pass. So it gets the same teeth, in the same hook, with its own unlock file and
+// its own decision log. Two guards would be two places to forget.
 //
 // COMMITTED IS THE LINE, and it is the load-bearing choice here.
 //
@@ -46,9 +58,37 @@ while (root !== dirname(root)) {
 if (!existsSync(join(root, "locks", "pipeline.yaml"))) process.exit(0); // not in a workbench
 
 const rel = relative(root, abs).split(sep).join("/");
-if (!rel.startsWith("parity/flows/")) process.exit(0);
-// The directory's own documentation and its decision log are prose about the rule, not flows.
-if (/^parity\/flows\/(README\.md|DECISIONS\.md|\.unlocked\.yaml)$/.test(rel)) process.exit(0);
+
+// Which of the two recorded suites is this, if either? Everything below is parameterised on
+// the answer, so the two stay in step by construction rather than by somebody remembering.
+const SUITES = [
+  {
+    dir: "parity/flows", kind: "recorded AC flow", script: "flows.mjs", npm: "flows",
+    guards: (r) => r.endsWith(".yaml") || r.endsWith(".yml"),
+    why: "These flows were recorded against the LEGACY app before the slice was built — that " +
+      "authorship direction is the only reason the suite measures parity instead of agreeing " +
+      "with whatever got built.",
+    dont: "Do NOT loosen the assertion to make it pass: that silently redefines parity and " +
+      "reads downstream as a build that got better.",
+  },
+  {
+    dir: "parity/equiv", kind: "recorded equivalence trace", script: "equiv.mjs", npm: "equiv",
+    guards: (r) => r.endsWith(".trace.yaml"),
+    why: "A trace is what the OLD system actually returned — status, response body, and the " +
+      "rows the request left behind — captured before this slice's backend lane started.",
+    dont: "Do NOT edit the expectation to match the rebuild: that does not make them " +
+      "equivalent, it makes the evidence agree with the code, which is the one property this " +
+      "lane exists to have.",
+  },
+];
+const suite = SUITES.find((s) => rel.startsWith(s.dir + "/"));
+if (!suite) process.exit(0);
+// A directory's own documentation, its decision log and its config are prose and settings
+// about the rule, not recordings. `config.yaml` names env vars and endpoints and is meant to
+// be edited; the request files a trace is recorded FROM are inputs, not evidence.
+if (new RegExp(`^${suite.dir}/(README\\.md|DECISIONS\\.md|config\\.yaml|\\.unlocked\\.yaml)$`).test(rel)) process.exit(0);
+// Only the recorded artifact itself is guarded — not a *.request.yaml beside it.
+if (!suite.guards(rel)) process.exit(0);
 
 // A file git does not track yet is still being recorded — leave the recording loop alone.
 let tracked = false;
@@ -62,7 +102,7 @@ if (!tracked) process.exit(0);
 // scripts/flows.mjs: the hook runs from the plugin directory against an arbitrary workbench,
 // which may be an older one with no such script, and a guard that throws on a missing import
 // is a guard that blocks every edit it was never meant to see.
-const unlockFile = join(root, "parity", "flows", ".unlocked.yaml");
+const unlockFile = join(root, ...suite.dir.split("/"), ".unlocked.yaml");
 if (existsSync(unlockFile)) process.exit(0);
 
 // A workbench scaffolded at 0.12.0 or 0.13.0 has parity/flows/ but no scripts/flows.mjs — the
@@ -70,27 +110,23 @@ if (existsSync(unlockFile)) process.exit(0);
 // late degrades a CHECK when it is missing; this one would degrade into a hard block with an
 // escape hatch that does not exist, which is the one failure mode a guard must never have. So
 // when the script is absent, say so and name the upgrade in the same breath.
-const hasFlowsScript = existsSync(join(root, "scripts", "flows.mjs"));
-const escapeHatch = hasFlowsScript
-  ? `  npm run flows -- unlock --reason "..."   # then make the change, then: npm run flows -- relock\n`
-  : `  This workbench has no scripts/flows.mjs — it predates the mechanism. Copy it from the\n` +
-    `  plugin's skills/rebuild-pipeline/scripts/, add "flows": "node scripts/flows.mjs" to\n` +
-    `  package.json's scripts, and add parity/flows/.unlocked.yaml to .gitignore (an active\n` +
-    `  unlock must never be committed). Then:\n` +
-    `    npm run flows -- unlock --reason "..."   # change it, then: npm run flows -- relock\n`;
+const hasScript = existsSync(join(root, "scripts", suite.script));
+const escapeHatch = hasScript
+  ? `  npm run ${suite.npm} -- unlock --reason "..."   # then make the change, then: npm run ${suite.npm} -- relock\n`
+  : `  This workbench has no scripts/${suite.script} — it predates the mechanism. Copy it from\n` +
+    `  the plugin's skills/rebuild-pipeline/scripts/ (or run npm run upgrade), add\n` +
+    `  "${suite.npm}": "node scripts/${suite.script}" to package.json's scripts, and add\n` +
+    `  ${suite.dir}/.unlocked.yaml to .gitignore (an active unlock must never be committed). Then:\n` +
+    `    npm run ${suite.npm} -- unlock --reason "..."   # change it, then: npm run ${suite.npm} -- relock\n`;
 
 console.error(
-  `Blocked: ${rel} is a recorded AC flow (committed under parity/flows/).\n` +
-  `These flows were recorded against the LEGACY app before the slice was built — that ` +
-  `authorship direction is the only reason the suite measures parity instead of agreeing with ` +
-  `whatever got built.\n` +
-  `If a build is failing this flow, the flow is doing its job. Do NOT loosen the assertion to ` +
-  `make it pass: that silently redefines parity and reads downstream as a build that got ` +
-  `better.\n` +
-  `If the assertion is genuinely wrong, that is a human decision and it gets logged, same ` +
-  `register as a gate reopen:\n` +
+  `Blocked: ${rel} is a ${suite.kind} (committed under ${suite.dir}/).\n` +
+  `${suite.why}\n` +
+  `If a build is failing this, it is doing its job. ${suite.dont}\n` +
+  `If the recorded expectation is genuinely wrong, that is a human decision and it gets logged, ` +
+  `same register as a gate reopen:\n` +
   escapeHatch +
-  `Recording NEW flows and ADDING assertions need none of this — only an existing committed ` +
-  `flow is guarded.`
+  `Recording NEW ones and ADDING assertions need none of this — only an existing committed ` +
+  `recording is guarded.`
 );
 process.exit(2);

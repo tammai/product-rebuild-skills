@@ -14,6 +14,26 @@ import { execSync } from "node:child_process";
 
 const LOCKS = "locks";
 const ORDER = ["gate-1", "gate-2", "gate-3", "gate-4", "gate-5"];
+
+// Paths a gate protects REGARDLESS of what its lock file's `protects:` list says.
+//
+// `protects:` is written once by rebuild-init.mjs at scaffold time, which means a path
+// added to a gate by a later release reaches new workbenches only. That is fine for a
+// script (the plugin's copy still runs) and not fine for a lock: a gate-1 that does not
+// hash findings/rules/ leaves the Rule Cards editable after the taxonomy locks, in every
+// workbench scaffolded before 0.17.0 — silently, and exactly in the projects most likely
+// to have rules worth locking.
+//
+// So the list is unioned in here at lock time and written into the lock file, which also
+// hands it to gate-guard.mjs for free: that hook reads `protects:` out of the locked file,
+// so a path this adds is enforced by the guard from the moment the gate locks.
+//
+// Rules are TAXONOMY, not design — the same argument that puts matrix/features.yaml behind
+// gate-1. A rule discovered later enters the way a late feature does: added under the
+// existing structure, never restructuring it.
+const REQUIRED_PROTECTS = {
+  "gate-1": ["findings/rules/"],
+};
 const PHASE_BEFORE = {
   "gate-1": "G2 feature matrix", "gate-2": "G3 milestone slicing",
   "gate-3": "G4a system design", "gate-4": "G4b data model + contracts",
@@ -218,6 +238,68 @@ if (cmd === "lock") {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Gate 5 refuses to lock while the newest equivalence run has a failure nobody explained.
+  //
+  // Gate 5 is terminal. Nothing downstream catches an overclaim here, which is why its rubric is
+  // almost entirely about honesty — and a red equivalence trace is the least deniable thing in
+  // the project: it says the rebuild returns something the old system did not, on traffic
+  // recorded from the old system before the rebuild existed. Locking over it would be the
+  // pipeline's own definition of done disagreeing with its own evidence.
+  //
+  // It refuses on UNDECIDED failures only. An intended difference — the Gate 4 contract renamed
+  // a field, a bug was deliberately not reproduced — is legitimate and expected; it just has to
+  // be on the record. `npm run equiv -- accept "<trace>" --reason "..."` writes that record, and
+  // this check reads it. So the gate is not "every trace green", it is "every red trace
+  // explained", which is the same standard the readiness checklist applies to everything else.
+  //
+  // Zero-dependency by the same rule as the rest of this file: the JUnit is regex-read for
+  // failing testcase names (acsuite.mjs makes the same argument about JUnit's fixed shape), and
+  // the decision log is markdown with one machine-readable token per accepted trace.
+  // ---------------------------------------------------------------------------
+  if (id === "gate-5") {
+    const parityDir = "parity";
+    const runs = existsSync(parityDir)
+      ? readdirSync(parityDir).map(String)
+          .map((f) => /^(\d{4}-\d{2}-\d{2})-equiv\.xml$/.exec(f))
+          .filter(Boolean).map((m) => ({ date: m[1], path: join(parityDir, m[0]) }))
+          .sort((a, b) => (a.date < b.date ? 1 : -1))
+      : [];
+    if (runs.length) {
+      const xml = readFileSync(runs[0].path, "utf8");
+      // One chunk per <testcase>, so a <failure> is attributed to the case that contained it.
+      const failing = xml.split(/<testcase\b/).slice(1)
+        .map((chunk) => {
+          const end = chunk.indexOf("</testcase>");
+          const body = end === -1 ? chunk : chunk.slice(0, end);
+          return { name: (body.match(/\bname="([^"]*)"/) || [])[1] || "(unnamed)", failed: /<(failure|error)\b/.test(body) };
+        })
+        .filter((c) => c.failed).map((c) => c.name);
+      if (failing.length) {
+        const log = join("parity", "equiv", "DECISIONS.md");
+        const decisions = existsSync(log) ? readFileSync(log, "utf8") : "";
+        const accepted = new Set([...decisions.matchAll(/^\s*-\s*accepted:\s*`([^`]+)`/gm)].map((m) => m[1]));
+        const undecided = failing.filter((n) => !accepted.has(n));
+        if (undecided.length) {
+          console.error(`Cannot lock ${id}: the newest equivalence run (${runs[0].path}) has ` +
+            `${undecided.length} failing trace(s) that no decision explains:\n` +
+            undecided.map((n) => `  - ${n}`).join("\n") +
+            `\n\n  A red trace means the rebuild returns something the legacy system did not, on ` +
+            `traffic recorded from the legacy system before the rebuild existed. Gate 5 is ` +
+            `terminal — nothing after it catches this.` +
+            `\n  Fix the difference and re-run \`npm run equiv -- replay --all\`, or, if the ` +
+            `difference is intended, put it on the record:` +
+            `\n    npm run equiv -- accept "<trace name>" --reason "..."` +
+            `\n  Accepting does not make the trace green. It makes it explained, which is all this ` +
+            `gate asks of anything else that is still imperfect.`);
+          process.exit(1);
+        }
+        console.log(`Equivalence: ${failing.length} red trace(s) in ${runs[0].path}, all named in ` +
+          `parity/equiv/DECISIONS.md. Locking.`);
+      }
+    }
+  }
+
   // artifact_hashes below is computed from the WORKING TREE, but the lock commit further
   // down stages only the lock file itself. If any protected (or other) file is dirty, the
   // hash recorded here describes content that never lands in the gate-tagged commit — a
@@ -238,8 +320,19 @@ if (cmd === "lock") {
     }
   } catch { /* git unavailable — same fallback as the commit/tag step below */ }
 
-  const hashes = lock.protects.flatMap(filesUnder).map((f) => `  ${f}: ${sha(f)}`);
-  if (!hashes.length) { console.error(`Nothing to lock: no files under ${lock.protects.join(", ")}`); process.exit(1); }
+  // Union in anything this gate must protect that its scaffolded `protects:` predates.
+  // Absent directories contribute no files and no hashes, so a project with no Rule Cards
+  // locks exactly as it did before — the line appears in the lock file and protects an
+  // empty set, which is the correct description of that project.
+  const protects = [...new Set([...lock.protects, ...(REQUIRED_PROTECTS[id] || [])])];
+  const added = protects.filter((p) => !lock.protects.includes(p));
+  if (added.length) {
+    console.log(`Adding to ${id} protects: ${added.join(", ")} ` +
+      `(required by this plugin version; this workbench was scaffolded before it).`);
+  }
+
+  const hashes = protects.flatMap(filesUnder).map((f) => `  ${f}: ${sha(f)}`);
+  if (!hashes.length) { console.error(`Nothing to lock: no files under ${protects.join(", ")}`); process.exit(1); }
   const by = argAfter("--by") || process.env.USER || "unknown";
   const history = lock.text.includes("history: []")
     ? `history:\n  - action: locked\n    at: ${now}\n    reason: ${yamlStr("gate review approved")}`
@@ -251,7 +344,7 @@ status: locked
 locked_at: ${now}
 locked_by: ${yamlStr(by)}
 protects:
-${lock.protects.map((p) => `  - ${p}`).join("\n")}
+${protects.map((p) => `  - ${p}`).join("\n")}
 artifact_hashes:
 ${hashes.join("\n")}
 ${history}

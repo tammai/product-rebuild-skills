@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rule.schema.json",
+  "title": "Rule Card (array file) — one business rule of the reference, cited",
+  "description": "Lane R of G1, written to findings/rules/<domain>.yaml. Lane D mines entities, routes, permissions, jobs and events; the rules that make those routes DO something — the interest calculation, the eligibility check, the state machine on a work package — were not a lane-D target, so they surfaced for the first time at G5 when spec-writer had to re-read the source to write acceptance criteria. That re-read is the drift point: two agents, weeks apart, deriving the same rule from the same file and not necessarily agreeing. A Rule Card moves the derivation to G1, where it is evidenced, judged and locked with the taxonomy. Gate 1 locks this directory alongside matrix/features.yaml — rules are taxonomy, not design.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "kind", "given", "when", "then", "evidence", "features", "confidence"],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^R-[A-Z0-9]+-[0-9]{3}$",
+        "description": "R-<DOMAIN>-<NNN>. Same pattern family as F-<DOMAIN>-<NNN> on purpose: a spec's acceptance criterion cites both, and two id shapes that differ only in prefix are two things a reader can hold at once."
+      },
+      "kind": {
+        "enum": ["calculation", "validation", "eligibility", "state-transition", "derivation"],
+        "description": "Fixed enum. `calculation` produces a number, `validation` accepts or rejects an input, `eligibility` decides whether an actor may do a thing, `state-transition` moves an entity between states, `derivation` computes a field from others. A rule that needs a sixth kind is usually two rules."
+      },
+      "given": { "type": "string", "minLength": 1, "description": "The precondition. Executable-style Gherkin, concrete values over prose." },
+      "when": { "type": "string", "minLength": 1, "description": "The trigger. One behavior per card — an `and` in here usually means two cards." },
+      "then": { "type": "string", "minLength": 1, "description": "The observable outcome, with the concrete values a test could assert on. This is the sentence the judge re-derives against the cited line, so it has to be checkable against source rather than a paraphrase of intent." },
+      "evidence": {
+        "type": "array",
+        "minItems": 1,
+        "description": "Same shape as finding.schema.json's evidence, with `basis` required rather than optional — a rule with no stated provenance is the thing this lane exists to stop. `line` is what makes a card re-derivable: the judge opens path at commit and reads that line.",
+        "items": {
+          "type": "object",
+          "required": ["basis"],
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string", "format": "uri" },
+            "path": { "type": "string" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "line": { "type": "integer", "minimum": 1 },
+            "note": { "type": "string" },
+            "basis": { "enum": ["transcribed", "observed", "inferred"] }
+          },
+          "anyOf": [{ "required": ["url"] }, { "required": ["path", "commit"] }],
+          "allOf": [
+            {
+              "if": { "properties": { "basis": { "const": "transcribed" } }, "required": ["basis"] },
+              "then": {
+                "required": ["path", "commit", "line"],
+                "description": "`transcribed` asserts the rule was copied out of the reference's source at the pinned commit. Without a line there is nothing to re-derive against — the judge would be re-reading a whole file to confirm a sentence, which is the work the citation exists to save."
+              }
+            }
+          ]
+        }
+      },
+      "features": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+        "description": "Which matrix entries this rule belongs to. validate.mjs resolves every id against matrix/features.yaml — a card citing a feature that does not exist is a card no spec will ever find."
+      },
+      "entities": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "description": "Entities the rule reads or writes. validate.mjs checks each against findings/ground-truth/reference-erd*.mermaid: a rule naming an entity the reference does not have is a rule that was inferred rather than mined."
+      },
+      "confidence": { "enum": ["high", "medium", "low"] },
+      "verification": {
+        "enum": ["re-derived", "pending"],
+        "default": "pending",
+        "description": "Set by rubric-judge, never by the miner: `re-derived` means the judge opened the cited path at the commit and line and confirmed `then` is supported there. A card asserting its own verification would be the miner grading its own homework, which is the whole reason this field is written by a different agent."
+      },
+      "notes": { "type": "string", "description": "Anything a reader needs that is not the rule itself — a reference quirk, a case deliberately excluded, an upstream issue number." }
+    }
+  }
+}

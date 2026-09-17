@@ -3,8 +3,9 @@
 // Usage: node rebuild-init.mjs <project-name> [--dir <parent-dir>]
 // Zero-dependency: uses only node:fs / node:path / node:child_process.
 
-import { mkdirSync, writeFileSync, cpSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { mkdirSync, writeFileSync, cpSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
@@ -27,8 +28,9 @@ if (existsSync(root)) {
 
 const dirs = [
   "findings/ground-truth", "findings/feature", "findings/nfr", "findings/flow",
-  "matrix", "plan", "adr", "contracts/data-model", "contracts/openapi",
-  "contracts/internal", "contracts/asyncapi", "locks", "parity", "parity/flows",
+  "findings/rules",
+  "matrix", "plan", "plan/specs", "adr", "contracts/data-model", "contracts/openapi",
+  "contracts/internal", "contracts/asyncapi", "locks", "parity", "parity/flows", "parity/equiv",
   "schemas", "scripts",
   ".github/workflows",
 ];
@@ -38,9 +40,49 @@ for (const d of dirs) mkdirSync(join(root, d), { recursive: true });
 cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
                  "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs",
-                 "sequence.mjs", "slice-review.mjs", "acsuite.mjs", "routing.mjs"]) {
+                 "sequence.mjs", "slice-review.mjs", "acsuite.mjs", "routing.mjs",
+                 "preflight.mjs", "upgrade.mjs", "equiv.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
+
+// Where this workbench came from, and what it came with.
+//
+// `.rebuild-plugin` is how scripts/upgrade.mjs finds the plugin later. It cannot rely on
+// CLAUDE_PLUGIN_ROOT: a workbench outlives the session that made it, and an env var pointing
+// at a plugin copy that has since moved would upgrade from the wrong source silently.
+//
+// `locks/tooling.json` is the provenance baseline. Without it, upgrade.mjs can see that a
+// vendored file differs from the plugin's but not WHY — an old copy and a local edit look
+// identical — so it would either nag about every stale file or overwrite someone's work. The
+// hashes recorded here are what make "unmodified, just behind" a decidable question.
+const PLUGIN_ROOT = join(HERE, "..", "..", "..");
+writeFileSync(join(root, ".rebuild-plugin"),
+  `# Where this workbench's vendored scripts/ and schemas/ came from.\n` +
+  `# Read by scripts/upgrade.mjs. Edit if the plugin moves.\n` +
+  `${resolve(PLUGIN_ROOT)}\n`);
+
+const pluginVersion = (() => {
+  try { return JSON.parse(readFileSync(join(PLUGIN_ROOT, ".claude-plugin", "plugin.json"), "utf8")).version; }
+  catch { return "unknown"; }
+})();
+const sha = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
+const vendoredHashes = {};
+for (const sub of ["scripts", "schemas"]) {
+  for (const f of readdirSync(join(root, sub))) {
+    const rel = `${sub}/${f}`;
+    if (sub === "scripts" && f === "rebuild-init.mjs") continue;
+    vendoredHashes[rel] = sha(join(root, rel));
+  }
+}
+writeFileSync(join(root, "locks", "tooling.json"), JSON.stringify({
+  comment: "Provenance of the vendored scripts/ and schemas/. \ is the hash each file had " +
+    "when it was last vendored, which is how upgrade.mjs tells a stale copy from one edited here. " +
+    "\ records files whose local version a human chose to hold. Do not hand-edit.",
+  plugin_version: pluginVersion,
+  updated: new Date().toISOString(),
+  files: vendoredHashes,
+  kept: {},
+}, null, 2) + "\n");
 
 const write = (p, c) => writeFileSync(join(root, p), c.trimStart());
 
@@ -51,6 +93,8 @@ reference:
   name: ""            # e.g. openproject
   repo: ""            # clone URL; leave empty in clean-room mode
   pinned_commit: ""   # fill after first clone; all lane-D evidence uses this
+  checkout: ""        # local path to that clone; scripts/preflight.mjs checks its HEAD
+                      # against pinned_commit before G1 is allowed to dispatch miners
   license: ""         # e.g. GPL-3.0, MIT
   kind: ""            # third-party | own-code (an app you already own and are replacing)
   upstream: ""        # active | frozen — frozen turns off G6's upstream re-mine
@@ -80,6 +124,15 @@ status: draft   # draft | decided
 
 ## Consequence for lane D (ground truth)
 <!-- full source access | clean-room: behavior/docs/API only -->
+
+## Prior attempts
+<!-- Has this rebuild been tried before? By whom, how far it got, why it stopped, and
+     what survives (a branch, a schema, a doc). "No" is a complete answer — write it. -->
+
+## Off-limits
+<!-- What may agents not touch or read: paths, repos, systems, data, people's inboxes.
+     Anything here that is a path or a URL ALSO belongs in sources.yaml \`denied:\` — the
+     miners read that list, not this prose. "Nothing" is a complete answer — write it. -->
 
 ## Rationale
 <!-- Why this posture. Note: this playbook is process, not legal advice. -->
@@ -213,7 +266,7 @@ simulators only, so the iOS leg needs a Mac runner.
 `);
 
 const gates = [
-  ["gate-1", "Taxonomy lock",     ["matrix/features.yaml"]],
+  ["gate-1", "Taxonomy lock",     ["matrix/features.yaml", "findings/rules/"]],
   ["gate-2", "Slice-plan lock",   ["plan/slices.yaml"]],
   ["gate-3", "Architecture lock", ["adr/"]],
   ["gate-4", "Contract lock",     ["contracts/"]],
@@ -248,9 +301,12 @@ write("package.json", JSON.stringify({
   type: "module",
   scripts: {
     validate: "node scripts/validate.mjs",
+    preflight: "node scripts/preflight.mjs",
+    upgrade: "node scripts/upgrade.mjs",
     gate: "node scripts/gate.mjs",
     parity: "node scripts/parity.mjs",
     flows: "node scripts/flows.mjs",
+    equiv: "node scripts/equiv.mjs",
     sequence: "node scripts/sequence.mjs",
     "slice-review": "node scripts/slice-review.mjs",
     "pause-check": "node scripts/pause-check.mjs",
@@ -284,7 +340,7 @@ jobs:
 // `gate.mjs lock` refuses to lock against a dirty tree, so an untracked one would block a gate
 // on a file that has nothing to do with the gate. `DECISIONS.md` is the opposite — it is the
 // log, and it is meant to be committed.
-write(".gitignore", "node_modules/\nparity/flows/.unlocked.yaml\n");
+write(".gitignore", "node_modules/\nparity/flows/.unlocked.yaml\nparity/equiv/.unlocked.yaml\n");
 
 write("README.md", `
 # ${name} — rebuild workbench
@@ -292,10 +348,23 @@ write("README.md", `
 Pipeline state store for the ${name} rebuild. Describes the product; never contains
 product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills plugin).
 
+- \`npm run preflight\` — does the reference actually build and run? Written as
+  \`PREFLIGHT.md\` + \`preflight.json\`; the last G0 action, and G1 refuses to dispatch
+  miners while it reads Not-ready (\`-- --run-build --run-tests\` also executes the
+  reference's own build/test commands — opt-in, they are a third party's code)
+- \`npm run upgrade\` — bring the vendored \`scripts/\` and \`schemas/\` up to the installed
+  plugin. Dry run by default; \`-- --apply\` copies. It refuses to overwrite any file edited
+  here and shows the diff instead (\`-- --diff <path>\`), so a local change is never
+  silently lost
 - \`npm run validate\` — schema-validate all artifacts, and structurally check
   \`contracts/\` (YAML validity, duplicate keys, every \`$ref\` resolving; every
   \`data-model/*.mermaid\` declaring entities; every ADR naming a concern its playbook maps)
 - \`npm run gate -- status\` — pipeline/gate state
+- \`npm run equiv -- status\` — the equivalence lane: does the rebuild produce what the OLD
+  system produced? Applies only to \`reference.kind: own-code\` with a reference that runs;
+  says so plainly otherwise (\`record <feature-id>\` against the legacy system,
+  \`replay <feature-id>\` against the rebuild, \`accept "<trace>" --reason\` for a difference
+  that is intended)
 - \`npm run flows -- status\` — are the recorded AC flows protected? (\`unlock --reason "..."\`
   / \`relock\` around a deliberate assertion change — see \`parity/flows/README.md\`)
 - \`npm run sequence -- status\` — the slice execution order, what is frozen, what is orderable

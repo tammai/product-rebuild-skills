@@ -27,6 +27,32 @@ no evidence, no entry.
 - **C UX flows**: operate the running product; capture trigger → steps → outcome for top
   features. Agents draft from tours/docs; the USER verifies against the live instance —
   schedule that verification explicitly with them.
+- **R Rules** (runs AFTER lane D, not in parallel with it): the reference's business rules
+  as **Rule Cards** — `findings/rules/<domain>.yaml`, one array per domain, valid against
+  `schemas/rule.schema.json`. Five kinds: `calculation`, `validation`, `eligibility`,
+  `state-transition`, `derivation`. Each card is one `given`/`when`/`then` with concrete
+  values, `evidence[]` carrying `basis` (and `line` wherever `transcribed`), `features[]`
+  resolving against the matrix, and `entities[]` resolving against
+  `reference-erd*.mermaid`.
+
+  **Why it is its own lane and not part of D.** Lane D mines entities, routes, permissions,
+  jobs and events — the *surface*. What makes a route do something, the interest
+  calculation or the state machine on a work package, was nobody's target, so it surfaced
+  for the first time at **G5**, when `spec-writer` had to re-read the reference's source to
+  write acceptance criteria. That re-read is the drift point: two agents, weeks apart,
+  deriving the same rule from the same file with no guarantee they agree, and the second one
+  doing it after Gate 4 has already frozen the contracts around the first one's assumption.
+  Lane R moves the derivation to G1, where it gets evidence, a judge, and a lock.
+
+  **It runs after D because it depends on D's output.** A card cites entities, and until
+  lane D has transcribed `reference-erd.mermaid` there is nothing to cite against — a lane-R
+  miner dispatched in the same batch would be inventing entity names and `validate.mjs`
+  would reject every file. Dispatch D, let it finish, then dispatch R with lane D's findings
+  and the ERD named in the brief as fixed inputs.
+
+  **Clean-room posture restricts it** the same way it restricts lane D: `observed` and
+  `inferred` basis only, mined from the running product and the docs. Those cards are the
+  weakest parity claims in the project and G6 reports them as such.
 
 ## Where a fact came from — `basis` on every evidence entry
 
@@ -166,8 +192,11 @@ there is nothing to graph.
    `graphify update <local-path>` before re-mining rather than rebuilding from scratch.
 
 ## Orchestration
+- **Lane R is dispatched in a second wave**, after lane D's files have landed and validated.
+  Everything else fans out at once; R is the one lane with a real input dependency, and
+  dispatching it early costs a whole batch of rejected files rather than time saved.
 - Dispatch miners with the brief format in `subagent-briefs.md`; one output file per run
-  under `findings/<lane>/`. State the lane's default `basis` in the brief — a miner given the
+  under `findings/<lane>/` (lane R writes `findings/rules/<domain>.yaml`). State the lane's default `basis` in the brief — a miner given the
   default writes it deliberately, and a miner given nothing writes whatever the last example
   it saw used.
 - After each batch: run `validate.mjs`; reject schema violations back to the lane, do not
@@ -176,8 +205,10 @@ there is nothing to graph.
 
 ## Exit criteria
 Reference running locally (user-confirmed); lane D complete for schema/routes/permissions/
-jobs, including `reference-erd.mermaid`; lanes A–C complete; all findings validate;
-top-feature flows user-verified.
+jobs, including `reference-erd.mermaid`; lanes A–C complete; **lane R complete — every
+`calculation` and `eligibility` route lane D found has at least one Rule Card, and every card
+resolves its `features[]` and `entities[]`**; all findings validate; top-feature flows
+user-verified.
 
 For `client-only`: add the API call-site inventory, the on-device store inventory verified
 against a restored device, the client-side-behavior list (offline, deep links,

@@ -78,6 +78,24 @@ This prints each gate's state (open/locked, date, artifact hashes) and derives t
 is not. Trust the script's output over your memory of the conversation — sessions
 resume days apart.
 
+**One correction on top of it, at the front of the pipeline.** No gate separates G0 from
+G1 — gate-1 closes G2 — so "first unlocked gate" reports G1 for every workbench that has
+been scaffolded, including one whose G0 never finished. Apply this before routing:
+
+> A workbench with `sources.yaml` filled in but **no `preflight.json`** is in **G0**, not
+> G1. Finish G0 and run `npm run preflight` (g0 reference has it as the last action).
+> A `preflight.json` reading **`Not-ready`** is also still G0 for dispatch purposes: report
+> the blockers from `PREFLIGHT.md`, and do not dispatch miners until it reads `Ready` or
+> `Ready-with-gaps`.
+
+Everything else in G0 still proceeds and still commits — `sources.yaml` and
+`license-posture.md` are decisions, and none of preflight's blockers changes one. What is
+held is the mining fan-out, because every lane-D finding cites `path + pinned_commit` and a
+preflight that says the checkout is elsewhere is saying those citations would be wrong.
+A workbench scaffolded before this shipped has no `preflight.json` and no
+`scripts/preflight.mjs`; see `docs/PLAYBOOK.md` → *Upgrading a workbench*. Until it is
+copied in, treat the G0 confirmation as the user's word, the way it was before.
+
 ### Step 3 — Report progress, always
 
 Before doing anything, give the user a short progress picture: current phase, what has
@@ -92,6 +110,7 @@ per-phase by design to keep context lean:
 | Phase | Read | Typical work |
 |---|---|---|
 | Not started | `references/g0-reference.md` | Onboarding interview, scaffold workbench |
+| G0 (scaffolded, no `preflight.json` or Not-ready) | `references/g0-reference.md` | Finish the interview, fill `sources.yaml`, `npm run preflight` until Ready / Ready-with-gaps |
 | G1 | `references/g1-mining.md` | Dispatch miner subagents per lane |
 | G2 | `references/g2-matrix.md` | Merge findings, draft taxonomy, Gate 1 review |
 | G3 | `references/g3-slicing.md` | Dependency graph, slice plan, Gate 2 review |

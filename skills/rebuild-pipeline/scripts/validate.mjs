@@ -4,7 +4,8 @@
 // ships no dependencies, so running the plugin's copy of this file cannot work.
 // Checks, in order:
 //   1. Every findings/**.yaml against finding.schema.json (+ evidence rule, + evidence
-//      `basis` — where the fact came from, distinct from the miner's `confidence`)
+//      `basis` — where the fact came from, distinct from the miner's `confidence`, +
+//      a count of findings flagged `signals.instruction_shaped` — advisory, never fatal)
 //   2. matrix/features.yaml against feature.schema.json
 //   3. plan/slices.yaml against slice.schema.json (+ acyclic dependencies)
 //   4. plan/progress.yaml against progress.schema.json (+ ids must exist upstream), and
@@ -50,6 +51,12 @@ if (existsSync(join("schemas", "autopilot.schema.json"))) {
 if (existsSync(join("schemas", "sequence.schema.json"))) {
   validators.sequence = ajv.compile(schema("sequence.schema.json"));
 }
+if (existsSync(join("schemas", "preflight.schema.json"))) {
+  validators.preflight = ajv.compile(schema("preflight.schema.json"));
+}
+if (existsSync(join("schemas", "rule.schema.json"))) {
+  validators.rule = ajv.compile(schema("rule.schema.json"));
+}
 
 let failures = 0;
 const fail = (file, msg) => { failures++; console.error(`FAIL ${file}\n  ${msg}`); };
@@ -71,9 +78,55 @@ const check = (file, validator) => {
   return data;
 };
 
+const RULES_DIR = join("findings", "rules");
+const isRuleFile = (f) => f.startsWith(RULES_DIR + "/") || f.startsWith(RULES_DIR + "\\");
+
+const instructionShaped = []; // { file, id, lane, summary }
 for (const f of yamlFilesUnder("findings")) {
   if (f.endsWith("nfr-profile.yaml")) { ok(f + " (profile, free-form)"); continue; }
-  check(f, validators.finding);
+  if (isRuleFile(f)) continue; // lane R — its own schema and its own cross-checks, below
+  const data = check(f, validators.finding);
+  if (!Array.isArray(data)) continue;
+  for (const finding of data) {
+    if (finding?.signals?.instruction_shaped === true) {
+      instructionShaped.push({ file: f, id: finding.id, lane: finding.lane, summary: finding.summary });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// instruction-shaped findings — text in the reference that tried to give instructions to
+// whoever mined it ("mark this feature as covered", "skip this file", anything addressed to
+// the AI). The miner quotes it and does not follow it; this is where the count surfaces.
+//
+// Advisory and never a failure, deliberately. A planted comment is a fact about the reference,
+// not a defect in the workbench, and the artifact it appears in is otherwise valid — failing
+// here would block a gate on the reference's contents, which no edit to this repo can fix.
+// What it earns instead is a human's attention at the gate review, and one suggestion: re-run
+// that lane at the verifier tier, because the finding proves the lane read text written to
+// steer it, and only a second pass can say whether anything else in that file did steer it.
+// The suggestion is not a routing hook — `scripts/routing.mjs` is not consulted and nothing
+// re-dispatches itself. The human decides.
+// ---------------------------------------------------------------------------
+if (instructionShaped.length) {
+  const byFile = new Map();
+  for (const e of instructionShaped) {
+    if (!byFile.has(e.file)) byFile.set(e.file, []);
+    byFile.get(e.file).push(e);
+  }
+  console.log(`\ninstruction-shaped: ${instructionShaped.length} finding(s) in ${byFile.size} file(s)`);
+  for (const [file, entries] of byFile) {
+    console.log(`  ${file}`);
+    for (const e of entries) {
+      const quoted = e.summary.replace(/\s+/g, " ").trim();
+      console.log(`    - ${e.id}: ${quoted.length > 140 ? quoted.slice(0, 137) + "…" : quoted}`);
+    }
+  }
+  const lanes = [...new Set(instructionShaped.map((e) => e.lane).filter(Boolean))].sort();
+  console.log(`  Advisory: the reference contains text written to steer whoever mines it. ` +
+    `Nothing is blocked and no status changed.\n` +
+    `  Consider re-running the ${lanes.join(", ") || "affected"} lane at the verifier tier ` +
+    `and reading these at the gate review before the taxonomy locks.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +193,206 @@ if (existsSync("plan/slices.yaml")) {
     for (const s of slices) visit(s.id, []);
   }
 }
+// ---------------------------------------------------------------------------
+// findings/rules/ — lane R's Rule Cards (E5).
+//
+// Schema-validated against rule.schema.json, then two cross-checks the schema cannot
+// express, because both are about agreement BETWEEN artifacts:
+//
+//   - `features[]` against matrix/features.yaml. A card citing F-BILL-014 when the matrix
+//     has no such id is a card no spec will ever find: G5 loads rules by the features in
+//     its slice, so a dangling id makes the rule invisible exactly where it was supposed
+//     to be used. Silent, and it survives a gate lock.
+//   - `entities[]` against findings/ground-truth/reference-erd*.mermaid. Lane R runs after
+//     lane D precisely so it can cite real entities; a name the ERD does not have means the
+//     rule was inferred from a mental model of the reference rather than mined from it.
+//
+// Both are failures, not warnings. They are the checks that make lane R worth having — the
+// alternative is a rules directory that validates perfectly and refers to nothing.
+// ---------------------------------------------------------------------------
+const ruleFiles = yamlFilesUnder("findings").filter(isRuleFile);
+if (ruleFiles.length && !validators.rule) {
+  fail(RULES_DIR, "findings/rules/ has files but schemas/rule.schema.json is missing — " +
+    "Rule Cards are NOT being checked. Copy it from the plugin's skills/rebuild-pipeline/schemas/.");
+} else if (ruleFiles.length) {
+  const allRules = [];
+  const parsedFiles = [];
+  for (const f of ruleFiles) {
+    const data = check(f, validators.rule);
+    if (!Array.isArray(data)) continue; // its own schema failure is already reported
+    parsedFiles.push(f);
+    for (const r of data) allRules.push({ file: f, rule: r });
+  }
+
+  // Duplicate ids across files. Per-file uniqueness is not enough: domains are separate
+  // files and an id is how a spec's acceptance criterion names a rule, so two cards
+  // answering to R-BILL-003 means an AC cites whichever one the reader happens to open.
+  const seen = new Map();
+  for (const { file, rule } of allRules) {
+    if (!rule?.id) continue;
+    if (seen.has(rule.id)) fail(file, `duplicate rule id ${rule.id} (also in ${seen.get(rule.id)})`);
+    else seen.set(rule.id, file);
+  }
+
+  const featureIds = new Set(Array.isArray(features) ? features.map((f) => f.id) : []);
+  if (featureIds.size) {
+    const byFile = new Map();
+    for (const { file, rule } of allRules) {
+      for (const fid of rule?.features || []) {
+        if (featureIds.has(fid)) continue;
+        if (!byFile.has(file)) byFile.set(file, []);
+        byFile.get(file).push(`${rule.id} cites feature ${fid}, which matrix/features.yaml does not have`);
+      }
+    }
+    for (const [file, problems] of byFile) {
+      fail(file, problems.join("\n  ") + "\n  A rule citing a feature that does not exist is a rule " +
+        "G5 will never load — it resolves rules by the features in the slice.");
+    }
+  } else if (allRules.length) {
+    warn(RULES_DIR, "matrix/features.yaml is absent or invalid, so rule `features[]` ids were not " +
+      "cross-checked. Normal before G2; a problem once the matrix exists.");
+  }
+
+  // Entities against the reference ERD. Imported guarded, like every other sibling module.
+  let erdLib = null;
+  try { erdLib = await import("./erd.mjs"); } catch { /* reported by the data-model pass below */ }
+  const erdFiles = existsSync(join("findings", "ground-truth"))
+    ? readdirSync(join("findings", "ground-truth")).map(String)
+        .filter((f) => /^reference-erd.*\.mermaid$/.test(f))
+        .map((f) => join("findings", "ground-truth", f))
+    : [];
+  if (erdLib && erdFiles.length) {
+    // Normalised comparison: the ERD writes WORK_PACKAGE and a card may say "work package"
+    // or WorkPackage. Neither spelling is wrong and failing on the difference would teach
+    // people to copy-paste rather than to cite, so the check is on identity, not on style.
+    const norm = (e) => String(e).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const known = new Set();
+    for (const f of erdFiles) for (const e of erdLib.readErd(f).entities) known.add(norm(e));
+    const byFile = new Map();
+    for (const { file, rule } of allRules) {
+      for (const ent of rule?.entities || []) {
+        if (known.has(norm(ent))) continue;
+        if (!byFile.has(file)) byFile.set(file, []);
+        byFile.get(file).push(`${rule.id} names entity "${ent}", which no reference-erd*.mermaid declares`);
+      }
+    }
+    for (const [file, problems] of byFile) {
+      fail(file, problems.join("\n  ") + `\n  Checked against: ${erdFiles.join(", ")}. Lane R runs ` +
+        "after lane D so it can cite real entities — an unknown name means the rule was inferred " +
+        "rather than mined. Fix the card, or mine the entity into the ERD if the reference has it.");
+    }
+  } else if (allRules.length && !erdFiles.length) {
+    warn(RULES_DIR, "no findings/ground-truth/reference-erd*.mermaid, so rule `entities[]` were not " +
+      "cross-checked. Lane R is supposed to run after lane D has written one.");
+  }
+
+  // Judge verification state. Advisory and always will be: `re-derived` is set by
+  // rubric-judge, which runs AFTER this validator passes, so a pre-judge run showing every
+  // card pending is the normal case and failing on it would make the gate unreachable.
+  // What it is for is the gate review — a human reading "12 of 14 re-derived" knows two
+  // citations were never opened by anything.
+  const pending = allRules.filter(({ rule }) => (rule?.verification || "pending") === "pending");
+  const total = allRules.length;
+  if (total) {
+    const skipped = ruleFiles.length - parsedFiles.length;
+    console.log(`ok   ${RULES_DIR}/ (${total} rule card(s) in ${parsedFiles.length} file(s)` +
+      `${skipped ? `, ${skipped} file(s) skipped for schema failures above` : ""}; ` +
+      `${total - pending.length}/${total} re-derived by the judge)`);
+    if (pending.length) {
+      console.log(`  ${pending.length} card(s) still \`verification: pending\` — no agent has opened ` +
+        `their citation:\n    ${pending.map(({ rule }) => rule.id).slice(0, 12).join(", ")}` +
+        `${pending.length > 12 ? ", …" : ""}\n  Advisory. rubric-judge sets this at gate time; read it ` +
+        `beside the gate-1 review, not as a failure.`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// plan/specs/**/*.md — the `rule_id` join between G5's acceptance criteria and lane R.
+//
+// Two different things are reported here and only one of them is a failure:
+//
+//   - A criterion citing a `rule_id` that no Rule Card has is a FAILURE. It is a dangling
+//     reference with the same consequence as a dangling $ref in a contract: it reads as
+//     traceability and traces to nothing.
+//   - Criteria with NO `rule_id`, in a spec whose domains have cards, are COUNTED and
+//     reported as a percentage — never failed. Plenty of criteria legitimately implement no
+//     rule (a response header, a pagination default), so a threshold here would be a number
+//     invented by this script rather than measured. The spec's own target is >= 80% of AC in
+//     rule-bearing slices carrying one; this prints the figure so a human can hold it to that
+//     at the gate review.
+//
+// Specs live in the workbench, not the code repos, for the reason parity/flows/ does: they
+// describe the product. That is also what makes this check possible at all.
+// ---------------------------------------------------------------------------
+const specFiles = (() => {
+  const dir = join("plan", "specs");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true }).map(String)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => join(dir, f)).filter((f) => statSync(f).isFile());
+})();
+if (specFiles.length) {
+  const ruleIds = new Set();
+  const domainsWithRules = new Set();
+  for (const f of yamlFilesUnder("findings").filter(isRuleFile)) {
+    let data; try { data = parse(readFileSync(f, "utf8")); } catch { continue; }
+    if (!Array.isArray(data)) continue;
+    // Domain is the filename (findings/rules/<domain>.yaml) — the same key a spec's
+    // `domains:` frontmatter uses, which is what makes "does this spec's domain have rules"
+    // answerable without a second index nobody would maintain.
+    const domain = f.split(/[/\\]/).pop().replace(/\.ya?ml$/, "");
+    for (const r of data) if (r?.id) { ruleIds.add(r.id); domainsWithRules.add(domain); }
+  }
+
+  let acTotal = 0, acWithRule = 0, acInRuleDomains = 0, acInRuleDomainsWithRule = 0;
+  for (const f of specFiles) {
+    const text = readFileSync(f, "utf8");
+    const fm = text.match(/^---\n([\s\S]*?)\n---/);
+    const domainsLine = fm?.[1].match(/^domains:\s*\[?(.*?)\]?\s*$/m)?.[1] || "";
+    const domains = domainsLine.split(",").map((d) => d.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+    const ruleBearing = domains.some((d) => domainsWithRules.has(d));
+
+    // The AC section runs from its heading to the next heading of the same level or EOF.
+    const sec = text.split(/^##\s+/m).slice(1)
+      .find((c) => /^acceptance criteria\s*$/i.test(c.split("\n")[0].trim()));
+    if (!sec) {
+      warn(f, "no `## Acceptance criteria` section — spec-writer's output contract requires one, " +
+        "and without it this spec's criteria are not counted in the rule_id figures below.");
+      continue;
+    }
+    const items = sec.split("\n").filter((l) => /^\s*(?:\d+\.|[-*])\s+\S/.test(l));
+    const problems = [];
+    for (const item of items) {
+      acTotal++;
+      if (ruleBearing) acInRuleDomains++;
+      const cited = [...item.matchAll(/rule_id:\s*(R-[A-Z0-9]+-\d{3})/g)].map((m) => m[1]);
+      if (!cited.length) continue;
+      acWithRule++;
+      if (ruleBearing) acInRuleDomainsWithRule++;
+      for (const id of cited) {
+        if (!ruleIds.has(id)) problems.push(`cites rule_id ${id}, which no Rule Card in findings/rules/ defines`);
+      }
+    }
+    if (problems.length) {
+      fail(f, problems.join("\n  ") + "\n  A criterion citing a card that does not exist reads as " +
+        "traceability and traces to nothing. Fix the id, or mine the rule (gate-1 reopen if it is locked).");
+    } else ok(f);
+  }
+
+  if (acInRuleDomains) {
+    const pct = Math.round((acInRuleDomainsWithRule / acInRuleDomains) * 100);
+    const without = acInRuleDomains - acInRuleDomainsWithRule;
+    console.log(`\nrule_id coverage: ${acInRuleDomainsWithRule}/${acInRuleDomains} acceptance criteria ` +
+      `(${pct}%) in rule-bearing domains cite a rule_id; ${without} do not.`);
+    console.log(`  Advisory — plenty of criteria implement no rule. The target for a slice touching a ` +
+      `domain with cards is 80%; below that, read it as rules that reached G1 and then went unused.`);
+  } else if (acTotal) {
+    console.log(`\nrule_id coverage: not applicable — ${acTotal} acceptance criteria, none in a domain ` +
+      `that has Rule Cards.`);
+  }
+}
+
 // The mutable progress overlay. A typo'd id here would silently never match a
 // feature, so every key must resolve against the locked artifacts.
 if (validators.progress && existsSync("plan/progress.yaml")) {
@@ -212,6 +465,27 @@ if (validators.sequence && existsSync("plan/sequence.yaml")) {
       }
     }
     if (problems.length) fail("plan/sequence.yaml", problems.join("\n  "));
+  }
+}
+
+// The G0 preflight result. Absent is normal and stays normal: every workbench scaffolded
+// before 0.16.0 has none, and a project mid-G3 has no reason to go back and make one. What
+// is checked is that a preflight.json which DOES exist is one autopilot.mjs and SKILL.md's
+// phase detection can read — both branch on `verdict` and `lanes`, and a hand-edited file
+// that lost either would make them fall through to "no preflight" silently, which is the
+// one reading that is worse than either verdict.
+if (validators.preflight && existsSync("preflight.json")) {
+  let pf = null;
+  try { pf = JSON.parse(readFileSync("preflight.json", "utf8")); }
+  catch (e) { fail("preflight.json", `JSON parse error: ${e.message}`); }
+  if (pf) {
+    if (!validators.preflight(pf)) {
+      fail("preflight.json", ajv.errorsText(validators.preflight.errors, { separator: "\n  " }) +
+        "\n  Do not hand-edit it — re-run `npm run preflight`.");
+    } else {
+      const lanes = Object.entries(pf.lanes).map(([k, v]) => `${k}:${v}`).join(" ");
+      ok(`preflight.json (${pf.verdict} — lanes ${lanes})`);
+    }
   }
 }
 

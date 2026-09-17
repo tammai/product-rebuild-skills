@@ -46,6 +46,21 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
 
    A user rebuilding their own React Native app in Flutter answers: `kind: own-code`,
    `upstream: frozen`, `target_shape: client-only`, `playbook: mobile-flutter`.
+5. **Has this rebuild been tried before?** By whom, how far it got, why it stopped, and
+   what survives — a branch, a half-done schema, a doc, an ADR someone wrote and lost the
+   argument about. Ask it now because a failed prior attempt is the cheapest possible
+   source of ground truth about where this one will get hard, and because the parts that
+   survive are either inputs or traps, and only the user can say which. "No, first attempt"
+   is a complete answer; write it down so the question is not re-asked at G4a. Record under
+   `## Prior attempts` in `license-posture.md`.
+6. **What may agents not touch or read?** Paths inside the reference, adjacent repos,
+   production systems, customer data, anything under legal hold. For an `own-code`
+   reference this is the question that does the most work — the user's own monorepo has
+   corners that are somebody else's, and the miners have no way to know. Record under
+   `## Off-limits` in `license-posture.md`, and then **put every path and URL from the
+   answer into `sources.yaml`'s `denied:` list**: the prose is for the human, the deny list
+   is the thing the miners actually read, and an off-limits path recorded only in prose is
+   an instruction that exists nowhere an agent will see it.
 
 ## Actions
 - Scaffold: `node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/rebuild-init.mjs <name>`
@@ -81,6 +96,28 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
 - Confirm the user can run the reference locally (Docker preferred; for a mobile reference,
   the old app installed on a real device or simulator, ideally from a backup of a real
   install — see `g1-mining.md`). This becomes a hard G1 exit requirement.
+- **Run the preflight, last, once everything above is filled in.** From the workbench root:
+  ```sh
+  npm run preflight                              # detect
+  npm run preflight -- --run-build --run-tests   # …and execute the reference's own build/test commands
+  ```
+  It writes `PREFLIGHT.md` and `preflight.json`, with a verdict of **Ready**,
+  **Ready-with-gaps** or **Not-ready**, and a per-lane line saying which of A–D can
+  actually start. This is the check that used to be the bullet above it: "confirm the user
+  can run the reference" was a promise nothing verified, and the miners started on it.
+  Every lane-D finding cites `path + pinned_commit`, so a checkout sitting at a different
+  commit writes citations that are wrong the moment they are written and stay wrong through
+  a gate lock that hashes them.
+
+  **Not-ready blocks G1 dispatch and nothing else.** `sources.yaml` and `license-posture.md`
+  commit and push regardless — none of the causes changes a G0 decision, they change whether
+  it is honest to start mining. Fix the cause and re-run; it is idempotent.
+
+  Executing the build and test commands is opt-in (`--run-build`, `--run-tests`) because
+  they are arbitrary commands out of a third party's CI, the same source `agents/miner.md`
+  treats as untrusted input. Detected-but-not-executed is recorded as a gap and named as
+  unproven, never as a pass — so `Ready-with-gaps` is the right verdict for a reference
+  whose build nobody has watched succeed.
 - **Confirm the `bigin-skills` plugin is installed**, and say why now rather than later: it
   is this pipeline's baseline for creating code repos (`bigin-harness-setup` → scaffold +
   governance harness, see `g5-build.md`), and it is not needed until G5 — which is weeks of
@@ -101,4 +138,5 @@ Reference chosen with recorded rationale; `license-posture.md` complete;
 `sources.yaml` reviewed by the user, including `reference.kind`, `reference.upstream`, and
 the `architecture:` block (playbook + target shape); workbench scaffolded and CI green on empty state;
 workbench pushed to a remote whose visibility matches the recorded posture
-(`npm run pause-check` confirms nothing is still local-only).
+(`npm run pause-check` confirms nothing is still local-only); **`PREFLIGHT.md` reads Ready
+or Ready-with-gaps** (`npm run preflight` — Not-ready holds G1 dispatch, and only that).

@@ -92,7 +92,24 @@ Two fields in `sources.yaml`'s `architecture:` block, decided here because four 
 - **`playbook`** — which file supplies G4a's standing answers: an entry in `skills/rebuild-pipeline/references/playbooks/` (`web-modular-monolith`, the org default; `mobile-flutter` for a Flutter client), a workbench-local path to one you wrote, or `none` to make every G4a ADR a blank-slate decision. Read the candidate's `not-applicable-when:` frontmatter before recording it.
 - **`target_shape`** — `fullstack` (the rebuild owns both sides) or `client-only` (the API exists, is not changing, and the rebuild is one client of it). This flips G4b from drafting a contract to transcribing one, changes what lane D mines at G1, and selects GP's checklist. Getting it wrong is not a labelling error; it is mining the wrong things for a month.
 
-**Exit criteria:** reference chosen with rationale; `license-posture.md` recorded; `sources.yaml` written including `architecture:`; harness hooks configured to match.
+### 2.5 Preflight — prove the reference builds and runs
+
+The last G0 action, and the one that turns "confirm the user can run the reference locally" from a promise into a check:
+
+```sh
+npm run preflight                              # detect
+npm run preflight -- --run-build --run-tests   # …and execute the reference's own build/test commands
+```
+
+It writes `PREFLIGHT.md` and `preflight.json`, verdict **Ready** / **Ready-with-gaps** / **Not-ready**, plus a per-lane verdict for A–D. What it checks: the checkout's HEAD against `sources.yaml`'s `pinned_commit`; a build definition (`.github/workflows`, `Dockerfile`, `Makefile`, in that order); an HTTP probe of the instance URL; a test target; whether the mined path is a subdirectory of a larger monorepo and which siblings mention it; whether the two G0 questions below were answered; and whether `scc`/`cloc` and `graphify` are on PATH.
+
+**Not-ready blocks G1 dispatch and nothing else.** `sources.yaml` and `license-posture.md` commit and push regardless — none of the causes changes a G0 decision, they change whether it is honest to start mining. In practice only one cause is a global Not-ready: the checkout at a different commit than `pinned_commit`. Every lane-D finding cites `path + pinned_commit`, so mining a different tree writes citations that are wrong the moment they are written and stay wrong through a gate lock that hashes them. An unreachable instance is a **gap** that blocks lanes B and C and leaves D free — B and C mine the running product, D does not.
+
+Executing the build and test commands is opt-in because they are arbitrary commands out of a third party's CI, the same source the miner treats as untrusted input. Detected-but-not-executed is a named gap, never a pass.
+
+Two G0 interview questions feed it, recorded in `license-posture.md`: **has this rebuild been tried before** (a failed prior attempt is the cheapest ground truth about where this one gets hard), and **what may agents not touch or read**. Put every path and URL from the second answer into `sources.yaml`'s `denied:` list as well — the prose is for you, the deny list is what the miners read.
+
+**Exit criteria:** reference chosen with rationale; `license-posture.md` recorded, including prior attempts and off-limits; `sources.yaml` written including `architecture:`; harness hooks configured to match; **`PREFLIGHT.md` reads Ready or Ready-with-gaps**.
 
 ---
 
@@ -394,7 +411,92 @@ Checklist — each item verified by doing, not by asserting:
 
 Serialization points, by design: the five gates, the data model draft, the migration queue, cross-lane shared changes, and the human drills in GP. Everything else runs concurrently.
 
-## 12. Failure modes to watch
+## 12. Upgrading a workbench
+
+`rebuild-init.mjs` vendors the schemas and scripts into each workbench **at scaffold time**, on purpose — a workbench is a self-contained, versioned copy, and a project mid-G4 is not improved by its tooling changing underneath it. The cost is that a workbench scaffolded before a release does not get that release's new files, and a reference doc telling you to run `npm run <thing>` then names a path that does not exist.
+
+**From 0.17.0 there is a script for it.** Dry run first — it is the default and it copies nothing:
+
+```sh
+node scripts/upgrade.mjs
+node scripts/upgrade.mjs --apply
+```
+
+It classifies every vendored file against `locks/tooling.json`, the provenance manifest written at scaffold time:
+
+| State | Meaning | `--apply` |
+| --- | --- | --- |
+| `new` | the plugin has it, this workbench does not | copies |
+| `stale` | pristine vendored copy, plugin has moved on | copies |
+| `modified` | differs from the plugin **and** from its recorded hash — someone edited it here | **refuses** |
+| `unknown` | differs from the plugin, no recorded hash to compare (scaffolded before 0.17.0) | **refuses** |
+| `kept` | a local version a human chose to hold, on the record | never copies |
+| `current` | identical to the plugin | nothing |
+
+A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `node scripts/upgrade.mjs --diff <path>`.
+
+The script finds the plugin through `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`, then `--plugin <path>`. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once:
+
+```sh
+cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/upgrade.mjs" scripts/
+echo "$CLAUDE_PLUGIN_ROOT" > .rebuild-plugin
+node scripts/upgrade.mjs          # everything differing reads `unknown` — read the diffs
+```
+
+With no manifest, every file that differs is `unknown` rather than `stale`, so the first run on an old workbench refuses almost everything and shows you why. That is the correct first answer: this script cannot tell an old vendored copy from your own edit, and guessing wrong deletes work. Walk the list with `--diff`, then `--apply --force` the ones you have checked.
+
+**The manual path still works** and is worth knowing, because `upgrade.mjs` itself has to arrive somehow. For **0.16.0** it was two files:
+
+```sh
+cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/preflight.mjs" scripts/
+cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/schemas/preflight.schema.json" schemas/
+```
+
+Either way, add the new `package.json` scripts by hand — `upgrade.mjs` copies files, it does not edit your manifest:
+
+```json
+"preflight": "node scripts/preflight.mjs",
+"upgrade": "node scripts/upgrade.mjs"
+```
+
+Three things worth knowing before you do it:
+
+- **It is safe to skip.** Nothing fails on a missing `preflight.json`. `autopilot -- preflight` records it as a note and carries on; `validate.mjs` checks the file only if it exists; SKILL.md's phase detection falls back to the user's word, as it was before. Upgrade because you want the check, not because something is broken.
+- **A mid-project workbench will read Ready-with-gaps or Not-ready, and that is information, not a regression.** A project past G1 that gets `Not-ready` for a wrong `pinned_commit` has just learned that some of its lane-D citations do not resolve — worth knowing at G4 rather than never. It does not retroactively block anything: the verdict gates G1 dispatch, and G1 is behind you.
+- **`sources.yaml` gains an optional `reference.checkout:`** — the local path to the reference clone. Add it under `reference:`, or pass `--checkout <path>` each run. Without either, preflight looks in `./reference` and `../<reference name>` and reports Not-ready if it finds no git checkout, rather than guessing at a directory and comparing HEAD against an unrelated repo.
+
+The two new `license-posture.md` sections (`## Prior attempts`, `## Off-limits`) are in the scaffold for new workbenches only. Add them by hand to an existing one — preflight reports them as a gap until there is prose under each heading, and the headings alone do not count.
+
+`routing.mjs` (0.16.0) needs no copy either way: it takes `--root`, so the plugin's own copy resolves against any workbench. `SKILL.md` §4b has that command.
+
+### What 0.18.0 adds to an existing workbench
+
+`equiv.mjs` and the equivalence lane. `npm run upgrade -- --apply` copies the script; two things
+by hand:
+
+```json
+"equiv": "node scripts/equiv.mjs"
+```
+
+```sh
+echo "parity/equiv/.unlocked.yaml" >> .gitignore   # an active unlock must never be committed
+```
+
+`flows-guard.mjs` is a plugin hook, not a vendored script, so its new `parity/equiv/**` coverage
+is live as soon as the plugin is. The lane itself applies only to `reference.kind: own-code` with
+a preflight that says the reference runs — everywhere else `npm run equiv -- status` says so and
+nothing else changes.
+
+### What 0.17.0 adds to an existing workbench
+
+`rule.schema.json` and `findings/rules/` (lane R), `plan/specs/` for the module specs the `rule_id` contract lives in, and `runbook-guard.mjs` — which is a **plugin** hook, not a vendored script, so it is live as soon as the plugin is. Two things need a hand:
+
+- **`locks/gate-1.yaml`'s `protects:` list.** `gate.mjs lock` unions `findings/rules/` in at lock time and says so, so a gate-1 that is still open needs nothing. A gate-1 **already locked** does not retroactively protect the directory — reopen and re-lock if you are adding Rule Cards to a project past Gate 1.
+- **`.rebuild-workbench` in each code repo**, holding the live workbench path. Without it `runbook-guard.mjs` fails open and that repo is simply unguarded. One line: `echo "$(cd ../<name>-workbench && pwd)" > .rebuild-workbench`.
+
+---
+
+## 13. Failure modes to watch
 
 - **Reading code instead of running the product** — lane D without lanes B/C produces a rebuild of the schema, not the product. Mitigation: running instance is a G1 exit requirement.
 - **Undocumented divergence** — from the selected playbook, for decomposition and every concern its `concerns:` map answers (section 6, the gated axis there); from the reference, for the concerns it marks `N/A` and everywhere outside G4a. Mitigation: the applicable mirror-or-diverge field(s) are mandatory in every G4a ADR; review enforces it.

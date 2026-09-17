@@ -6,7 +6,8 @@ the rubric is almost entirely about honesty: whether each checklist line is back
 that was actually run, and whether what is still broken is written down as broken.
 
 Read: `parity/production-readiness.md`, the most recent `parity/<date>.md`, `plan/progress.yaml`,
-and the AC-suite output the parity report cites.
+the AC-suite output the parity report cites, and — for an `own-code` reference — the newest
+`parity/<date>-equiv.xml` with `parity/equiv/DECISIONS.md`.
 
 ## D1. Checklist evidence quality
 
@@ -60,3 +61,33 @@ second person run this in production?
   anyone thinks about it.
 
 **Cite below 4:** the procedures that are written but never executed, or missing entirely.
+
+## D5. Equivalence with the legacy system
+
+**Applies only** where `sources.yaml` has `reference.kind: own-code`. For a third-party
+reference there is no equivalence lane and this dimension is **not scored** — say so in *What I
+could not check* rather than scoring it 5, which would read as evidence that does not exist.
+
+**Asks:** the traces were recorded from the old system before the rebuild existed. Does the
+production candidate still produce what they captured, and is every difference that remains
+explained rather than merely present?
+
+- **5** — the newest `parity/<date>-equiv.xml` was produced by replaying against the production
+  candidate, every recorded trace is in it, and each red trace has a dated entry in
+  `parity/equiv/DECISIONS.md` naming what differs and why it is intended.
+- **3** — the run is green but predates the candidate, or recorded traces are missing from it —
+  so the number is real and is about a different build than the one shipping.
+- **1** — red traces with no decisions, or no equivalence run at all on a project whose
+  `parity/equiv/` holds traces. Recorded is not green, and an unreplayed trace is evidence
+  nobody checked.
+
+**Cite below 4:** the trace names, and for each either the missing decision or the date gap
+between the run and the candidate.
+
+**Count the traces yourself, against `parity/equiv/`.** The pass rate in the JUnit is over what
+RAN, so a suite that quietly stopped replaying half the directory reports 100%. That arithmetic
+is the single most likely overclaim in this dimension, and it is invisible in the number.
+
+**Accepted differences are not a penalty.** A project with three logged, reasoned acceptances is
+in better shape than one with an equivalence suite nobody ran. What earns a low score is a
+difference nobody decided about — or a decision whose reason is that the test was red.

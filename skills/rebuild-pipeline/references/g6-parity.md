@@ -136,6 +136,64 @@ one — that is the situation the rule exists for. `npm run pause-check` reports
 unlocked as unsafe to pause, because an unlock that outlives its change is a guard that is
 simply off.
 
+## The equivalence lane — `parity/equiv/`, for an `own-code` reference
+
+The AC suite asks whether the rebuild does what the spec says. Coverage asks how much of the
+reference exists. Neither asks whether `POST /invoices` returns the same totals the old system
+returned — and when the reference is **your own legacy system**, that is the question the
+project is actually about. Maestro answers *does the UI do what the old UI did*; this answers
+*does the system produce what the old system produced*.
+
+**It applies only when `sources.yaml` has `reference.kind: own-code` and the E4 preflight says
+the reference runs.** There is no legal or practical way to replay traffic against a product you
+do not operate, and under clean-room posture reading the reference's responses is the thing the
+posture forbids. `equiv` refuses with the failing condition named, and `parity.mjs` prints *does
+not apply* rather than an empty column — an absent section and an unchecked one read identically
+otherwise.
+
+A `client-only` rebuild uses Maestro alone. A `fullstack` own-code rebuild uses both. A
+third-party reference uses neither.
+
+```sh
+npm run equiv -- status                  # does the lane apply, and what is recorded
+npm run equiv -- record <feature-id>     # drive the LEGACY system, write traces  (G5 step 0)
+npm run equiv -- replay --all            # replay against the rebuild -> parity/<date>-equiv.xml
+npm run parity                           # reads that XML into the Equivalence section
+```
+
+**A trace is authored, then recorded.** `equiv` drives the legacy system; it does not invent the
+traffic. You write `parity/equiv/<feature-id>/<name>.request.yaml` out of the feature's UX flows
+and its Rule Cards — method, path, body, the `tables:` the request touches, and the `ignore:`
+list — and `record` executes it against the legacy system and writes the `*.trace.yaml` beside
+it: status, response body, and the adapter's row snapshots.
+
+**`ignore:` is declared per trace and never inferred.** Fields the rebuild is *allowed* to differ
+on — surrogate ids, timestamps, hashes, whatever the Gate 4 contract renamed — are listed. Any
+difference not on the list is a failure. A differ that guessed at "probably a timestamp" would
+absorb the one difference somebody needed to see, invisibly. Adding to `ignore:` on a trace that
+has ever been green is a logged decision, the same teeth as loosening a flow assertion.
+
+**Recorded is not green.** The report separates three numbers — recorded, replayed, green —
+because a trace nobody replayed is evidence nobody checked, and it is invisible in the JUnit by
+construction: the JUnit contains only what ran.
+
+**A red trace is a real difference, not a flake.** Either the rebuild is wrong, or the difference
+is intended — and intended differences go on the record:
+
+```sh
+npm run equiv -- accept "<trace name>" --reason "..."
+```
+
+That does not make the trace green and is not meant to; it makes it explained. `gate.mjs lock
+gate-5` refuses while the newest run has a failing trace no decision names (`gp-production.md`'s
+service checklist carries the same line).
+
+**Traces are committed and then guarded**, same rule and same hook as `parity/flows/`: an
+assertion in a recorded artifact changes only with a logged human decision
+(`npm run equiv -- unlock --reason "..."` … `relock`). Editing a trace to match the rebuild does
+not make the two equivalent; it makes the evidence agree with the code, which is the one
+property this lane exists to have.
+
 ## Screenshots: reviewed evidence, never a gate
 
 Visual comparison between the reference and the rebuild is worth doing and worth keeping. It is

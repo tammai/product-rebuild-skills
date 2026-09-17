@@ -253,6 +253,42 @@ if (cmd === "preflight") {
     blockers.push(`gate.mjs status failed: ${String(e.message).split("\n")[0]}`);
   }
 
+  // 1b. The G0 preflight (preflight.json). An unattended run's first act at G1 is to
+  //     dispatch miners at every lane in parallel, and a wrong `pinned_commit` makes every
+  //     lane-D citation they write wrong — silently, because a finding's hash is of the
+  //     finding, not of the thing it describes. That is the one failure an unattended run
+  //     cannot notice and cannot undo cheaply: by the time a human reads it, a gate has
+  //     hashed it. So Not-ready is a blocker here and not a note.
+  //
+  //     Absent is NOT a blocker. Every workbench scaffolded before 0.16.0 has no
+  //     preflight.json and no scripts/preflight.mjs, and refusing to run unattended on that
+  //     basis would break every existing project the day this shipped, for a check that has
+  //     never run for them anyway.
+  if (!existsSync("preflight.json")) {
+    notes.push("no preflight.json — this workbench predates 0.16.0 or has not run `npm run preflight`.\n" +
+      "    G0's reference check is the user's word, as it was before. Copy scripts/preflight.mjs\n" +
+      "    and schemas/preflight.schema.json from the plugin to get the real one (docs/PLAYBOOK.md).");
+  } else {
+    let pf = null;
+    try { pf = JSON.parse(readFileSync("preflight.json", "utf8")); }
+    catch (e) { blockers.push(`preflight.json is unreadable (${String(e.message).split("\n")[0]}) — re-run \`npm run preflight\`.`); }
+    if (pf) {
+      const laneLine = Object.entries(pf.lanes || {}).map(([k, v]) => `${k}:${v}`).join(" · ");
+      if (pf.verdict === "Not-ready") {
+        blockers.push(`G0 preflight reads Not-ready — G1 must not dispatch miners:\n` +
+          (pf.blockers || []).map((b) => `      - ${b}`).join("\n") +
+          `\n      Fix the cause and re-run \`npm run preflight\`. PREFLIGHT.md has the detail.`);
+      } else if (pf.verdict === "Ready-with-gaps") {
+        notes.push(`preflight: 🟡 Ready-with-gaps (lanes ${laneLine}) — mining may start; the gaps are named ` +
+          `in PREFLIGHT.md:\n` + (pf.gaps || []).map((g) => `    - ${g}`).join("\n"));
+      } else if (pf.verdict === "Ready") {
+        notes.push(`preflight: ✅ Ready (lanes ${laneLine}).`);
+      } else {
+        blockers.push(`preflight.json carries no recognised verdict (${pf.verdict}) — re-run \`npm run preflight\`.`);
+      }
+    }
+  }
+
   // 2. Dependencies for validate.mjs / parity.mjs.
   if (!existsSync("node_modules")) {
     blockers.push("node_modules/ is missing — run `npm install`; validate and parity need it.");

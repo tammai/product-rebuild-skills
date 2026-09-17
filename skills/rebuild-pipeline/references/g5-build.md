@@ -4,7 +4,7 @@ Goal: maximum safe fan-out, one slice at a time. Lane COUNT is an output of Gate
 3, not a constant. Work happens in code repos; the workbench is read-only input
 (submodule pinned to gate tags).
 
-**The first time a code repo is created**, do all five of these — the repo is not set up
+**The first time a code repo is created**, do all six of these — the repo is not set up
 until they are:
 
 0. **Create it with `bigin-skills`, never by hand.** `bigin-skills` is this pipeline's
@@ -119,6 +119,24 @@ push the workbench remote first and keep both repos under the same owner: the re
 then resolves against the code repo's own remote, so a fresh
 `git clone --recurse-submodules` works with no per-machine configuration.
 
+5. **Write `.rebuild-workbench` at the repo root**, holding the path to the **live**
+   workbench — one line, absolute, or relative to this repo:
+
+   ```sh
+   echo "/abs/path/to/<name>-workbench" > .rebuild-workbench
+   git add .rebuild-workbench && git commit -m "chore: point at the rebuild workbench"
+   ```
+
+   This is how `runbook-guard.mjs` finds the workbench, and it cannot use the submodule for
+   it: the submodule is checked out at a **gate tag**, so its `plan/progress.yaml` is frozen
+   at Gate 4 and can never know which slice is in progress — slices happen after that tag.
+   The marker is the live pointer; the submodule is the pinned contract. Both, for different
+   jobs.
+
+   A repo without the marker is simply unguarded — the hook fails open. That is the correct
+   behaviour for every repo in the world that is not part of this project, and it is also why
+   writing the marker is a checklist item rather than something inferred.
+
 ## Per-slice sequence
 
 0. **Record this slice's AC flows against the legacy app — before any module starts.**
@@ -146,13 +164,71 @@ then resolves against the code repo's own remote, so a fresh
    unrecorded flow nobody declared is indistinguishable from one nobody wrote, which is how
    a parity suite quietly becomes a regression suite.
 
+0a. **Record this slice's equivalence traces against the legacy system — before the backend
+   lane starts.** Applies when `reference.kind: own-code` and the E4 preflight says the
+   reference runs; every other project skips it and `parity.mjs` says the lane does not apply.
+   This is step 0's `fullstack` branch: where a `client-only` mobile rebuild records Maestro
+   flows against the old app, a rebuild that owns a backend records what the old **system**
+   returned.
+
+   For each feature in this slice, author the requests out of its UX flows and Rule Cards, then:
+
+   ```sh
+   npm run equiv -- record <feature-id>   # writes parity/equiv/<feature-id>/*.trace.yaml
+   git add parity/equiv && git commit -m "equiv: record traces for <feature-id>"
+   ```
+
+   **The order is the whole property, exactly as it is for flows.** A trace recorded after the
+   rebuild exists is derived from the rebuild: it asserts what was built, says nothing about the
+   old system, and every later replay agrees with the code by construction. Unlike a flow, this
+   one cannot be recovered at all once the legacy system is decommissioned — which on a
+   replacement project is a scheduled event, not a hypothetical.
+
+   Commit them before the lane starts. A committed trace is protected by the hook; an
+   uncommitted one is still being recorded and stays editable.
+
+0b. **Load the build runbook — S2 onward, before dispatching any lane.** Read
+   `plan/BUILD_RUNBOOK.md` and pass it as a fixed input in every backend, frontend and infra
+   brief (`subagent-briefs.md` part 2). It is not optional context: it is what S1 learned
+   about this project's codegen, harness, reference quirks, fixtures and deploy
+   prerequisites, and a lane that does not read it will rediscover all of it at full price.
+
+   **A hook enforces this**, because an instruction the orchestrator applies to itself
+   mid-slice is a budget and a hook is a limit — the same argument that made `gate-guard` a
+   hook. `runbook-guard.mjs` blocks any write into a code repo while `plan/progress.yaml`
+   shows a slice other than S1 `in-progress` and the runbook is absent. It finds the live
+   workbench through the `.rebuild-workbench` marker at the repo root (step 5 of the repo
+   checklist), and fails open when the marker is missing — so a repo created before this
+   shipped is unguarded rather than broken.
+
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice, briefed per
    `subagent-briefs.md` — including part 6, the model `scripts/routing.mjs` resolved for this
    role, which is the standard tier. Spec inputs: the
-   module's matrix features + flows + ground truth + contracts. Every spec ends with
-   acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration
+   module's matrix features + flows + ground truth + contracts, **plus
+   `findings/rules/<domain>.yaml` for every domain the slice touches** — a fixed input, not
+   an optional one. Specs are written to `plan/specs/<Sn>/<module>.md` in the workbench (they
+   describe the product; code repos reach them through the submodule pin). Every spec ends
+   with acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration
    test. Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
    never guess. Specs pass user review (propose-before-act) before any code.
+
+   **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
+   the join that makes lane R worth mining: without it the cards are a document nobody reads
+   at the moment they are needed, which is precisely the state G1 mined them out of. It buys
+   three things that did not exist before — `validate.mjs` reports the share of criteria in
+   rule-bearing domains that cite no rule, `acsuite.mjs` and `parity.mjs` can say "12 of 14
+   rules in `billing` are green" rather than only counting features, and a criterion that
+   drifts from the reference has a locked, cited card to be wrong against.
+
+   **Name the `rule_id` in the test too.** The AC→test mapping is 1:1, so the test that
+   implements a criterion carries that criterion's rule id in its name (or its `classname`).
+   That string is the only thing the JUnit output carries, and it is what the per-rule column
+   groups on — a test that implements a rule but never names it is invisible to the rules
+   table and reads there exactly like a rule with no test at all.
+
+   **Where the card and your reading disagree, stop.** The card is gate-1 locked and carries
+   `path` + `commit` + `line` into the reference's own source. A spec quietly specifying
+   something else is the drift lane R exists to prevent, arriving by a different door.
 
    **Price the DEPLOY criterion's prerequisites while writing it, not when running it.**
    For each deploy AC, name what has to exist for it to run at all — which operation
@@ -249,6 +325,59 @@ Four steps, in order, then return here for the next slice:
 4. **Act on the plan now, or not at all until the next boundary.** Slice *order* is
    `npm run sequence -- reorder <Sn> --before <Sm> --reason "..."` — logged, cheap, and refused
    once the next slice starts. What is IN a slice is still a gate-2 reopen.
+5. **Write the build runbook (S1 only), or amend it (every boundary after).**
+
+**After S1: write `plan/BUILD_RUNBOOK.md`.** S1 is where the locked contracts, the harness
+scaffold and the reference's quirks first meet each other, and until this file exists none of
+what it taught is anywhere S2's agents will read. Write it **from what the S1 lanes reported**,
+not composed from memory — the same rule as the slice review, for the same reason: a runbook
+that is a recollection of a build is a recollection, and it will be read as fact by an agent
+that was not there.
+
+Sections are fixed, so a later reader knows where to look and a later writer knows where to add:
+
+```md
+# Build runbook — <project>
+
+Written at the S1 boundary from what the S1 lanes reported. Required reading for every
+backend, frontend and infra lane from S2 on (`runbook-guard.mjs` enforces it). Append
+amendments; never rewrite.
+
+## Codegen from contracts/
+How it was invoked, verbatim. What it got wrong, and what was done about it.
+
+## Harness quirks
+What `bigin-harness-setup` produced that needed adjusting, and why. Anything its CI wrote
+that does not work for this project's shape.
+
+## Reference behaviors the spec did not say
+What the running instance turned out to do that the spec, the flows and the contracts all
+missed. This section is the one that saves the most time and is written last, because it is
+only visible in hindsight.
+
+## Test fixtures
+How fixtures are built, where they live, what they share, what must never be shared.
+
+## Deploy prerequisites
+What had to exist before the deploy criterion could run at all — credentials, network paths,
+accounts, a store listing. Name the ones that turned out to be missing.
+
+## Commands that worked
+Verbatim, copy-pasteable, with the directory they run in.
+```
+
+**After every later slice: append `## Amendment after S<n>`, dated. Never rewrite.** The
+runbook is a record of what was learned and when; rewriting it destroys the sequence, and the
+sequence is what tells a reader whether a claim predates the thing they are debugging.
+`slice-review.mjs`'s fifth question puts the diff since the previous boundary in front of you at
+exactly the moment to answer it, and records what you did in `plan/progress.yaml`'s
+`runbook_amended:` — a boundary that wrote nothing is visible, which is the point.
+
+**The circuit breaker is on the runbook, not on the agent.** If two lanes in one slice both
+report that a runbook step failed, stop dispatching, write the failure into the runbook as an
+amendment, and ask the user before continuing. Two independent lanes hitting the same step is
+not two bugs; it is the runbook being wrong, and every further lane you dispatch will hit it
+too.
 
 **The one thing that has no home anywhere else** is step 3's regression check. Every deploy
 criterion in this phase asserts only its own slice's features, so "did S3 break S1" was a

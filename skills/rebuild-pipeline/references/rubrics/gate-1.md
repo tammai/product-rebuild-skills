@@ -72,3 +72,37 @@ does every entity a feature names exist in the ERD?
   re-cut.
 
 **Cite below 4:** the domains involved and the features that sit awkwardly across them.
+
+## D6. Rule coverage
+
+**Asks:** lane R turns the reference's behavior into cited Rule Cards. Did it reach the
+behavior that actually matters, and does every card point at something real?
+
+Read `findings/rules/*.yaml` against lane D's route and permission findings, and against
+`reference-erd*.mermaid`.
+
+- **5** — every `calculation` and `eligibility` route lane D found has at least one card;
+  every card's `entities[]` appear in the ERD and its `features[]` in the matrix; each
+  `then` names concrete values a test could assert on.
+- **3** — the obvious rules are carded and a recognisable class is missing — no
+  `state-transition` cards for an entity whose lane-D findings clearly describe a state
+  machine, or a domain with routes and no rules at all.
+- **1** — cards exist but restate the route rather than the rule ("then the invoice is
+  validated"), so nothing downstream can test against them; or whole rule-bearing domains
+  have no file.
+
+**Cite below 4:** rule ids and the lane-D finding or route each missing rule belongs to;
+for a weak `then`, quote it.
+
+**Citation integrity is reported regardless of the score.** Re-derivation (see your agent
+file) applies here with teeth: a card whose cited `path`/`commit`/`line` does not support
+its `then` is named in this section **even when D6 otherwise scores 4 or 5**, because a
+wrong citation is not a coverage problem and would otherwise have nowhere to appear.
+Say which, and what the line actually says. Set `verification: re-derived` on the cards
+that check out — you are the only agent that writes that field, and `validate.mjs` reports
+how many are still `pending` for exactly this reason.
+
+**Clean-room posture changes what good looks like.** Where `license-posture.md` restricts
+lane D to no-code sources, lane R is `observed`/`inferred` only and no card can carry a
+`line`. Score the coverage, not the basis, and say in *What I could not check* that none of
+these cards was re-derivable against source.
