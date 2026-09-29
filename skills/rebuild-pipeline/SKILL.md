@@ -280,6 +280,11 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
 - Slice ORDER is a logged decision (`npm run sequence -- reorder ... --reason "..."`), slice
   BOUNDARIES are a gate-2 reopen. Never conflate them, and never hand-edit
   `plan/sequence.yaml` — the file's value is that every change to it carries a reason.
+- Tests in G5 run at a fixed cadence (`g5-build.md`, "Test cadence within a slice"): lanes run
+  only what they touch while building, the full cumulative suite runs once per slice as the
+  joint run, then only its failures re-run. You, the orchestrator, run no tests at all — you
+  read the JUnit — and while a lane has a long run open, `scripts/lanes-check.mjs` on a
+  10-minute schedule is what notices when it stops.
 - All model-facing artifacts are English.
 
 ## Failure modes to actively prevent

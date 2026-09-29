@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// acsuite.mjs — read the AC suite's own JUnit output. Imported by parity.mjs and
-// slice-review.mjs; runs nothing on its own.
+// acsuite.mjs — read the AC suite's own JUnit output. Imported by parity.mjs,
+// slice-review.mjs, equiv.mjs and lanes-check.mjs; runs nothing on its own.
 //
 // The rule this exists to serve is g5-build.md's: an artifact a human reads afterwards must
 // name only what actually RAN. A transcribed pass rate is exactly the banner that survives
@@ -14,7 +14,160 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * Today on the LOCAL calendar, as YYYY-MM-DD — the date every dated file in parity/ is named by.
+ *
+ * It used to be `new Date().toISOString().slice(0, 10)`, which is the UTC date, while the lanes
+ * name their JUnit files by the local one. East of UTC those disagree every local morning: at
+ * 04:00 in UTC+7 a parity run overwrote the previous day's committed report, and slice-review
+ * read the previous slice's JUnit as "today". A date that names or looks up a file uses this;
+ * log timestamps stay UTC instants, because they name nothing.
+ */
+export const localDate = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export const acJunitPath = (date, root = ".") => join(root, "parity", `${date}-ac.xml`);
+
+/**
+ * The rerun of the joint run's failures (g5-build.md, "Test cadence within a slice"), and the
+ * run records both runs leave beside their JUnit. `acJunitFiles` below matches `-ac.xml$` only,
+ * so a rerun file is never mistaken for a joint run — keep it that way.
+ */
+export const acRerunPath = (date, root = ".") => join(root, "parity", `${date}-ac-rerun.xml`);
+export const runMetaPath = (date, { rerun = false } = {}, root = ".") =>
+  join(root, "parity", `${date}-ac${rerun ? "-rerun" : ""}.meta.json`);
+
+/**
+ * Read a run record: `{ started, repos: { <name>: { path, sha, dirty } } }`, written by
+ * `lanes-check.mjs stamp` right before the run starts. JUnit has no standard field for the
+ * commit it ran against, which is the one fact needed to say what a rerun pass means.
+ * Returns null when absent and { unreadable } when present but not usable — never a guess.
+ */
+export const readRunMeta = (path) => {
+  if (!existsSync(path)) return null;
+  try {
+    const m = JSON.parse(readFileSync(path, "utf8"));
+    if (!m || typeof m.repos !== "object") return { unreadable: "no `repos` object" };
+    return m;
+  } catch (e) { return { unreadable: e.message }; }
+};
+
+/**
+ * The joint run plus its rerun, counted once — the ONE place a pass rate is decided, so
+ * parity.mjs and slice-review.mjs cannot state two different numbers for the same slice.
+ *
+ * A criterion counts as PASS if it passed in the joint run, or failed there and passed in the
+ * rerun. But a green rerun means one of two different things, and they are never reported as one:
+ *
+ *   - "flaky"        the same commits ran both times. The test failed and then passed on the same
+ *                    code; that is a finding about the test, not a pass to be banked quietly.
+ *   - "code-changed" commits landed between the runs. Only the failed specs re-ran against the new
+ *                    code, so nothing checked what the fix did to the tests that passed earlier.
+ *   - "unverified"   a run record is missing or unreadable, or a tree was dirty when it was
+ *                    stamped, so which code ran cannot be said. Never silently a PASS.
+ *
+ * Without a rerun this returns the joint run's own numbers, so callers need no second path.
+ */
+export const countWithRerun = (joint, rerun = null, jointMeta = null, rerunMeta = null) => {
+  if (!joint || joint.unreadable) return null;
+  const base = {
+    total: joint.total, passed: joint.passed, failed: joint.failed, skipped: joint.skipped,
+    stillFailing: joint.failures.map((c) => c.name), rerunPasses: [], notRerun: [], extra: [],
+    changed: [], rerun: null, cases: joint.cases,
+  };
+  if (!rerun) return base;
+  if (rerun.unreadable) return { ...base, rerun: { unreadable: rerun.unreadable } };
+
+  const failedNames = new Set(joint.failures.map((c) => c.name));
+  const rerunState = new Map(rerun.cases.map((c) => [c.name, c.state]));
+
+  // Which code each run saw. Any difference, dirt, or missing record decides the label for
+  // every rerun pass at once: the two runs are one comparison, not one per test.
+  let label = "flaky";
+  const changed = [];
+  const usable = (m) => m && !m.unreadable;
+  if (!usable(jointMeta) || !usable(rerunMeta)) label = "unverified";
+  else {
+    const names = new Set([...Object.keys(jointMeta.repos), ...Object.keys(rerunMeta.repos)]);
+    for (const n of names) {
+      const a = jointMeta.repos[n], b = rerunMeta.repos[n];
+      if (!a || !b || a.dirty || b.dirty) { label = "unverified"; continue; }
+      if (a.sha !== b.sha) changed.push({ repo: n, path: b.path || a.path, from: a.sha, to: b.sha });
+    }
+    if (label !== "unverified" && changed.length) label = "code-changed";
+  }
+
+  const rerunPasses = [], stillFailing = [], notRerun = [];
+  for (const name of failedNames) {
+    const st = rerunState.get(name);
+    if (st === undefined) notRerun.push(name);
+    else if (st === "passed") rerunPasses.push({ name, label });
+    else stillFailing.push(name);
+  }
+  const extra = rerun.cases.filter((c) => !failedNames.has(c.name)).map((c) => c.name);
+  // The joint run's cases with rerun passes applied — what per-rule and per-feature tables group
+  // on, so a rule is not reported red in one table and counted green in the headline above it.
+  const passedOnRerun = new Set(rerunPasses.map((p) => p.name));
+  const cases = joint.cases.map((c) => (passedOnRerun.has(c.name) ? { ...c, state: "passed", onRerun: label } : c));
+  return {
+    ...base,
+    passed: joint.passed + rerunPasses.length,
+    failed: joint.failed - rerunPasses.length,
+    stillFailing: [...stillFailing, ...notRerun],
+    rerunPasses, notRerun, extra, changed, label, cases,
+    rerun: { path: rerun.path, total: rerun.total },
+  };
+};
+
+const RERUN_MEANING = {
+  "flaky": "the same commits ran both times — each of these failed and then passed on the same " +
+    "code. That is a flaky acceptance test, and it goes into plan/progress.yaml `notes:` on the slice.",
+  "code-changed": "commits landed between the runs, and only the failed specs re-ran against " +
+    "them. The joint run's other passes predate those commits; nothing has checked what the fix " +
+    "did to them.",
+  "unverified": "a run record is missing or unreadable, or a tree was dirty when it was stamped, " +
+    "so which code each run saw cannot be said. `node scripts/lanes-check.mjs stamp` before the " +
+    "joint run (`stamp --rerun` before the rerun) records it.",
+};
+
+/**
+ * The headline and the rerun block, as markdown lines — shared so both reports say the same
+ * thing in the same words. The joint run's own totals always appear; the rerun sits beside them
+ * and never replaces them.
+ */
+export const describeCounted = (c, jointPath) => {
+  const rate = c.total ? Math.round((c.passed / c.total) * 100) : 0;
+  const flaky = c.rerunPasses.length && c.label === "flaky" ? `, ${c.rerunPasses.length} of them flaky` : "";
+  const headline = `${c.passed}/${c.total} passed (${rate}%)${flaky}` +
+    (c.failed ? `, ${c.failed} failed` : "") + (c.skipped ? `, ${c.skipped} skipped` : "");
+  const lines = [];
+  if (!c.rerun) return { headline, lines };
+  if (c.rerun.unreadable) {
+    lines.push(`- A rerun file exists but could not be read as JUnit (${c.rerun.unreadable}). ` +
+      `The joint run's numbers stand alone; no failure counts as re-run.`);
+    return { headline, lines };
+  }
+  const jointPassed = c.passed - c.rerunPasses.length;
+  lines.push(`- **Rerun of the joint run's failures.** Joint run: ${jointPassed}/${c.total} passed ` +
+    `(\`${jointPath}\`); rerun: ${c.rerun.total} test(s) (\`${c.rerun.path}\`).`);
+  if (c.rerunPasses.length) {
+    lines.push(`  - **Passed on rerun — ${c.label}** (${c.rerunPasses.length}): ${RERUN_MEANING[c.label]}`);
+    for (const p of c.rerunPasses) lines.push(`    - ${p.name}`);
+    if (c.label === "code-changed") {
+      for (const ch of c.changed) lines.push(`    - ${ch.repo}: \`${ch.from.slice(0, 12)}..${ch.to.slice(0, 12)}\``);
+    }
+  }
+  if (c.stillFailing.length - c.notRerun.length > 0) {
+    lines.push(`  - Still failing after the rerun: ${c.stillFailing.filter((n) => !c.notRerun.includes(n)).join(" · ")}`);
+  }
+  if (c.notRerun.length) lines.push(`  - Failed in the joint run and not re-run: ${c.notRerun.join(" · ")}`);
+  if (c.extra.length) {
+    lines.push(`  - ⚠️ The rerun contains ${c.extra.length} test(s) that did not fail in the joint run ` +
+      `(${c.extra.slice(0, 3).join(", ")}${c.extra.length > 3 ? ", …" : ""}). They change no count here; ` +
+      `a rerun re-runs only the failures.`);
+  }
+  return { headline, lines };
+};
 
 /**
  * Every AC JUnit file on disk, newest first, as { path, date }.

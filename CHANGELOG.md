@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-29
+
+E9–E12 from `specs/Spec Build-lane test cadence and run supervision.md`. The G5 build loop was
+spending more wall-clock running and waiting for tests than building: full suites after every
+batch, lanes idle for hours after their run ended, a date bug that read the wrong day's run, and
+an orchestrator running two thirds of all test runs in the most expensive context it has.
+
+### E9 — the test cadence is fixed, and the orchestrator runs no tests
+
+A lane left to decide how often to run the slow suites ran all of them after every batch: a
+45-minute deploy suite and a 45–60 minute Go suite, each run also blocking the other lane's
+shared stack. In a second rebuild, about 430 of about 660 test runs happened in the
+orchestrator's own context — edit→test loops, and full suites chained onto routine checks —
+where every turn carries the whole session.
+
+`g5-build.md` now has "Test cadence within a slice": lanes run only what they touch while
+building; the whole cumulative suite runs **once**, as the joint run at the end of the build
+(per-slice steps 5 and 6); then only its failures re-run. The orchestrator runs nothing and reads
+the JUnit. The build-lane brief in `subagent-briefs.md` carries the table verbatim. **It is not a
+per-project setting** — a switch back to full runs would become the default every project
+inherits. A suite that genuinely needs more is a named exception in the build runbook.
+
+Frequency is half the cost. The runbook's `## Test fixtures` section now records each suite's
+setup cost as a measured number, because one rebuild's `go test ./...` spent about 2s per test in
+`initdb` and 56 migrations before assertions that took milliseconds — fixed in that repo by
+caching the migrated cluster (7–10 min → 4½ min), and invisible until someone timed it.
+
+### E10 — a long run that ends is noticed
+
+A lane watched its long run with a Monitor, which expires after at most 30 minutes, then sat
+idle "waiting for the notification": 2½ hours once, 40 minutes once, several 10–20 minute gaps,
+noticed only when the user asked. The lane brief now says: background the run, treat the process
+exit as the signal, check your own run first on every wake, report in the same turn it ends.
+
+**`scripts/lanes-check.mjs`** is the orchestrator's side — run every 10 minutes while a lane has a
+long run open. Per repo and worktree it prints the last commit, dirty count and live test
+processes (command lines, on macOS, Linux and Windows), plus the newest results file, including a
+Playwright `.last-run.json` wherever its `outputDir` put it. Exit 2 means no test process is alive
+and nothing has changed since the newest results for longer than `--idle` minutes. Heuristic; the
+orchestrator decides and sends the lane the evidence.
+
+### E11 — dated files use the local calendar
+
+`parity.mjs`, `slice-review.mjs` and `equiv.mjs` named and looked up files by
+`toISOString().slice(0, 10)` — the UTC date — while lanes name JUnit by the local one. At 04:00
+in UTC+7 that overwrote the previous slice's committed parity report, and slice-review read the
+previous slice's run as today's, producing a false 145/150 with five invented regressions. All
+three now use `localDate()` from `acsuite.mjs`. Log timestamps stay UTC; they name no file.
+
+slice-review still reads the newest run rather than today's — a boundary review often crosses
+midnight — but **any non-zero age now leads §1 as a warning**. That includes a file dated
+*ahead* of today, which the old `ageDays > 0` test let through as "(today)": the exact shape of
+the UTC-behind-local case.
+
+### E12 — a pass on rerun says what it means
+
+Two things were reconciled by hand: a joint run with failures and the rerun that fixed them.
+The pair is now counted once, in `acsuite.mjs` `countWithRerun`, so `parity.mjs` and
+`slice-review.mjs` cannot state two pass rates for one slice. A green rerun means one of two
+different things, so it is never reported as a plain PASS:
+
+- **flaky** — same commits both times; counted, and shown as "N of them flaky";
+- **code-changed** — commits landed between the runs, with the repos and ranges, because the
+  joint run's other passes predate the fix;
+- **unverified** — no record of which code ran.
+
+The record is `lanes-check.mjs stamp` (`--rerun`), which writes every repo's HEAD and dirty flag
+beside the JUnit, since JUnit has no field for it. Also: a failing test that did not exist last
+run is now "failing, new since <date>", not "already failing".
+
+### Evals
+
+`eval/dates-and-reruns.mjs` scaffolds a workbench, forces a TZ whose local date differs from
+UTC at the moment it runs, and asserts on the reports the real scripts write: 18 checks. Against
+0.18.0's scripts, 16 of them fail.
+
+### Upgrading
+
+`node scripts/upgrade.mjs --apply` brings in the changed scripts and the new
+`scripts/lanes-check.mjs`. `upgrade.mjs` does not edit `package.json`, so an upgraded workbench
+runs it as `node scripts/lanes-check.mjs` — which is how every reference writes it. A workbench
+that never stamps still works: its passes on rerun report as unverified, which is true.
+
 ## [0.18.0] - 2026-09-17
 
 E8 from `specs/` — the last of the three releases adopting `code-modernization`'s mechanisms.

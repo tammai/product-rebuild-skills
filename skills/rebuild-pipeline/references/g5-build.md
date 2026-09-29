@@ -255,6 +255,56 @@ then resolves against the code repo's own remote, so a fresh
    piece of code that runs once per user with no undo.
 4. **Infra** — CI/CD, environments, deploy. Migrations serialize through ONE queue
    regardless of lane count.
+5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
+   runs the whole cumulative suite: the full backend suite plus every backend deploy suite,
+   then the full frontend deploy suite. Immediately before it starts:
+
+   ```sh
+   node scripts/lanes-check.mjs stamp          # from the workbench root
+   ```
+
+   JUnit goes straight to `parity/<local-date>-ac.xml`, where `<local-date>` is today on the
+   machine's own calendar — the date `parity.mjs` and `slice-review.mjs` look it up by.
+6. **Rerun only the failures.** The lane that owns each failure re-runs exactly the failed
+   specs — not another full run — after `node scripts/lanes-check.mjs stamp --rerun`, with JUnit
+   to `parity/<local-date>-ac-rerun.xml`. Both reports count the pair the same way and label
+   every pass on rerun as flaky, code-changed or unverified (`g6-parity.md` says what each one
+   means). A criterion still not green is PENDING with a reason; a slice does not close on an
+   unexplained PENDING.
+
+## Test cadence within a slice
+
+A lane left to decide how often to run the slow suites runs all of them after every batch, and
+an orchestrator left to decide re-runs them to be sure. In one rebuild that was a 45-minute
+deploy suite and a 45–60 minute Go suite after every batch, each run also blocking the other
+lane's shared stack; in another, about two thirds of all test runs happened in the
+orchestrator's own context, which is the most expensive place in the project to run anything —
+every turn there carries the whole session. So this is fixed, and it is not a per-project
+setting:
+
+| When | Who | Run | Don't run |
+|---|---|---|---|
+| During the build | the lane | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE deploy test for the criterion being worked on (`--grep` / `-run`) | the full deploy suite; the full backend suite |
+| End of build, once per slice | the lane named for it (step 5) | ONE joint full run, JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
+| After the joint run | the lane that owns the failure (step 6) | ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
+| Any time | the orchestrator | nothing — it reads the JUnit files and the lanes' reports. A failure to investigate goes to a lane or a fork, never into the main context | any test command |
+
+- **Redeploys are batched.** A lane redeploys only when a deploy test needs the new build, and
+  says so before and after.
+- **The evidence bar does not move.** A criterion is PASS only if its test passed in the joint
+  run or in its rerun, counted as `g6-parity.md` describes.
+- **Not configurable.** No project setting brings back a full suite after every batch. A suite
+  that genuinely needs more ("always run the migration tests in full") is named in the build
+  runbook as a per-suite exception with its reason, and every other suite keeps this cadence.
+- **Scope.** G5 slice builds. GP keeps its own full-suite requirements.
+
+**Frequency is half the cost; the price of one run is the other half.** In one rebuild a full
+`go test ./...` took 7–10 minutes because every integration test ran `initdb` and all 56
+migrations before its first assertion — about 2s of setup around tests that take
+milliseconds. Caching the migrated cluster and cloning it per test cut it to 4½ minutes with
+isolation unchanged. That is why the runbook's `## Test fixtures` section records setup cost as
+a measured number, and why a harness whose setup dominates is fixed before any rule here is
+relaxed to compensate.
 
 ## Guardrails you enforce as orchestrator
 - No code against interfaces absent from locked contracts (hook also blocks workbench
@@ -269,6 +319,19 @@ then resolves against the code repo's own remote, so a fresh
   pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a
   second workflow written alongside it.
 - Cross-lane shared changes go through one serialized review path.
+- **You run no tests.** Not a suite, not "just to confirm" after a lane reports. Evidence is the
+  JUnit the lane wrote and the report it sent; a failure worth investigating goes to that lane
+  or to a fork. See "Test cadence within a slice".
+- **Watch the long runs, because nothing else will.** While any build lane has a run longer than
+  a few minutes open, schedule a recurring 10-minute check (CronCreate, session-scoped) that runs
+  `node scripts/lanes-check.mjs` from the workbench root. It prints, per repo and worktree, the
+  last commit, the dirty count and the live test processes, plus the newest results file — and
+  exits 2 when no test process is alive and nothing has changed since the last results file for
+  more than 10 minutes. On exit 2, if a lane still has work, send it the exact evidence (file,
+  age, status, counts) and tell it to resume; tell the user in one line. Delete the check once
+  every lane has sent its final report. The failure this exists for is specific: a lane watching
+  its run with a Monitor, which expires after at most 30 minutes, then sitting idle "waiting for
+  the notification" — 2½ hours once, and several shorter gaps, noticed only when the user asked.
 - **"Deployed" for a client app means a build a real person can install** — an internal
   TestFlight or Play internal-track release, on a device that is not the build machine, with
   the version and build number recorded. Not "it runs in the simulator", and not "CI built an
@@ -357,6 +420,11 @@ only visible in hindsight.
 
 ## Test fixtures
 How fixtures are built, where they live, what they share, what must never be shared.
+Per suite: the wall-clock of one full run, and the share of it spent in per-test setup
+(fixture creation, database boot, migrations, sign-up flows) — time one package or spec file
+and compare the slowest tests to their assertion work. Setup above half the runtime makes
+fixing the harness the next slice's first task. Per-suite exceptions to the test cadence, each
+with its reason, go here too.
 
 ## Deploy prerequisites
 What had to exist before the deploy criterion could run at all — credentials, network paths,

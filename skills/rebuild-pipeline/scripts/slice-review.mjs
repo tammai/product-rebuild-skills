@@ -75,7 +75,10 @@ if (!sliceId) {
 if (!byId.has(sliceId)) { console.error(`${sliceId} is not in plan/slices.yaml.`); process.exit(1); }
 const slice = byId.get(sliceId);
 const sliceStatus = statusOf(sliceId);
-const date = new Date().toISOString().slice(0, 10);
+// The LOCAL date, like every dated file in parity/ — see localDate() in acsuite.mjs. Inlined
+// rather than borrowed because acsuite is imported guarded; a UTC fallback would be the bug.
+const _d = new Date();
+const date = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
 
 // Facts are collected as data, then rendered twice — once as markdown, once for the terminal.
 // The terminal summary used to be produced by pattern-matching the markdown it had just built,
@@ -108,17 +111,46 @@ if (!acLib) {
       `Pass rate NOT reported — do not read its absence as a pass.`);
     term.run.push(`${files[0].path} is not readable as JUnit (${curr.unreadable}). Not a pass.`);
   } else {
-    const rate = curr.total ? Math.round((curr.passed / curr.total) * 100) : 0;
+    // The newest run, not today's: a slice review is written at a boundary, which is rarely the
+    // day the joint run happened and often crosses midnight (acsuite.mjs acJunitFiles says why
+    // this report and parity.mjs answer "which run" differently). What must never happen is an
+    // old file presented as current — so ANY non-zero age leads the section, negative included.
+    // A negative age is a file dated ahead of this script's clock: before localDate() it was the
+    // UTC-behind-local case, and it failed an `ageDays > 0` test and printed "(today)".
     const ageDays = Math.round((Date.parse(date) - Date.parse(files[0].date)) / 86400000);
-    runHeadline = `${curr.passed}/${curr.total} passed (${rate}%)` +
+    if (ageDays !== 0) {
+      const why = ageDays > 0
+        ? `the newest joint run is **${ageDays} day(s) old** (${files[0].date}); re-run the suite if anything shipped since`
+        : `the newest joint run is dated **${files[0].date}, ${-ageDays} day(s) AHEAD of today (${date})** — a clock, ` +
+          `time-zone or copied-file problem. Check which run this is before trusting any number below`;
+      md.run.push(`- ⚠️ **WARNING: no joint run for today (${date})** — ${why}.`);
+      term.run.push(`WARNING: no joint run for today (${date}) — newest is ${files[0].date}` +
+        (ageDays > 0 ? `, ${ageDays} day(s) old.` : `, AHEAD of today's date. Check which run this is.`));
+    }
+    const rerunFile = acLib.acRerunPath ? acLib.acRerunPath(files[0].date) : null;
+    const counted = acLib.countWithRerun
+      ? acLib.countWithRerun(curr, rerunFile ? acLib.readAcSuite(rerunFile) : null,
+          acLib.readRunMeta(acLib.runMetaPath(files[0].date)),
+          acLib.readRunMeta(acLib.runMetaPath(files[0].date, { rerun: true })))
+      : null;
+    const eff = counted
+      ? { cases: counted.cases, failures: counted.cases.filter((c) => c.state === "failed") }
+      : curr;
+    const described = counted ? acLib.describeCounted(counted, files[0].path) : null;
+    const rate = curr.total ? Math.round((curr.passed / curr.total) * 100) : 0;
+    runHeadline = described ? described.headline : `${curr.passed}/${curr.total} passed (${rate}%)` +
       (curr.failed ? `, ${curr.failed} failed` : "") + (curr.skipped ? `, ${curr.skipped} skipped` : "");
-    md.run.push(`- **AC suite ${curr.passed}/${curr.total} passed (${rate}%)**, ${curr.failed} failed` +
-      (curr.skipped ? `, ${curr.skipped} skipped — a skipped AC is not a passing one` : "") +
-      `. Source: \`${files[0].path}\`` +
-      (ageDays > 0 ? ` — **${ageDays} day(s) old**; re-run the suite if anything shipped since.` : " (today)."));
-    if (ageDays > 0) term.run.push(`Suite ran ${ageDays} day(s) ago (${files[0].date}) — re-run if anything shipped since.`);
+    md.run.push(`- **AC suite ${runHeadline}**` +
+      (curr.skipped ? ` — a skipped AC is not a passing one` : "") +
+      `. Source: \`${files[0].path}\`${counted?.rerun && !counted.rerun.unreadable ? ` and \`${counted.rerun.path}\`` : ""}` +
+      (ageDays === 0 ? " (today)." : "."));
+    if (described) md.run.push(...described.lines);
+    if (counted?.rerunPasses.length) {
+      term.run.push(`${counted.rerunPasses.length} passed only on rerun — ${counted.label}` +
+        (counted.label === "code-changed" ? `: ${counted.changed.map((c) => c.repo).join(", ")} moved between the runs.` : "."));
+    }
 
-    const { byFeature, ungrouped } = acLib.groupByFeature(curr.cases, featureIds);
+    const { byFeature, ungrouped } = acLib.groupByFeature(eff.cases, featureIds);
     const perSlice = order.filter((id) => SHIPPED.has(statusOf(id))).map((id) => {
       const agg = (byId.get(id)?.features || []).reduce((acc, f) => {
         const g = byFeature.get(f);
@@ -141,8 +173,17 @@ if (!acLib) {
       term.run.push(`${ungrouped.length} test case(s) joined to no feature — in the total, in no slice row.`);
     }
 
-    const prev = files[1] ? acLib.readAcSuite(files[1].path) : null;
-    const cmp = acLib.compareRuns(prev, curr);
+    // The previous boundary's run, with ITS rerun applied too — otherwise a flake that passed on
+    // rerun last time and passes outright now reads as a recovery, and one that fails now reads
+    // as a regression from a pass it never had in its joint run.
+    const prevJoint = files[1] ? acLib.readAcSuite(files[1].path) : null;
+    const prevCounted = prevJoint && acLib.countWithRerun
+      ? acLib.countWithRerun(prevJoint, acLib.readAcSuite(acLib.acRerunPath(files[1].date)),
+          acLib.readRunMeta(acLib.runMetaPath(files[1].date)),
+          acLib.readRunMeta(acLib.runMetaPath(files[1].date, { rerun: true })))
+      : null;
+    const prev = prevCounted ? { cases: prevCounted.cases } : prevJoint;
+    const cmp = acLib.compareRuns(prev, eff);
     if (!cmp) {
       md.run.push(`- No previous AC run to compare against, so **regressions cannot be reported** — ` +
         `this is the first recorded run, or the earlier file is unreadable.`);
@@ -166,13 +207,23 @@ if (!acLib) {
     // under two headings is how a reader learns to skim past both. What is worth separating is
     // the failure that is NOT a regression: it was already failing last run, so nobody is going
     // to notice it from a delta, and it has now survived a whole slice.
-    const standing = curr.failures.filter((f) => !cmp?.regressed.some((r) => r.name === f.name));
-    if (standing.length) {
+    //
+    // And a failing test that did not EXIST last run is neither: it is new, and calling it
+    // "already failing" tells the reader it survived a slice when it was written in this one.
+    const standing = eff.failures.filter((f) => !cmp?.regressed.some((r) => r.name === f.name));
+    const isNew = (f) => cmp?.added.includes(f.name);
+    const already = standing.filter((f) => !isNew(f)), fresh = standing.filter(isNew);
+    if (fresh.length) {
+      md.run.push(`- Failing, new since \`${files[1].date}\` — absent from that run, so neither a regression nor a standing failure:`);
+      for (const f of fresh) md.run.push(`  - ${f.name}`);
+      term.run.push(`Failing, new since ${files[1].date}: ${fresh.map((f) => f.name).join(" · ")}`);
+    }
+    if (already.length) {
       md.run.push(cmp
         ? `- Also failing, and already failing on \`${files[1].date}\` — no delta will surface these again:`
         : `- Failing now:`);
-      for (const f of standing) md.run.push(`  - ${f.name}`);
-      term.run.push(`${cmp ? "Still failing" : "Failing"}: ${standing.map((f) => f.name).join(" · ")}`);
+      for (const f of already) md.run.push(`  - ${f.name}`);
+      term.run.push(`${cmp ? "Still failing" : "Failing"}: ${already.map((f) => f.name).join(" · ")}`);
     }
   }
 }

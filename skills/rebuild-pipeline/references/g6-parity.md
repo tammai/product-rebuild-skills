@@ -14,7 +14,27 @@ Run after each slice and on schedule (monthly default).
 
    The JUnit file lands beside the parity report, and step 2 reads it: the AC pass rate in
    `parity/<date>.md` is generated from that XML, not written by hand from a memory of the
-   run. Use the same `<date>` for both or the report will not find it. Other shapes and
+   run. Use the same `<date>` for both or the report will not find it — and `<date>` is the
+   **local** calendar date, which is what every script in `scripts/` names and finds files by.
+
+   **After a slice build, this run already happened.** It is `g5-build.md`'s joint run (step 5),
+   with its failures re-run (step 6). Do not run the suite again here; read what they wrote.
+
+   **How a rerun is counted.** When `parity/<date>-ac-rerun.xml` exists, `parity.mjs` and
+   `slice-review.mjs` count it through one function in `acsuite.mjs`, so they state the same
+   pass rate: a criterion is PASS if it passed in the joint run, or failed there and passed in
+   the rerun. The joint run's own totals stay beside that number, and every pass on rerun is
+   labelled by comparing the two runs' records (`parity/<date>-ac.meta.json` and
+   `-ac-rerun.meta.json`, written by `lanes-check.mjs stamp`):
+
+   - **flaky** — the same commits ran both times. The test failed and then passed on the same
+     code. Counted, and shown as "N of them flaky" in the headline; record each one in
+     `plan/progress.yaml` `notes:` on the slice. A flaky acceptance test is a finding.
+   - **code-changed** — commits landed between the runs, and only the failed specs re-ran
+     against them. The report lists the repos and commit ranges. The joint run's other passes
+     predate the fix, so decide out loud whether the change needs a wider run.
+   - **unverified** — a record is missing or unreadable, or a tree was dirty when stamped.
+     Which code ran cannot be said; fix the stamping before the next rerun. Other shapes and
    playbooks run whatever their own AC suite is and record the result under a hand-written
    `## AC suite` heading, which `parity.mjs` preserves.
 2. **Parity diff**: `node scripts/parity.mjs` from the workbench root — coverage vs `matrix/`:

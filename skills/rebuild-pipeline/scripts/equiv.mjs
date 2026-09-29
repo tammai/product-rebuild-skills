@@ -47,6 +47,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync
 import { join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
+import { localDate } from "./acsuite.mjs";
 
 export const EQUIV_DIR = "parity/equiv";
 export const UNLOCK_FILE = join(EQUIV_DIR, ".unlocked.yaml");
@@ -519,7 +520,9 @@ if (isMain) {
       }
     }
 
-    const date = new Date().toISOString().slice(0, 10);
+    // Local calendar, like every dated file in parity/: parity.mjs looks this file up by
+    // today's LOCAL date, and a UTC name is not found there on any local morning east of UTC.
+    const date = localDate();
     const out = join("parity", `${date}-equiv.xml`);
     mkdirSync("parity", { recursive: true });
     const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

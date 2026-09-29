@@ -89,7 +89,11 @@ if (unrecorded.length) {
     + `well the reference covered each feature, not how far this rebuild has got. The report says so too.`);
 }
 
-const date = new Date().toISOString().slice(0, 10);
+// The LOCAL date, like every dated file in parity/ — see localDate() in acsuite.mjs. acsuite is
+// imported guarded further down, so the same three lines are inlined here rather than borrowed:
+// falling back to the UTC date when it is missing would bring back the bug it fixed.
+const _d = new Date();
+const date = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
 const pct = features.length ? Math.round((buckets.covered.length / features.length) * 100) : 0;
 const list = (arr) => arr.length ? arr.map((f) => `- ${f.id} ${f.name}`).join("\n") : "- none";
 
@@ -122,6 +126,13 @@ catch {
     "Copy it from the plugin's skills/rebuild-pipeline/scripts/. Do not read its absence as a pass.");
 }
 const ac = acLib ? acLib.readAcSuite(AC_JUNIT) : null;
+// The rerun of the joint run's failures, counted by the same function slice-review.mjs uses, so
+// the two reports cannot disagree on a pass rate. Absent in a workbench whose acsuite predates it.
+const AC_RERUN = `parity/${date}-ac-rerun.xml`;
+const counted = ac && !ac.unreadable && acLib.countWithRerun
+  ? acLib.countWithRerun(ac, acLib.readAcSuite(AC_RERUN),
+      acLib.readRunMeta(acLib.runMetaPath(date)), acLib.readRunMeta(acLib.runMetaPath(date, { rerun: true })))
+  : null;
 // The section is owned only when there is a JUnit file to own it from. Without one, the title
 // stays out of OWNED so a previously generated section — or a hand-written `## AC suite` for a
 // project whose AC suite is not Maestro — is preserved by the merge below instead of erased.
@@ -131,6 +142,14 @@ if (ac?.unreadable) {
   acSection = `\n## ${AC_TITLE}\n\n- \`${AC_JUNIT}\` exists but could not be read as JUnit ` +
     `(${ac.unreadable}). Pass rate NOT reported — do not read its absence as a pass.\n`;
   console.warn(`warning: ${AC_JUNIT} is not readable as JUnit (${ac.unreadable}) — no AC pass rate in the report.`);
+} else if (counted) {
+  const { headline, lines } = acLib.describeCounted(counted, AC_JUNIT);
+  const failed = counted.stillFailing.length
+    ? "\n\nFailed:\n" + counted.stillFailing.map((n) => `- ${n}`).join("\n")
+    : "";
+  const skipped = counted.skipped ? " A skipped AC is not a passing one." : "";
+  acSection = `\n## ${AC_TITLE}\n\nAC pass rate: ${headline}.${skipped} Source: \`${AC_JUNIT}\`` +
+    `${counted.rerun ? ` and \`${AC_RERUN}\`` : ""}.${lines.length ? "\n\n" + lines.join("\n") : ""}${failed}\n`;
 } else if (ac) {
   const rate = ac.total ? Math.round((ac.passed / ac.total) * 100) : 0;
   const failed = ac.failures.length
@@ -164,7 +183,7 @@ if (acLib?.readRuleCards) {
         `${ac?.unreadable ? `\`${AC_JUNIT}\` could not be read` : `no \`${AC_JUNIT}\` for today`} — ` +
         `no rule can be reported green or red. Do not read this as a pass.\n`;
     } else {
-      const { byRule, untested, green, red, skippedOnly } = acLib.groupByRule(ac.cases, cards.map((c) => c.id));
+      const { byRule, untested, green, red, skippedOnly } = acLib.groupByRule((counted || ac).cases, cards.map((c) => c.id));
       const byDomain = new Map();
       for (const c of cards) {
         if (!byDomain.has(c.domain)) byDomain.set(c.domain, []);
@@ -382,7 +401,8 @@ ${list(buckets.upstream)}
 ## Slice progress
 ${slices.map((s) => `- ${s.id} ${s.name}: ${s.status}${notes[s.id] ? `\n  - ${notes[s.id].trim().replace(/\n/g, "\n    ")}` : ""}`).join("\n") || "- no slice plan yet"}
 ${preserved}`);
-const acNote = ac && !ac.unreadable ? ` AC ${ac.passed}/${ac.total} passed.` : "";
+const acNote = counted ? ` AC ${counted.passed}/${counted.total} passed${counted.rerunPasses.length ? ` (${counted.rerunPasses.length} on rerun — ${counted.label})` : ""}.`
+  : ac && !ac.unreadable ? ` AC ${ac.passed}/${ac.total} passed.` : "";
 const ruleNote = rulesSection.match(/^(\d+) of (\d+) Rule Cards green/m)
   ? ` Rules ${rulesSection.match(/^(\d+) of (\d+) Rule Cards green/m).slice(1, 3).join("/")} green.` : "";
 const equivNote = equivSection.match(/^(\d+) trace\(s\) recorded, (\d+) replayed, (\d+) green/m);

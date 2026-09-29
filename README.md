@@ -269,7 +269,8 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/basis.mjs             evidence-basis checks shared by validate and parity
   scripts/flows.mjs             the logged-decision log for AC flow assertions (unlock/relock)
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
-  scripts/acsuite.mjs           JUnit reader shared by parity and slice-review
+  scripts/acsuite.mjs           JUnit reader shared by parity and slice-review; counts a rerun once
+  scripts/lanes-check.mjs       is a build lane still working? + `stamp`: which commits a test run saw
   scripts/sequence.mjs          slice execution order — the logged-decision reorder mechanism
   scripts/slice-review.mjs      the between-slices standing report (generated, advisory)
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
