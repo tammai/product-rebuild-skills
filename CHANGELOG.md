@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-02
+
+The default routing profile changed from `opus-centric` to `lean`. The spec-writer
+moved from `opus` to `sonnet` with a compensating effort bump (`medium` → `high`).
+
+### Default profile → lean
+
+A project without `.claude/model-routing.json` now defaults to the `lean` profile
+instead of `opus-centric`. The standard tier maps to `sonnet` and deep to `opus` —
+a cost-light default that still reserves `opus` for architecture decisions.
+
+### spec-writer: opus → sonnet + high effort
+
+The module spec format is established and its inputs arrive resolved (matrix, flows,
+ground truth, locked contracts). Sonnet at standard tier with `high` effort compensates
+for the model downgrade while reducing cost. The medium-effort default was optimistic
+for the judgment remaining in acceptance criteria.
+
 ## [0.19.0] - 2026-09-29
 
 E9–E12 from `specs/Spec Build-lane test cadence and run supervision.md`. The G5 build loop was

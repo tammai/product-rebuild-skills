@@ -68,13 +68,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const CONFIG = ".claude/model-routing.json";
-const DEFAULT_PROFILE = "opus-centric";
+const DEFAULT_PROFILE = "lean";
 
 // Mirrors bigin-skills/skills/model-router — see THE LADDER IS BIGIN-SKILLS' LADDER above.
 const PROFILES = {
   "opus-centric": { quick: "sonnet", standard: "opus", deep: "opus", verifier: "sonnet" },
   frontier: { quick: "sonnet", standard: "opus", deep: "fable", verifier: "sonnet" },
-  lean: { quick: "sonnet", standard: "sonnet", deep: "opus", verifier: "sonnet" },
+  lean: { quick: "haiku", standard: "sonnet", deep: "opus", verifier: "sonnet" },
 };
 
 // Informational only — used to report where a profile's effort disagrees with a role's pin.

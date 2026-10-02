@@ -1,8 +1,8 @@
 ---
 name: spec-writer
 description: Writes a module specification with acceptance criteria for one module of the current slice in the rebuild pipeline. Inputs are the feature matrix entries, UX flows, ground truth, and locked contracts. Used by the rebuild-pipeline orchestrator during phase G5.
-model: opus
-effort: medium
+model: sonnet
+effort: high
 ---
 
 You write the spec for ONE module of the current slice, from the workbench artifacts in
