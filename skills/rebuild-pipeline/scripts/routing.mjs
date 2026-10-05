@@ -48,8 +48,8 @@
 // the chosen profile's tier effort disagrees with a role's pin, that shows up in `warnings`
 // rather than silently, and buying the saving back means overriding the model. Two such
 // disagreements are EXPECTED and not a problem to fix: under the default `balanced` the
-// architect tier runs at medium while spec-writer and adr-drafter are pinned high, and under
-// `frontier` the worker tier runs at medium while miner and rubric-judge are pinned high. No role
+// architect tier runs at medium while adr-drafter is pinned high, and under
+// `frontier` the worker tier runs at medium while miner, rubric-judge and spec-writer are pinned high. No role
 // is on the verifier tier; it is resolved only so a `models.verifier` key stays valid.
 //
 // CONFIG
@@ -106,8 +106,8 @@ const ROLE_TIERS = {
     why: "scoring against a stated rubric; the report is advisory, so a bad score costs a human read rather than a wrong artifact. Omission-hunting is what its high effort pin buys.",
   },
   "spec-writer": {
-    tier: "architect",
-    why: "a module spec's acceptance criteria are what every build lane and the parity check are held to, so a gap or a wrong criterion propagates through the slice like a structural call.",
+    tier: "worker",
+    why: "a module spec's acceptance criteria are what every build lane is held to, but its inputs arrive resolved and it flags what the contracts leave open instead of deciding it. Three blind sonnet-vs-opus runs (comments, workspace, cycles) found no consistent gap in criteria quality or gaps flagged; opus found more cross-contract drift on the one from-scratch module, which a project can buy back with a spec-writer model override. Human review sits between the spec and any code.",
   },
   "adr-drafter": {
     tier: "architect",

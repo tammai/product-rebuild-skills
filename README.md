@@ -307,6 +307,11 @@ docs/PLAYBOOK.md                the full methodology
   The guards are PreToolUse hooks on `Write|Edit|MultiEdit` only: a shell redirect, `sed -i`
   or `cp` through Bash is not intercepted, and `validate.mjs`'s locked-hash check is what catches that drift.
   hatch is a formal, logged reopen with a reason — never a quiet edit.
+- **Subagents get their context in the brief, not from the transcript.** Every brief carries a
+  context budget: no session transcripts or scratchpad dumps, no tool result over ~20K characters,
+  each file read once. The judge gets a pre-extracted evidence bundle of verbatim excerpts for
+  large contracts, because every subagent turn re-bills everything read so far — one audited day
+  spent ~85M tokens on a single drafter that read its parent's transcript.
 - **Gates are yours.** The skill never locks a gate on its own initiative — including on
   autopilot, which halts at every one of them and hands you a written review.
 - **The workbench never contains product code.** It describes the product; code repos

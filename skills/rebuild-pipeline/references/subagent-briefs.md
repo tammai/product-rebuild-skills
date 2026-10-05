@@ -27,6 +27,29 @@ Every dispatch is self-contained — subagents share no conversational context. 
    fact; passed only as a parameter it is not, and a dispatch that silently ran on the wrong
    rung looks exactly like one that ran on the right one.
 
+## Context budget (every brief, part 4 — verbatim)
+
+One audit day cost ~200M tokens, ~85M of it a single drafter that read the parent session's
+transcript. Every subagent turn re-bills the whole context so far, so one large read early in a
+run is paid again on every later turn. Put this in **every** brief's Boundaries, as written:
+
+- **Never read session transcripts or scratchpad dumps**: nothing under `~/.claude/projects/`
+  (`*.jsonl`), no scratchpad or temp-dir file you did not write in this run. What you need from
+  the conversation is in this brief; if it is not, report what is missing instead of looking
+  for it.
+- **No single tool result over ~20K characters.** Find with Grep, then read the range with
+  `sed -n 'A,Bp'` or Read `offset`/`limit`. Never `cat` or whole-read a file you only need
+  part of — contracts (`openapi.yaml`), ADR sets, route files, logs.
+- **Read each file once.** Write the facts you need (path:line plus the quoted text) into your
+  notes as you go and work from those; re-opening the same file for each criterion is the
+  failure this rule exists for.
+
+**Orchestrator side — state the context inline.** A gate-reopen proposal, an ADR draft or a
+lane brief carries what the agent needs *in the brief*: the decision being reopened and why,
+the paths and sections that matter, the relevant excerpt. "See the conversation above" is a
+brief that sends the agent to the transcript. If a lane would need a large input (a big log,
+a generated dump), cut it to the relevant range first and pass the path to that cut.
+
 ## The judge brief (`rubric-judge`, at every gate — Step 5.1b)
 
 Same five parts, with these values. It runs once per gate attempt, after `validate.mjs`
@@ -49,6 +72,15 @@ passes and before the gate review is written.
    below 4 carries a file-plus-line or file-plus-id citation. Send a report back with the
    uncited dimensions named if it does not — same rule as a schema violation, and for the
    same reason: the fix has to come from a run that could have produced it.
+
+**Pre-extract an evidence bundle for large contracts.** For gates whose artifacts are big
+(gate 3 ADR sets, gate 4 `openapi.yaml`, specs), write the sections the rubric's dimensions
+touch into `plan/gate-reviews/gate-N-evidence.md` before dispatching: **verbatim excerpts**
+only, each headed `path:startLine-endLine`, never a summary of them (the paragraph below
+applies to the bundle too). Pass the bundle as an input beside the artifact paths. The judge
+scores from it and opens the full file only for a targeted range when a dimension needs what
+the excerpt left out — it is a starting point, not a limit on what the judge may check.
+One run on 8 judge dispatches read `openapi.yaml` 25 times; the bundle is how that becomes 1.
 
 One thing to get right when you dispatch it: **do not paste the gate review into the brief**.
 The judge scores the artifacts, and a judge that has read your summary of them will grade the

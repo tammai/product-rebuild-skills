@@ -203,7 +203,7 @@ then resolves against the code repo's own remote, so a fresh
 
 1. **Specs + AC** — dispatch `spec-writer` per module in the slice, briefed per
    `subagent-briefs.md` — including part 6, the model `scripts/routing.mjs` resolved for this
-   role, which is the architect tier. Spec inputs: the
+   role, which is the worker tier (set `models.spec-writer` to `opus` in `.claude/model-routing.json` for a from-scratch module spanning many contracts). Spec inputs: the
    module's matrix features + flows + ground truth + contracts, **plus
    `findings/rules/<domain>.yaml` for every domain the slice touches** — a fixed input, not
    an optional one. Specs are written to `plan/specs/<Sn>/<module>.md` in the workbench (they

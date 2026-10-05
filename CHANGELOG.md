@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-05
+
+`spec-writer` moves from the architect tier to the worker tier. Under the default `balanced`
+profile that is **opus → sonnet** (effort stays pinned high, which now matches the tier, so the
+`balanced` effort warning for `spec-writer` is gone; under `frontier` it still warns).
+
+Evidence: three blind runs of the same module on both models from identical inputs — comments
+(63 vs 58 criteria, 15 vs 15 gaps), workspace (61 vs 69, 14 vs 10), cycles (53 vs 68, 13 vs 17).
+No consistent quality gap; sonnet was 25–50% faster at similar token use. Opus found more
+cross-contract drift on the from-scratch module (`cycles`), so for a new module spanning many
+contracts set `"models": { "spec-writer": "opus" }` in `.claude/model-routing.json`. One judge, no
+build from the specs, and `cycles` was not fully blind — treat it as a default, not a proof.
+
+Subagent context budget, from a token audit (~200M tokens in one day across two rebuild sessions).
+
+- `subagent-briefs.md`: new "Context budget" section carried verbatim in every brief — no session
+  transcripts or scratchpad dumps, no tool result over ~20K characters, read each file once; the
+  orchestrator states context inline instead of pointing at the conversation.
+- `rubric-judge`: the orchestrator pre-extracts a verbatim evidence bundle
+  (`plan/gate-reviews/gate-N-evidence.md`) for large artifacts, so the contract is not re-read per
+  criterion.
+- All four agent files gain a matching `## Context budget`. Prose only; no hook enforces it yet.
+
 ## [0.23.0] - 2026-10-05
 
 Slicing and build guidance: functionality first, minimal E2E, a verifiable checkpoint early.

@@ -75,3 +75,13 @@ status: proposed
 ```
 
 Status is `proposed`; the human reviews before any code (propose-before-act).
+
+## Context budget
+
+Your context is re-billed on every turn, so a large read early costs you for the rest of the run.
+
+- Never read session transcripts (`~/.claude/projects/**/*.jsonl`) or scratchpad/temp dumps you
+  did not write. The brief is your whole context; if it lacks something, say so in your report.
+- No single tool result over ~20K characters: Grep, then `sed -n 'A,Bp'` or Read with
+  `offset`/`limit`. Never whole-read a contract, ADR set, route file or log for a part of it.
+- Read each file once; note path:line and the quoted text as you go and work from the notes.
