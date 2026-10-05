@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-05
+
+Slicing and build guidance: functionality first, minimal E2E, a verifiable checkpoint early.
+
+- `g3-slicing.md`, `PLAYBOOK.md` §5.1: a deployable, person-verifiable checkpoint within the first
+  or second slice (journey named in `done_means`); slice UI is functional, polish is a later pass
+  tracked in `progress.yaml` notes, not a slice.
+- `g5-build.md`: new "Test depth and UI depth" section — each AC gets one test at the lowest level
+  that observes it; browser/device E2E capped at one smoke journey per checkpoint plus at most one
+  per slice. The build runbook template gains a `## Verification` section.
+- `spec-writer`: states the test level per criterion.
+
 ## [0.22.0] - 2026-10-05
 
 The model ladder now mirrors `bigin-skills` v1.105.0: two profiles, `balanced` (default) and

@@ -208,8 +208,8 @@ then resolves against the code repo's own remote, so a fresh
    `findings/rules/<domain>.yaml` for every domain the slice touches** — a fixed input, not
    an optional one. Specs are written to `plan/specs/<Sn>/<module>.md` in the workbench (they
    describe the product; code repos reach them through the submodule pin). Every spec ends
-   with acceptance criteria: testable behaviors, each mapping 1:1 to an E2E/integration
-   test. Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
+   with acceptance criteria: testable behaviors, each mapping 1:1 to a test at the lowest
+   level that can observe it (see "Test depth and UI depth"). Where behavior is ambiguous, the RUNNING REFERENCE is the arbiter — check it,
    never guess. Specs pass user review (propose-before-act) before any code.
 
    **Every acceptance criterion that implements a Rule Card carries `rule_id:`.** This is
@@ -271,6 +271,35 @@ then resolves against the code repo's own remote, so a fresh
    every pass on rerun as flaky, code-changed or unverified (`g6-parity.md` says what each one
    means). A criterion still not green is PENDING with a reason; a slice does not close on an
    unexplained PENDING.
+
+## Test depth and UI depth: as little as proves the behavior
+
+**Every acceptance criterion gets exactly one test, at the lowest level that can observe it** —
+unit, then integration or API against the real module, and only then a browser or device
+test. A rule such as "an expired invite returns E-410" is an API test; it does not need a
+browser. Browser/device E2E is reserved for what only a running UI can show, and the budget
+is fixed:
+
+- **One smoke journey per checkpoint slice** (g3-slicing.md): the three-to-five-step path
+  named in `done_means`, run against the deployment. That is the deploy criterion.
+- **At most one more E2E per slice**, for the single criterion whose risk is in the UI
+  itself (a drag, an upload, an auth redirect). More than that is a signal a lower-level
+  test was skipped; push it down.
+- **Slices that are not checkpoints** deploy and run the smoke journey of the last
+  checkpoint, nothing new. The cumulative regression signal comes from the lower-level
+  suites, which are cheap.
+
+Specs say the level each criterion is tested at (`spec-writer`), and the one-to-one mapping
+holds: fewer E2E tests means the criteria moved down a level, not that they lost a test.
+
+**UI is functional until the product is usable.** Lanes build the screens a criterion needs
+to reach and observe behavior — default components, real loading/empty/error states, no
+bespoke styling, no animation, no pixel parity. Do not spend lane budget, or a review
+round, on visual detail. Polish is its own pass (see g3-slicing.md): it starts once the first
+checkpoint is verified or the functional slices are done, runs against the mined UX flows and
+the reference's screens, and is the one place visual comparison tools (Maestro, screenshots)
+earn their cost. A UI defect found in a functional slice goes to `notes:` unless it blocks
+the criterion.
 
 ## Test cadence within a slice
 
@@ -425,6 +454,11 @@ Per suite: the wall-clock of one full run, and the share of it spent in per-test
 and compare the slowest tests to their assertion work. Setup above half the runtime makes
 fixing the harness the next slice's first task. Per-suite exceptions to the test cadence, each
 with its reason, go here too.
+
+## Verification
+The checkpoint journey (steps, URL or install link, test account) and how to run each suite
+level — unit, integration, the single smoke E2E — with its wall-clock. Update it whenever a
+checkpoint slice lands; this is the section a person reads to verify the deploy.
 
 ## Deploy prerequisites
 What had to exist before the deploy criterion could run at all — credentials, network paths,

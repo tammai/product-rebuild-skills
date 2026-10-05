@@ -24,7 +24,9 @@ Rules that define success:
   against the running reference — never invent UX.
 - End with **Acceptance criteria**: numbered, each a single observable behavior with
   concrete values (error codes, limits, expiry times), each implementable as exactly one
-  E2E/integration test. No criterion like "works correctly" — if you cannot phrase the
+  test, and state the level it is tested at: unit, integration/API, or (rarely) browser/device
+  E2E. Default to the lowest level that can observe the behavior; at most one criterion per
+  slice, plus the checkpoint smoke journey, needs a UI-driven test. No criterion like "works correctly" — if you cannot phrase the
   observation, the requirement is not ready.
 - Status is `proposed`; the human reviews before any code (propose-before-act).
 

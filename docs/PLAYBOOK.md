@@ -206,6 +206,8 @@ Human locks the domain list, boundaries, and canonical names. Agents may add fin
 - **Dependency-ordered:** agents compute a dependency graph from ground truth (entity references, permission prerequisites); typical spine: auth + tenancy → core domain loop (the one workflow the product exists for) → collaboration surface → reporting / integrations / admin.
 - **Learning-weighted:** when dependencies allow multiple orders, prefer the slice that teaches the lifecycle stage you haven't done yet (first deploy, first migration on live data, first background job, first realtime feature).
 - **Independently shippable:** every slice ends deployed and usable, even if the audience is one user. Shipping cadence is the point of the exercise.
+- **A verifiable checkpoint within one or two slices:** the first or second slice must end with something deployed that a person can verify by walking a short journey named in `done_means`. If three slices pass without one, redraw the cut before locking.
+- **Functionality first, polish later:** slice UI is functional (defaults, real states, no pixel work); visual fidelity is one pass after the product is usable, tracked in `progress.yaml` notes, not as a slice.
 - The reference's own changelog history (lane A) is a sanity check: the order the reference built things in is usually a viable order.
 
 ### 5.2 Slice plan schema
@@ -347,7 +349,7 @@ Mermaid because it diffs, renders in review, and states cardinality in notation 
 
 ### 8.1 Lane types
 
-1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to an E2E/integration test. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code.
+1. **Specs + acceptance criteria** — one agent per module in the current slice. Each spec derives from the module's matrix features, their flows, their ground truth, and the relevant contracts. Every spec ends with **AC**: a testable behavior list (e.g. "inviting an already-registered email returns error E-409"). Each AC maps 1:1 to a test at the lowest level that can observe it; browser/device E2E is kept minimal — one smoke journey per checkpoint slice and at most one more per slice. Where behavior is ambiguous, the running reference instance is the arbiter — check it, don't guess. Specs pass propose-before-act review before code.
 2. **Backend** — one lane per bounded context touched by the slice (whether contexts are modules or separate services per Gate 3), building against contracts. Scaffolding and codegen first.
 3. **Frontend** — against the generated typed client; may split per feature area. For a `client-only` rebuild this lane *is* the build and lane 2 does not exist; it splits per feature module, and the on-device migration decided at Gate 3 is its own module in whichever slice first touches session or local data — never a task appended to a feature.
 4. **Infra** — CI/CD, environments, deployment. Mostly one lane; schema migrations serialize through a single migration queue regardless of lane count.

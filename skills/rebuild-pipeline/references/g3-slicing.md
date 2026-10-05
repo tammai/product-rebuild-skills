@@ -17,6 +17,21 @@ Vertical, independently shippable slices ordered by dependency and learning valu
 - Every slice has `done_means` phrased as user-visible behavior on a DEPLOYMENT. For a client
   app that means an installable build on a device that is not the build machine — see
   `g5-build.md`.
+- **A checkpoint every one or two slices.** Slice small enough that the work deploys and can
+  be verified by a person at the end of the *first or second* slice, never later. A slice
+  that ends at "the API passes its tests" is not one: either fold it into the next slice or
+  cut the pair so the second half lands the user-visible loop on a deployment. Name the
+  checkpoint slice in `done_means`: what is deployed, and the one journey a person walks to
+  verify it (three to five steps, written so someone who did not build it can run it). If
+  three slices have passed with no such journey, the cut is wrong — redraw before locking,
+  because after Gate 2 you can reorder but not re-cut.
+- **Functionality first, polish later.** A slice's UI is whatever makes the behavior
+  reachable and checkable: scaffold or design-system defaults, real states (loading, empty,
+  error), no pixel work. Visual fidelity, motion, responsive finesse and copy tuning are one
+  pass after the functional slices land (or after the checkpoint that first makes the
+  product usable), recorded in `plan/progress.yaml` `notes:` rather than as feature-bearing
+  slices — they add no matrix feature, and Gate 2 requires every slice to carry one. A
+  slice never waits on, or is reopened for, polish.
 - **For a rebuild replacing an app that already has users**, one slice ordering constraint is
   not negotiable: whichever slice first touches session or local data carries the on-device
   migration decided at Gate 3, and its spike happens before that slice starts. Do not let it
