@@ -54,7 +54,7 @@ One thing to get right when you dispatch it: **do not paste the gate review into
 The judge scores the artifacts, and a judge that has read your summary of them will grade the
 summary.
 
-Its rung is no longer a judgement call in this file — `routing.mjs` maps it to the verifier tier
+Its rung is no longer a judgement call in this file — `routing.mjs` maps it to the worker tier
 and the agent file pins `effort: high`, on the reasoning that scoring a whole artifact set is
 omission-hunting and omissions are what effort buys. What used to be written here as "route it
 to a high tier" is now the resolved value you pass.

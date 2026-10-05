@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-05
+
+The model ladder now mirrors `bigin-skills` v1.105.0: two profiles, `balanced` (default) and
+`frontier`, over three tiers, worker · architect · verifier. Fable is in no profile; it is
+reachable only as a `models` override.
+
+| Profile | worker | architect | verifier |
+|---|---|---|---|
+| `balanced` (default) | sonnet · high | opus · medium | sonnet · high |
+| `frontier` | opus · medium | opus · high | sonnet · high |
+
+- `routing.mjs`: `miner` and `rubric-judge` → worker tier; `spec-writer` and `adr-drafter` →
+  architect tier. Under the default that is sonnet · sonnet · opus · opus, so **spec-writer moves
+  from sonnet to opus**; under `frontier` every role runs on opus, including the G1 miner fan-out.
+  Effort still comes only from the agent files (all four pinned high), so the expected effort
+  warnings are `spec-writer` and `adr-drafter` under `balanced` (architect tier at medium) and
+  `miner` and `rubric-judge` under `frontier` (worker tier at medium).
+- `routing.mjs`'s fallback pin table now says `spec-writer: high`, matching its agent file.
+- No aliases: an old profile or tier key is an unknown value, so it falls back to the default
+  and shows up in `warnings`, which `autopilot preflight` surfaces as a note.
+
+### Migration (`.claude/model-routing.json`)
+
+| Old | New |
+|---|---|
+| `"profile": "opus-centric"` or `"lean"` | `"profile": "balanced"` (or drop the file) |
+| `models` key `quick` or `standard` | `worker` |
+| `models` key `deep` | `architect` |
+| `models` key `verifier`, or any role key | unchanged |
+| `frontier` for its old `deep: fable` | `"profile": "frontier", "models": { "architect": "fable" }` |
+
 ## [0.21.0] - 2026-10-05
 
 Token cost: a downstream run held a ~445k median context for 5,000 turns, with 14 Opus `fork`

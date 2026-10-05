@@ -21,7 +21,8 @@
 //
 // THE LADDER IS BIGIN-SKILLS' LADDER
 //
-// The three profiles below mirror `bigin-skills`' `model-router` (its
+// The two profiles below mirror `bigin-skills`' `model-router` ladder as of bigin-skills v1.105.0
+// (`balanced` and `frontier`, over three tiers: worker · architect · verifier). Its
 // `references/model-profiles.md` — in that plugin, not this one — is the source of truth for
 // what each profile means and why).
 // They are COPIED, not imported: this plugin has to work in a repo where bigin-skills is not
@@ -37,27 +38,34 @@
 //
 // Effort cannot be passed at spawn time (the Agent tool has no effort parameter), so it comes
 // only from the spawned agent file's frontmatter. bigin-skills solves that by duplicating agent
-// files at different pins — `standard-worker-high`, `verifier-medium` — with a pre-commit check
+// files at different pins — `worker-frontier`, `architect-frontier` — with a pre-commit check
 // to stop the bodies drifting apart.
 //
 // This pipeline deliberately does not. For a FIXED role, the argument that set its effort is
 // about what its mistakes cost, and that argument does not change when a project wants cheaper
 // models: a miner's omissions are just as invisible on a tight budget as on a loose one. So a
 // profile here moves the MODEL and leaves effort where each role's own reasoning put it. Where
-// the chosen profile's tier effort disagrees with a role's pin — `lean` runs the verifier tier
-// at medium, this pipeline runs its two verifier-tier roles at high — that shows up in
-// `warnings` rather than silently, and buying the saving back means overriding the model.
+// the chosen profile's tier effort disagrees with a role's pin, that shows up in `warnings`
+// rather than silently, and buying the saving back means overriding the model. Two such
+// disagreements are EXPECTED and not a problem to fix: under the default `balanced` the
+// architect tier runs at medium while spec-writer and adr-drafter are pinned high, and under
+// `frontier` the worker tier runs at medium while miner and rubric-judge are pinned high. No role
+// is on the verifier tier; it is resolved only so a `models.verifier` key stays valid.
 //
 // CONFIG
 //
 //   <workbench>/.claude/model-routing.json
-//   { "profile": "lean", "models": { "miner": "haiku", "deep": "fable" } }
+//   { "profile": "frontier", "models": { "miner": "haiku", "architect": "fable" } }
 //
 // `profile` picks a ladder; `models` overrides on top of it and accepts either a TIER key
-// (quick · standard · deep · verifier) or a ROLE key (miner · rubric-judge · spec-writer ·
+// (worker · architect · verifier) or a ROLE key (miner · rubric-judge · spec-writer ·
 // adr-drafter), with a role key winning over the tier it belongs to. Per-role exists because the
 // most likely real override in this pipeline is a single role: G1 dispatches miners many at a
-// time and nothing else in the pipeline fans out like it.
+// time and nothing else in the pipeline fans out like it. Fable is in no profile; it is reachable
+// only as an override (a tier or role key set to "fable").
+//
+// There are no aliases for the pre-0.22.0 names. An old profile (`opus-centric`, `lean`) or tier
+// key (`quick`, `standard`, `deep`) is an unknown value like any other: default plus a warning.
 //
 // Every malformed input — bad JSON, unknown profile, unknown key, unknown model — degrades to
 // the default and is listed in `warnings`. This file can never block a dispatch, for the same
@@ -69,20 +77,18 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const CONFIG = ".claude/model-routing.json";
-const DEFAULT_PROFILE = "lean";
+const DEFAULT_PROFILE = "balanced";
 
 // Mirrors bigin-skills/skills/model-router — see THE LADDER IS BIGIN-SKILLS' LADDER above.
 const PROFILES = {
-  "opus-centric": { quick: "sonnet", standard: "opus", deep: "opus", verifier: "sonnet" },
-  frontier: { quick: "sonnet", standard: "opus", deep: "fable", verifier: "sonnet" },
-  lean: { quick: "haiku", standard: "sonnet", deep: "opus", verifier: "sonnet" },
+  balanced: { worker: "sonnet", architect: "opus", verifier: "sonnet" },
+  frontier: { worker: "opus", architect: "opus", verifier: "sonnet" },
 };
 
 // Informational only — used to report where a profile's effort disagrees with a role's pin.
 const PROFILE_EFFORTS = {
-  "opus-centric": { quick: "low", standard: "medium", deep: "high", verifier: "high" },
-  frontier: { quick: "low", standard: "high", deep: "high", verifier: "high" },
-  lean: { quick: "low", standard: "high", deep: "high", verifier: "medium" },
+  balanced: { worker: "high", architect: "medium", verifier: "high" },
+  frontier: { worker: "medium", architect: "high", verifier: "high" },
 };
 
 const MODELS = new Set(["fable", "opus", "sonnet", "haiku"]);
@@ -92,19 +98,19 @@ const TIERS = Object.keys(PROFILES[DEFAULT_PROFILE]);
 // mapping is the only place it is load-bearing.
 const ROLE_TIERS = {
   miner: {
-    tier: "verifier",
-    why: "validate.mjs checks a finding is schema-valid, not true, so a well-formed wrong finding passes; the error that matters is an omission. Largest fan-out in the pipeline.",
+    tier: "worker",
+    why: "extraction against a fixed finding schema, one lane and source per dispatch; the largest fan-out in the pipeline, so it runs on the volume tier. Omissions are the real error, which is why its effort pin stays high.",
   },
   "rubric-judge": {
-    tier: "verifier",
-    why: "scoring against a stated rubric is omission-hunting; the report is advisory, so a bad score costs a human read rather than a wrong artifact.",
+    tier: "worker",
+    why: "scoring against a stated rubric; the report is advisory, so a bad score costs a human read rather than a wrong artifact. Omission-hunting is what its high effort pin buys.",
   },
   "spec-writer": {
-    tier: "standard",
-    why: "the spec format is established and the inputs arrive resolved (matrix, flows, ground truth, locked contracts); the judgment left is in the acceptance criteria.",
+    tier: "architect",
+    why: "a module spec's acceptance criteria are what every build lane and the parity check are held to, so a gap or a wrong criterion propagates through the slice like a structural call.",
   },
   "adr-drafter": {
-    tier: "deep",
+    tier: "architect",
     why: "architecture decisions, and a wrong structural call propagates into every slice built on it.",
   },
 };
@@ -114,7 +120,7 @@ const ROLE_TIERS = {
 const PIN_FALLBACK = {
   miner: "high",
   "rubric-judge": "high",
-  "spec-writer": "medium",
+  "spec-writer": "high",
   "adr-drafter": "high",
 };
 

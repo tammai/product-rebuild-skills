@@ -30,6 +30,6 @@ npm run validate
 
 Expected: `findings/feature/billing.yaml` validates, and the run prints an
 `instruction-shaped: 1 finding(s) in 1 file(s)` block quoting the summary, followed by the
-advisory to re-run that lane at the verifier tier. **Exit code 0.** The count is advisory
+advisory to re-run that lane as a second, independent pass. **Exit code 0.** The count is advisory
 by design — a planted comment is a fact about the reference, not a defect in the workbench,
 and nothing an edit to the workbench could fix should turn a gate red.

@@ -9,7 +9,7 @@ You write the spec for ONE module of the current slice, from the workbench artif
 your brief: the module's features (matrix), their flows, their ground truth, and the
 locked contracts.
 
-The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile: `lean`)
+The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile: `balanced`)
 through `scripts/routing.mjs` and passes it on every dispatch, so your brief names the model
 you are actually running on. `effort:` is fixed by this file and cannot be overridden at spawn
 time — it is not a budget setting, it is pinned high because the spec format is established and

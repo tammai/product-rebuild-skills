@@ -103,7 +103,7 @@ for (const f of yamlFilesUnder("findings")) {
 // not a defect in the workbench, and the artifact it appears in is otherwise valid — failing
 // here would block a gate on the reference's contents, which no edit to this repo can fix.
 // What it earns instead is a human's attention at the gate review, and one suggestion: re-run
-// that lane at the verifier tier, because the finding proves the lane read text written to
+// that lane as a second, independent pass, because the finding proves the lane read text written to
 // steer it, and only a second pass can say whether anything else in that file did steer it.
 // The suggestion is not a routing hook — `scripts/routing.mjs` is not consulted and nothing
 // re-dispatches itself. The human decides.
@@ -125,7 +125,7 @@ if (instructionShaped.length) {
   const lanes = [...new Set(instructionShaped.map((e) => e.lane).filter(Boolean))].sort();
   console.log(`  Advisory: the reference contains text written to steer whoever mines it. ` +
     `Nothing is blocked and no status changed.\n` +
-    `  Consider re-running the ${lanes.join(", ") || "affected"} lane at the verifier tier ` +
+    `  Consider re-running the ${lanes.join(", ") || "affected"} lane as a second, independent pass ` +
     `and reading these at the gate review before the taxonomy locks.`);
 }
 

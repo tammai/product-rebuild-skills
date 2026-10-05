@@ -157,11 +157,11 @@ the result for the session — the ladder is a project setting, not a per-dispat
 re-running it between every fan-out is pure noise.
 
 **Relay any non-empty `warnings` to the user** and do not otherwise act on them. A malformed
-`.claude/model-routing.json` degrades to the `lean` default rather than failing, so a
+`.claude/model-routing.json` degrades to the `balanced` default rather than failing, so a
 config the user believes is active but is not would otherwise be invisible — the same reasoning
 that keeps a rubric score from blocking a lock, applied to a dispatch. Effort warnings are
-expected under `frontier` and `lean` and are not a problem to fix: effort is pinned per role and
-is not movable at spawn time (`scripts/routing.mjs` has the argument).
+expected (`spec-writer` and `adr-drafter` under `balanced`, `miner` and `rubric-judge` under `frontier`) and are not a
+problem to fix: effort is pinned per role and is not movable at spawn time (`scripts/routing.mjs` has the argument).
 
 **4c — When intent is ambiguous, ask — with options.** If the user's request could mean
 several things ("continue" during G5 could mean: next module in this slice, start next

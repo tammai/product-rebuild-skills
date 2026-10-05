@@ -378,8 +378,8 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
 - \`npm run autopilot -- preflight\` — is this project ready to run unattended between gates?
   (\`check\` / \`engage\` / \`log\` / \`disengage\` / \`status\` drive a run; gates always halt for you)
 - \`npm run routing\` — which model each subagent role is dispatched on, and why that rung.
-  Set the ladder in \`.claude/model-routing.json\`: \`{ "profile": "lean" }\`, or override one
-  tier or role with \`{ "models": { "miner": "haiku" } }\`. Absent file = the \`lean\`
+  Set the ladder in \`.claude/model-routing.json\`: \`{ "profile": "frontier" }\`, or override one
+  tier or role with \`{ "models": { "miner": "haiku" } }\`. Absent file = the \`balanced\`
   default. Effort is fixed per role and not settable here — \`scripts/routing.mjs\` says why
 - Decision history = \`git log\` on adr/, locks/, matrix/
 
