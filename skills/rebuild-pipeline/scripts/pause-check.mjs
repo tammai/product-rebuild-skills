@@ -16,7 +16,7 @@
 // ever block a tool call the way the gate-guard hook does.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 
@@ -346,6 +346,21 @@ if (sliceStatuses) {
       `but a boundary is the cheap moment to change the plan and it is about to pass.`);
   } else if (shippedSlices.length) {
     notes.push(`slice reviews: all ${shippedSlices.length} shipped slice(s) have one.`);
+  }
+}
+
+// --- 2d. Oversized plan/ state files ---
+// A NOTE, never an issue: nothing breaks. The cost is tokens — an orchestrator that Reads a
+// state file whole carries it in context, and re-reads it from cache on every later turn. A
+// 360 KB backlog is ~90k tokens paid again per turn for the rest of the session. The remedy is
+// to read by heading or line range, not to delete history, so that is what the note says.
+const STATE_FILE_LIMIT = 40 * 1024;
+for (const f of ["plan/backlog.md", "plan/progress.yaml", "plan/slices.yaml"]) {
+  let size = 0;
+  try { size = statSync(f).size; } catch { continue; }
+  if (size > STATE_FILE_LIMIT) {
+    notes.push(`${f}: ${Math.round(size / 1024)} KB (~${Math.round(size / 4000)}k tokens). Never Read it whole — ` +
+      `${f.endsWith(".md") ? `\`grep -n '^## ' ${f}\`` : `\`grep -n '^  S[0-9]*:' ${f}\``} for an index, then Read with offset/limit.`);
   }
 }
 

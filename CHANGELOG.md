@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-05
+
+Token cost: a downstream run held a ~445k median context for 5,000 turns, with 14 Opus `fork`
+subagents inheriting it.
+
+- `SKILL.md` gains "Context hygiene": no whole-file Reads of `plan/` state, one session per
+  unit, no `fork` subagents for pipeline work, long output to files.
+- `pause-check.mjs` notes any of `backlog.md` / `progress.yaml` / `slices.yaml` over 40 KB.
+
+## [0.20.1] - 2026-10-05
+
+Audit fixes; no behavior change except the guard parsing fix.
+
+- Agents, `rebuild-init.mjs` and `autopilot.mjs` no longer call `opus-centric` the default
+  (it became `lean` in 0.20.0); `spec-writer` prose now says effort is pinned high, not medium.
+- `gate-guard.mjs` and `gate.mjs` read only the `protects:` block of a lock file, not every
+  indented list item in it.
+- The three file guards share one prelude, `hooks/scripts/lib.mjs`.
+- `plugin.json` gains homepage, repository, license, keywords; `marketplace.json` pins a version.
+- README documents the hooks' Write/Edit/MultiEdit scope and the status-line dependency;
+  the skill description is shorter.
+
 ## [0.20.0] - 2026-10-02
 
 The default routing profile changed from `opus-centric` to `lean`. The spec-writer

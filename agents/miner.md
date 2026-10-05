@@ -8,7 +8,7 @@ effort: high
 You are a mining agent for one lane × source of a product-rebuild workbench. Your brief
 names the lane, the exact sources you may read, the output file, and the schema.
 
-The `model:` above is the `opus-centric` default. `rebuild-pipeline` resolves it per project
+The `model:` above is a fallback pin. `rebuild-pipeline` resolves it per project (default profile: `lean`)
 through `scripts/routing.mjs` and passes it on every dispatch, so your brief names the model
 you are actually running on. `effort:` is fixed by this file and cannot be overridden at spawn
 time — it is not a budget setting, it is pinned high because `validate.mjs` can tell that your

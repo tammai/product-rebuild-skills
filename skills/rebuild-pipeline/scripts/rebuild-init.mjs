@@ -379,7 +379,7 @@ product code. Managed by the \`rebuild-pipeline\` skill (product-rebuild-skills 
   (\`check\` / \`engage\` / \`log\` / \`disengage\` / \`status\` drive a run; gates always halt for you)
 - \`npm run routing\` — which model each subagent role is dispatched on, and why that rung.
   Set the ladder in \`.claude/model-routing.json\`: \`{ "profile": "lean" }\`, or override one
-  tier or role with \`{ "models": { "miner": "haiku" } }\`. Absent file = the \`opus-centric\`
+  tier or role with \`{ "models": { "miner": "haiku" } }\`. Absent file = the \`lean\`
   default. Effort is fixed per role and not settable here — \`scripts/routing.mjs\` says why
 - Decision history = \`git log\` on adr/, locks/, matrix/
 

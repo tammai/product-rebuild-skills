@@ -22,7 +22,8 @@
 // THE LADDER IS BIGIN-SKILLS' LADDER
 //
 // The three profiles below mirror `bigin-skills`' `model-router` (its
-// `references/model-profiles.md` is the source of truth for what each profile means and why).
+// `references/model-profiles.md` — in that plugin, not this one — is the source of truth for
+// what each profile means and why).
 // They are COPIED, not imported: this plugin has to work in a repo where bigin-skills is not
 // installed, and reaching across plugin roots would make a rebuild project's dispatch depend on
 // an unrelated install. The cost is that the two tables can drift — if you change one, change

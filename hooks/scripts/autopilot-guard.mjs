@@ -25,7 +25,8 @@
 // block message: `autopilot.mjs disengage`.
 
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve, join } from "node:path";
+import { join } from "node:path";
+import { locate } from "./lib.mjs";
 import { homedir } from "node:os";
 
 // Deliberately far looser than the 15 minutes `autopilot.mjs check` allows, because the two
@@ -42,22 +43,7 @@ import { homedir } from "node:os";
 // status line which has genuinely stopped is caught while the run is still worth stopping.
 const MAX_SNAPSHOT_AGE_S = 2700;
 
-let input = "";
-try { input = readFileSync(0, "utf8"); } catch { process.exit(0); }
-let payload;
-try { payload = JSON.parse(input); } catch { process.exit(0); }
-
-const target = payload?.tool_input?.file_path || payload?.tool_input?.path;
-if (!target) process.exit(0);
-const abs = resolve(payload?.cwd || process.cwd(), target);
-
-// Walk up to the workbench root (same marker and same walk as gate-guard.mjs).
-let root = dirname(abs);
-while (root !== dirname(root)) {
-  if (existsSync(join(root, "locks", "pipeline.yaml"))) break;
-  root = dirname(root);
-}
-if (!existsSync(join(root, "locks", "pipeline.yaml"))) process.exit(0); // not in a workbench
+const { payload, root } = locate();
 
 const statePath = join(root, "plan", "autopilot.yaml");
 if (!existsSync(statePath)) process.exit(0); // autopilot has never run here

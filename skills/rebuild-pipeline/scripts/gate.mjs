@@ -111,8 +111,8 @@ const unquote = (s) => s !== undefined && /^".*"$/.test(s)
 const parseLock = (id) => {
   const text = readFileSync(join(LOCKS, `${id}.yaml`), "utf8");
   const get = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
-  const protects = [...text.matchAll(/^  - (.+)$/gm)].map((m) => m[1].trim())
-    .filter((p) => !p.startsWith("action:"));
+  const block = (text.match(/^protects:[ \t]*\n((?:[ \t]+.*\n?)*)/m) || [])[1] || "";
+  const protects = [...block.matchAll(/^  - (.+)$/gm)].map((m) => m[1].trim());
   return { id, title: get("title"), status: get("status"), locked_at: get("locked_at"), text, protects };
 };
 

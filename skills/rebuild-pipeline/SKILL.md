@@ -1,6 +1,6 @@
 ---
 name: rebuild-pipeline
-description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product end-to-end, ending in production-ready code. The reference can be OSS (OpenProject, Twenty CRM, Webstudio), a category (CRM / project management / web builder), or an app the user already owns and is replacing on a new stack (e.g. a legacy React Native app rebuilt in Flutter). Use this skill whenever the user wants to start a rebuild project, decide license posture for a reference product, clone/rebuild/reimplement an existing product, continue or resume a rebuild, check rebuild progress, run any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity check, production readiness), lock/reopen a gate, or got blocked by the PreToolUse hook editing a locked artifact and needs to know how to proceed. Also use it when the user asks to run the rebuild on autopilot, to work unattended or without being asked at every step, to check whether the project is ready for autopilot, or to pause/resume/stop an autopilot run — and when a run was blocked because the 5-hour usage window hit its threshold. Also trigger when the user runs /rebuild or mentions the workbench, gates, slices, license posture, or the parity loop of a rebuild project. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
+description: Orchestrates the full product-rebuild pipeline — rebuilding an existing product (OSS reference, a category, or an app the user owns and is replacing on a new stack, e.g. React Native → Flutter) end-to-end, ending in production-ready code. Use for starting, resuming or checking a rebuild; any pipeline phase (mining, feature matrix, slicing, architecture ADRs, contracts, slice build, parity, production readiness); gate lock/reopen; license posture; being blocked by the PreToolUse hook on a locked artifact; autopilot (run unattended, pause/resume/stop, 5-hour usage threshold); and /rebuild. This is the ONLY skill the user should need to touch — it routes all work to phase references and subagents.
 ---
 
 # Rebuild Pipeline Orchestrator
@@ -286,6 +286,19 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   read the JUnit — and while a lane has a long run open, `scripts/lanes-check.mjs` on a
   10-minute schedule is what notices when it stops.
 - All model-facing artifacts are English.
+
+## Context hygiene (the pipeline's main token cost)
+
+Cost here is not output, it is context re-read on every turn: a measured downstream run held a
+445k median context for 5,000 turns. So:
+
+- **Never Read `plan/backlog.md`, `plan/progress.yaml` or `plan/slices.yaml` whole.** `grep -n`
+  for the slice id or heading, then Read with offset/limit. `pause-check` flags any over 40 KB.
+- **One session per unit of work** (a slice stage, a gate review). Checkpoint to `plan/drafts/`,
+  run `pause-check`, end the session; resume from `gate.mjs status`, not from chat memory.
+- **Do not dispatch `fork` subagents for pipeline work.** A fork inherits the orchestrator's whole
+  context and its model. Use the named agents, which start clean and run on the routed model.
+- Redirect long Bash output to a file and read the tail; do not let a build log land in context.
 
 ## Failure modes to actively prevent
 

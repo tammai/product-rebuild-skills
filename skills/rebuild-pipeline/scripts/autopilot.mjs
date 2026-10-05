@@ -294,7 +294,7 @@ if (cmd === "preflight") {
     blockers.push("node_modules/ is missing — run `npm install`; validate and parity need it.");
   }
 
-  // 2b. The model ladder. A malformed .claude/model-routing.json degrades to the opus-centric
+  // 2b. The model ladder. A malformed .claude/model-routing.json degrades to the lean
   //     default rather than failing, which is right for an attended dispatch — the orchestrator
   //     relays the warning and the user sees it. Unattended there is nobody to relay to, and a
   //     whole run's worth of dispatches on a silently-defaulted ladder is exactly the kind of

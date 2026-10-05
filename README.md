@@ -247,7 +247,8 @@ npm run autopilot -- status       # what did the last run do, and where did it s
 One-time setup: the 5-hour figure is piped by Claude Code to your **status line only**, so it
 has to be persisted to disk before anything else can read it. `preflight` prints the block to
 add if it's missing. It needs a Claude Pro/Max plan, and an interactive session — no status
-line means no signal, so autopilot can't run headless.
+line means no signal, so autopilot can't run headless. This plugin ships no status-line
+script; the snapshot comes from yours, so on a new machine `preflight` fails until you add it.
 
 ## What's in this plugin
 
@@ -303,6 +304,8 @@ docs/PLAYBOOK.md                the full methodology
   or inferred from docs. The parity report names the features standing entirely on inference,
   and Gate 4 flags a contract entry frozen on one.
 - **Locked means locked.** The hook blocks edits under a locked gate's paths; the escape
+  The guards are PreToolUse hooks on `Write|Edit|MultiEdit` only: a shell redirect, `sed -i`
+  or `cp` through Bash is not intercepted, and `validate.mjs`'s locked-hash check is what catches that drift.
   hatch is a formal, logged reopen with a reason — never a quiet edit.
 - **Gates are yours.** The skill never locks a gate on its own initiative — including on
   autopilot, which halts at every one of them and hands you a written review.

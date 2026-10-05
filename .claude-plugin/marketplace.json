@@ -1,6 +1,6 @@
 {
   "name": "product-rebuild-skills",
-  "description": "product-rebuild-skills plugins for Claude Code",
+  "description": "Gated, agent-orchestrated pipeline for rebuilding an existing product end to end.",
   "owner": {
     "name": "Tam Mai",
     "email": "tam.mai@bigin.vn"
@@ -17,7 +17,18 @@
       "homepage": "https://github.com/tammai/product-rebuild-skills",
       "repository": "https://github.com/tammai/product-rebuild-skills",
       "license": "MIT",
-      "keywords": ["product-rebuild", "reverse-engineering", "feature-matrix", "adr", "mirror-or-diverge", "contract-lock", "gated-pipeline", "agent-orchestrated", "claude-code-plugin"]
+      "keywords": [
+        "product-rebuild",
+        "reverse-engineering",
+        "feature-matrix",
+        "adr",
+        "mirror-or-diverge",
+        "contract-lock",
+        "gated-pipeline",
+        "agent-orchestrated",
+        "claude-code-plugin"
+      ],
+      "version": "0.21.0"
     }
   ]
 }

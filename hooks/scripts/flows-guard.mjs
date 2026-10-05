@@ -36,26 +36,12 @@
 // prevented is narrow (loosening an assertion that was green against the reference) and a rule
 // wide enough to catch everything would catch the recording loop too.
 
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, resolve, relative, sep, join } from "node:path";
+import { relative, sep, join } from "node:path";
+import { locate } from "./lib.mjs";
 
-let input = "";
-try { input = readFileSync(0, "utf8"); } catch { process.exit(0); }
-let payload;
-try { payload = JSON.parse(input); } catch { process.exit(0); }
-
-const target = payload?.tool_input?.file_path || payload?.tool_input?.path;
-if (!target) process.exit(0);
-const abs = resolve(payload?.cwd || process.cwd(), target);
-
-// Walk up to find the workbench root.
-let root = dirname(abs);
-while (root !== dirname(root)) {
-  if (existsSync(join(root, "locks", "pipeline.yaml"))) break;
-  root = dirname(root);
-}
-if (!existsSync(join(root, "locks", "pipeline.yaml"))) process.exit(0); // not in a workbench
+const { abs, root } = locate();
 
 const rel = relative(root, abs).split(sep).join("/");
 
