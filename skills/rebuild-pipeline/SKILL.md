@@ -299,6 +299,16 @@ Cost here is not output, it is context re-read on every turn: a measured downstr
 - **Do not dispatch `fork` subagents for pipeline work.** A fork inherits the orchestrator's whole
   context and its model. Use the named agents, which start clean and run on the routed model.
 - Redirect long Bash output to a file and read the tail; do not let a build log land in context.
+- **End the session when it gets big, attended or not.** At each unit boundary,
+  `node scripts/autopilot.mjs status` prints the session's context in tokens (from the status
+  line's snapshot — `references/autopilot.md`). Over the limit (default 250k): checkpoint, run
+  `pause-check`, and tell the user `/clear`, then `/rebuild`. Autopilot does this itself through
+  `check` and a `context-threshold` pause.
+- **Keep the orchestrator thin.** A subagent's result reaches you as its short report plus the
+  file it wrote; check the file with `validate.mjs` or a targeted Grep, never by reading it
+  whole. A gate review is written to `plan/gate-reviews/` and the chat gets the path and the
+  few lines that need a decision. Never paste a subagent's output, a spec, or a contract back
+  into the conversation.
 
 ## Failure modes to actively prevent
 

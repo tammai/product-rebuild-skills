@@ -22,6 +22,11 @@
       "minimum": 1,
       "maximum": 100
     },
+    "context_tokens": {
+      "description": "Orchestrator context size, in tokens, at which `check` halts the run at the next unit boundary so the user can start a fresh session.",
+      "type": "integer",
+      "minimum": 10000
+    },
     "stop_at_gates": {
       "description": "Always true in this version — gates are human decisions (SKILL.md Step 5).",
       "type": "boolean"
@@ -33,7 +38,8 @@
       "properties": {
         "at": { "type": "string", "format": "date-time" },
         "five_hour_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
-        "resets_at": { "type": "integer", "description": "Unix epoch seconds." }
+        "resets_at": { "type": "integer", "description": "Unix epoch seconds." },
+        "context_tokens": { "type": "integer", "minimum": 0 }
       }
     },
     "paused": {
@@ -45,6 +51,7 @@
         "reason": {
           "enum": [
             "usage-threshold",
+            "context-threshold",
             "gate-review",
             "validate-failed",
             "pause-check-unsafe",
@@ -55,6 +62,7 @@
         },
         "five_hour_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
         "resets_at": { "type": "integer" },
+        "context_tokens": { "type": "integer", "minimum": 0 },
         "next_action": { "type": "string" }
       }
     },

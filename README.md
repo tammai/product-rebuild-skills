@@ -239,6 +239,10 @@ pushes, runs the pause check, and asks whether to continue after the reset or st
 That threshold is enforced by a hook rather than by good intentions — the write is blocked,
 mid-slice, whether or not the unit felt nearly finished.
 
+It also watches its own context. Every turn re-bills the whole session, so once the
+orchestrator passes 250k tokens it stops at the next unit boundary and asks you to `/clear`
+and `/rebuild`. Everything is on disk by then, so a fresh session loses nothing.
+
 ```bash
 npm run autopilot -- preflight    # is this safe to start?
 npm run autopilot -- status       # what did the last run do, and where did it stop?
@@ -249,6 +253,8 @@ has to be persisted to disk before anything else can read it. `preflight` prints
 add if it's missing. It needs a Claude Pro/Max plan, and an interactive session — no status
 line means no signal, so autopilot can't run headless. This plugin ships no status-line
 script; the snapshot comes from yours, so on a new machine `preflight` fails until you add it.
+A second, optional block persists the session's context size the same way; without it the
+context limit simply doesn't apply.
 
 ## What's in this plugin
 

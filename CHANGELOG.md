@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-06
+
+Orchestrator context: autopilot now ends its session when the session gets big. The audited
+autopilot session ran 181M tokens because the loop never ended a session; "one session per
+unit" was the rule everywhere except the mode that runs for hours.
+
+- `autopilot.mjs`: reads a per-directory context snapshot (tokens) the status line writes.
+  `check` exits 3 at or over the limit (default 250k, `engage --context-tokens N`), with a new
+  `context-threshold` pause reason; `preflight` and `engage` refuse when the session is already
+  over it; `log`, `disengage` and `status` record and print it. A missing snapshot fails open
+  ("context unknown"): hygiene, not a safety limit. `status` prints context even with no run,
+  for attended sessions.
+- `autopilot.schema.json`: `context_tokens` (top level, `last_check`, `paused`) and the new
+  reason. Copy both files into an existing workbench together.
+- `references/autopilot.md`: the status-line context block, the pause report for
+  `context-threshold` (`/clear`, then `/rebuild`), and a lighter re-confirm on resume.
+- `SKILL.md` Context hygiene: end the session over the limit, attended or not; keep the
+  orchestrator thin (subagent results checked by validator or Grep, gate reviews to file,
+  nothing pasted back).
+- The guard hook is unchanged: the context limit halts at a unit boundary, never mid-unit.
+
 ## [0.25.0] - 2026-10-06
 
 The joint run follows the E2E budget from 0.23.0, which it still contradicted.

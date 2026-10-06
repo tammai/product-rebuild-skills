@@ -2,9 +2,9 @@
 // autopilot.mjs — run-state and safety checks for unattended pipeline stretches.
 // Run from the workbench root.
 // Usage:
-//   node scripts/autopilot.mjs preflight [--threshold 80]
+//   node scripts/autopilot.mjs preflight [--threshold 80] [--context-tokens 250000]
 //   node scripts/autopilot.mjs check
-//   node scripts/autopilot.mjs engage [--threshold 80] [--phase "..."]
+//   node scripts/autopilot.mjs engage [--threshold 80] [--context-tokens 250000] [--phase "..."]
 //   node scripts/autopilot.mjs log --unit "..." --outcome done|failed|skipped [--note "..."]
 //   node scripts/autopilot.mjs disengage --reason <r> [--next "..."]
 //   node scripts/autopilot.mjs status
@@ -15,7 +15,7 @@
 // Zero-dependency, same fixed YAML subset as gate.mjs and pause-check.mjs.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -38,8 +38,24 @@ const SNAPSHOT = process.env.REBUILD_RATE_LIMITS || join(homedir(), ".claude", "
 // See hooks/scripts/autopilot-guard.mjs.
 const MAX_SNAPSHOT_AGE_S = 900;
 
+// The orchestrator's own context, in tokens, and the size at which a run halts at the next unit
+// boundary so the user can start a fresh session.
+//
+// Cost here is context re-read on every turn, not output: one audited run held a ~445k median
+// context for 5,000 turns, and one autopilot session spent 181M tokens. "One session per unit"
+// was already the rule (SKILL.md, Context hygiene), but autopilot was the one mode that never
+// ended a session, and it can't clear its own context, so the run has to stop and ask.
+//
+// Like the 5-hour window, the number is only visible to the status line (it gets
+// `transcript_path`), so it is read from a snapshot the status line writes per directory
+// (references/autopilot.md has the block). Unlike the window, a missing snapshot FAILS OPEN:
+// this is hygiene, not a safety limit, and refusing to run without it would break every
+// setup that predates the block.
+const CONTEXT_DIR = process.env.REBUILD_CONTEXT_DIR || join(homedir(), ".claude", ".context");
+const DEFAULT_CONTEXT_TOKENS = 250000;
+
 const REASONS = [
-  "usage-threshold", "gate-review", "validate-failed",
+  "usage-threshold", "context-threshold", "gate-review", "validate-failed",
   "pause-check-unsafe", "needs-user-decision", "error", "user",
 ];
 const OUTCOMES = ["done", "failed", "skipped"];
@@ -93,6 +109,7 @@ const readState = () => {
     engaged_at: top("engaged_at"),
     engaged_phase: top("engaged_phase"),
     threshold_pct: Number(top("threshold_pct")) || DEFAULT_THRESHOLD,
+    context_tokens: Number(top("context_tokens")) || undefined,
     stop_at_gates: top("stop_at_gates") !== "false",
     last_check: block("last_check"),
     paused: block("paused"),
@@ -112,6 +129,7 @@ const writeState = (s) => {
   if (s.engaged_at) lines.push(`engaged_at: ${s.engaged_at}`);
   if (s.engaged_phase) lines.push(`engaged_phase: ${yamlStr(s.engaged_phase)}`);
   lines.push(`threshold_pct: ${s.threshold_pct}`);
+  if (s.context_tokens) lines.push(`context_tokens: ${s.context_tokens}`);
   lines.push(`stop_at_gates: ${s.stop_at_gates === false ? "false" : "true"}`);
   const sub = (name, obj) => {
     if (!obj) return;
@@ -208,6 +226,34 @@ const usageLine = (u) => {
   return `5h usage ${Math.round(u.pct)}%${week}${resets}`;
 };
 
+// The snapshot is keyed by directory, not session: autopilot cannot learn its own session id.
+// The status line writes one for the session's current dir and one for its project dir; this
+// walks up from the workbench root and takes the freshest match, which covers a session
+// started in the workbench or in a parent of it. Two live sessions in the same directory
+// overwrite each other, and the freshest wins.
+const slug = (dir) => dir.replace(/[^A-Za-z0-9]/g, "-");
+const readContext = () => {
+  let best = null;
+  for (let dir = resolve("."); ; dir = dirname(dir)) {
+    const f = join(CONTEXT_DIR, `${slug(dir)}.json`);
+    if (existsSync(f)) {
+      try {
+        const snap = JSON.parse(readFileSync(f, "utf8"));
+        const age = nowS() - Number(snap.at || 0);
+        if (Number.isFinite(Number(snap.tokens)) && age <= MAX_SNAPSHOT_AGE_S &&
+            (!best || snap.at > best.at)) best = { ...snap, tokens: Number(snap.tokens) };
+      } catch { /* unreadable: treat as absent */ }
+    }
+    if (dirname(dir) === dir) break;
+  }
+  if (!best) return { ok: false, reason: `no fresh context snapshot under ${CONTEXT_DIR} for this directory ` +
+    "or a parent (add the context block to your statusLine command — references/autopilot.md)" };
+  return { ok: true, tokens: best.tokens, dir: best.dir };
+};
+const kTok = (n) => `${Math.round(n / 1000)}k`;
+const contextLimitOf = (state) =>
+  Number(argAfter("--context-tokens")) || state?.context_tokens || DEFAULT_CONTEXT_TOKENS;
+
 const thresholdOf = (state) =>
   Number(argAfter("--threshold")) || state?.threshold_pct || DEFAULT_THRESHOLD;
 
@@ -233,7 +279,17 @@ if (cmd === "check") {
     console.log("       Run the pause procedure: save, commit, push, disengage, pause-check.");
     process.exit(3);
   }
+  const limit = contextLimitOf(state);
+  const c = readContext();
+  if (c.ok && c.tokens >= limit) {
+    console.log(`PAUSE  context ${kTok(c.tokens)} tokens — at or over the ${kTok(limit)} limit.`);
+    console.log("       Finish nothing new. Run the pause procedure with --reason context-threshold,");
+    console.log("       then tell the user: /clear, then /rebuild to resume in a fresh session.");
+    process.exit(3);
+  }
   console.log(`OK     ${usageLine(u)} · threshold ${threshold}%`);
+  console.log(c.ok ? `       context ${kTok(c.tokens)} tokens · limit ${kTok(limit)}`
+                   : `       context unknown — ${c.reason}`);
   process.exit(0);
 }
 
@@ -352,6 +408,19 @@ if (cmd === "preflight") {
     }
   }
 
+  // 4b. The session's own context. Starting a run in a session that is already large means
+  //     every unit pays for it; a fresh session is one /clear away.
+  const limit = contextLimitOf(state);
+  const c = readContext();
+  if (!c.ok) notes.push(`context: unknown — ${c.reason}. The run will not halt on context size.`);
+  else {
+    notes.push(`context: ${kTok(c.tokens)} tokens · limit ${kTok(limit)}`);
+    if (c.tokens >= limit) {
+      blockers.push(`this session's context is already ${kTok(c.tokens)} tokens, over the ${kTok(limit)} limit — ` +
+        "/clear and run /rebuild in a fresh session before engaging.");
+    }
+  }
+
   // 5. A run left engaged by a session that died.
   if (state?.status === "engaged") {
     notes.push("NOTE: plan/autopilot.yaml still says `engaged` — a previous run ended without " +
@@ -372,7 +441,8 @@ if (cmd === "preflight") {
     process.exit(1);
   }
   console.log(`\n✅ Ready for autopilot at: ${phase}`);
-  console.log(`   Threshold ${threshold}% of the 5-hour window. Gates still halt for the user.`);
+  console.log(`   Threshold ${threshold}% of the 5-hour window; context limit ${kTok(limit)} tokens.`);
+  console.log("   Gates still halt for the user.");
   console.log("   Present the brief and get explicit confirmation before engaging.");
   process.exit(0);
 }
@@ -383,6 +453,12 @@ if (cmd === "engage") {
   if (!u.ok) { console.error(`Cannot engage: ${u.reason}`); process.exit(1); }
   if (u.pct >= threshold) {
     console.error(`Cannot engage: ${usageLine(u)} is already at or over the ${threshold}% threshold.`);
+    process.exit(1);
+  }
+  const limit = Number(argAfter("--context-tokens")) || DEFAULT_CONTEXT_TOKENS;
+  const c = readContext();
+  if (c.ok && c.tokens >= limit) {
+    console.error(`Cannot engage: context is ${kTok(c.tokens)} tokens, over the ${kTok(limit)} limit — /clear first.`);
     process.exit(1);
   }
   let phase = argAfter("--phase");
@@ -398,14 +474,16 @@ if (cmd === "engage") {
     engaged_at: now,
     engaged_phase: phase || "unknown",
     threshold_pct: threshold,
+    context_tokens: limit,
     stop_at_gates: true,
-    last_check: { at: now, five_hour_pct: Math.round(u.pct), resets_at: u.resets_at },
+    last_check: { at: now, five_hour_pct: Math.round(u.pct), resets_at: u.resets_at,
+                  context_tokens: c.ok ? c.tokens : undefined },
     paused: undefined,
     log: state?.log || [],
   });
   commitState(`engaged at ${phase || "unknown"}`);
   console.log(`Autopilot ENGAGED at: ${phase || "unknown"}`);
-  console.log(`  ${usageLine(u)} · threshold ${threshold}%`);
+  console.log(`  ${usageLine(u)} · threshold ${threshold}% · context limit ${kTok(limit)}`);
   console.log("  Gates halt for the user. Run `check` before every unit of work.");
   process.exit(0);
 }
@@ -421,10 +499,13 @@ if (cmd === "log") {
   const now = new Date().toISOString();
   const u = readUsage();
   state.log.push({ at: now, unit, outcome, note: argAfter("--note") });
-  if (u.ok) state.last_check = { at: now, five_hour_pct: Math.round(u.pct), resets_at: u.resets_at };
+  const c = readContext();
+  if (u.ok) state.last_check = { at: now, five_hour_pct: Math.round(u.pct), resets_at: u.resets_at,
+                                 context_tokens: c.ok ? c.tokens : undefined };
   writeState(state);
   commitState(`${outcome} — ${unit}`);
-  console.log(`Logged: ${unit} (${outcome})${u.ok ? ` · ${usageLine(u)}` : ""}`);
+  console.log(`Logged: ${unit} (${outcome})${u.ok ? ` · ${usageLine(u)}` : ""}` +
+    (c.ok ? ` · context ${kTok(c.tokens)}` : ""));
   process.exit(0);
 }
 
@@ -435,6 +516,7 @@ if (cmd === "disengage") {
   }
   const now = new Date().toISOString();
   const u = readUsage();
+  const c = readContext();
   const base = state || { threshold_pct: DEFAULT_THRESHOLD, stop_at_gates: true, log: [] };
   writeState({
     ...base,
@@ -443,6 +525,7 @@ if (cmd === "disengage") {
       at: now, reason,
       five_hour_pct: u.ok ? Math.round(u.pct) : undefined,
       resets_at: u.ok ? u.resets_at : undefined,
+      context_tokens: c.ok ? c.tokens : undefined,
       next_action: argAfter("--next"),
     },
   });
@@ -453,12 +536,20 @@ if (cmd === "disengage") {
   if (u.ok && u.resets_at && reason === "usage-threshold") {
     console.log(`  The 5-hour window resets ${clock(u.resets_at)} (in ${humanIn(u.resets_at - nowS())}).`);
   }
+  if (reason === "context-threshold") {
+    console.log(`  Context ${c.ok ? kTok(c.tokens) + " tokens" : "size"} — a fresh session is the fix: /clear, then /rebuild.`);
+  }
   console.log("  Now run: node scripts/pause-check.mjs — and resolve what it flags.");
   process.exit(0);
 }
 
 if (cmd === "status") {
-  if (!state) { console.log("Autopilot: off (no plan/autopilot.yaml)."); process.exit(0); }
+  // Context is printed whether or not a run exists: an attended session uses this line to
+  // decide when to end itself (SKILL.md, Context hygiene).
+  const c = readContext();
+  const ctxLine = c.ok ? `  context ${kTok(c.tokens)} tokens · limit ${kTok(contextLimitOf(state))}`
+                       : `  context unknown — ${c.reason}`;
+  if (!state) { console.log("Autopilot: off (no plan/autopilot.yaml)."); console.log(ctxLine); process.exit(0); }
   console.log(`Autopilot: ${state.status}`);
   if (state.engaged_phase) console.log(`  engaged at: ${state.engaged_phase} (${state.engaged_at})`);
   console.log(`  threshold: ${state.threshold_pct}% · gates halt: ${state.stop_at_gates}`);
@@ -472,6 +563,7 @@ if (cmd === "status") {
   }
   const u = readUsage();
   console.log(u.ok ? `  ${usageLine(u)}` : `  usage unknown — ${u.reason.split("\n")[0]}`);
+  console.log(ctxLine);
   process.exit(0);
 }
 

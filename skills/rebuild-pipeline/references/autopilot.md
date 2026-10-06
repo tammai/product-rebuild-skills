@@ -27,6 +27,38 @@ if [ -n "$rl" ]; then
 fi
 ```
 
+**The context snapshot (recommended).** The orchestrator's own context size is also visible
+only to the status line, which gets `transcript_path`. Add this block after the one above so
+`check` can halt a run before its session gets expensive:
+
+```sh
+# --- Persist context size for tools that cannot see it ---
+# The orchestrator's own context, in tokens, from the last main-thread `usage` in the
+# transcript (input + cache read + cache creation). Only the status line gets
+# `transcript_path`, so the rebuild pipeline's autopilot reads this snapshot to halt at a unit
+# boundary once the session is too large. Keyed by directory (current and project dir), since
+# autopilot cannot learn its own session id. Temp file + mv, as above.
+ctx_dir="${REBUILD_CONTEXT_DIR:-$HOME/.claude/.context}"
+tp=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+if [ -n "$tp" ] && [ -f "$tp" ]; then
+  ctx=$(tail -c 400000 "$tp" | jq -R -c 'fromjson? | select(.type=="assistant" and (.isSidechain|not) and .message.usage != null)
+        | .message.usage | (.input_tokens + (.cache_read_input_tokens//0) + (.cache_creation_input_tokens//0))' 2>/dev/null | tail -1)
+  if [ -n "$ctx" ]; then
+    mkdir -p "$ctx_dir" 2>/dev/null
+    for d in "$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')" \
+             "$(echo "$input" | jq -r '.workspace.project_dir // empty')"; do
+      [ -n "$d" ] || continue
+      f="$ctx_dir/$(printf '%s' "$d" | tr -c 'A-Za-z0-9' '-').json"
+      jq -nc --argjson t "$ctx" --arg d "$d" '{tokens: $t, at: (now|floor), dir: $d}' > "$f.tmp" 2>/dev/null \
+        && mv -f "$f.tmp" "$f" 2>/dev/null
+    done
+  fi
+fi
+```
+
+Without it, autopilot still runs and `check` prints "context unknown": this is hygiene, not
+a safety limit, so it fails open.
+
 Two cases where it cannot work at all, and preflight says so rather than guessing:
 `rate_limits` exists **only on Claude Pro/Max plans**, and a snapshot older than 15 minutes
 means the status line has stopped rendering — **autopilot is interactive-session only**, so
@@ -48,18 +80,20 @@ A workbench scaffolded before autopilot existed has no `scripts/autopilot.mjs`. 
    - the concrete units it will run, listed
    - **where it will stop**, named: "halts at Gate 2 with the slice plan drafted"
    - current 5h usage, the reset time, and the threshold
+   - the session's context size and its limit (default 250k tokens)
    - anything preflight noted, including a previous run's `next_action`
 4. **Get an explicit yes.** If the answer is qualified ("sure, but skip lane C"), fold that
    into the brief and re-confirm rather than interpreting it mid-run.
 5. `node scripts/autopilot.mjs engage` — optionally `--threshold N` if the user wants
-   headroom other than 80%.
+   headroom other than 80%, and `--context-tokens N` for a context limit other than 250k.
 
 ## The loop
 
 Per unit of work:
 
 1. `node scripts/autopilot.mjs check` — exit 3 means stop, whatever the reason. It is
-   read-only and cheap; run it *before* the unit, never only after.
+   read-only and cheap; run it *before* the unit, never only after. It stops on the 5-hour
+   window and on the session's own context size.
 2. Do the unit. Delegate per `subagent-briefs.md`; run independent lanes in one turn. In G5 a
    unit's test evidence is the JUnit its lane wrote — never a suite you re-run after it to be
    sure (`g5-build.md`, "Test cadence within a slice"). While a lane has a long run open, the
@@ -93,6 +127,7 @@ halts without writing one hands the user a question and none of the evidence for
 | Situation | `--reason` |
 |---|---|
 | 5h window hits the threshold | `usage-threshold` |
+| Session context hits its limit (`check` says so) | `context-threshold` |
 | `validate.mjs` fails and the fix is not mechanical | `validate-failed` |
 | `pause-check.mjs` goes ⚠️ | `pause-check-unsafe` |
 | A subagent fails twice, or returns nothing | `error` |
@@ -152,12 +187,29 @@ scattered across the phase references; this is the whole list:
 Then **end the turn**. Do not start the next unit while asking. Nothing resumes on a timer;
 the user comes back.
 
+**On `context-threshold`, the fix is a fresh session, not a wait.** Every unit is already on
+disk, so nothing is lost by clearing. Report it as:
+
+```
+⏸ AUTOPILOT PAUSED — context 262k tokens (limit 250k)
+   Completed: 6 units — S4 spec … S5 backend
+   Next:      S5 frontend  ·  ✅ safe to pause
+   Run /clear, then /rebuild — the new session re-runs preflight and offers to resume.
+```
+
+Autopilot cannot clear its own context, so this is the one pause that always needs a human
+keystroke. That is the trade: a few seconds per stop, against a session whose every turn
+re-bills hundreds of thousands of tokens.
+
 ## Resuming
 
 Re-run Steps 1–3 and `preflight` from scratch — usage has moved, the tree may have changed,
 and a gate may have been locked while you were away. `engaged_phase` and
 `paused.next_action` in `plan/autopilot.yaml` are breadcrumbs for a human reading the file;
-`gate.mjs status` is the authority. Re-brief, re-confirm, re-engage. A run left `engaged` by
+`gate.mjs status` is the authority. Re-brief, re-confirm, re-engage. After a
+`context-threshold` pause in a fresh session, the brief is the previous plan minus the units
+already logged; when nothing else changed (preflight clean, same phase), a one-line confirmation
+is enough. A run left `engaged` by
 a session that died is not a run in progress — preflight flags it, and engaging again
 overwrites the state while preserving the log.
 
