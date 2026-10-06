@@ -433,11 +433,14 @@ It classifies every vendored file against `locks/tooling.json`, the provenance m
 | `modified` | differs from the plugin **and** from its recorded hash — someone edited it here | **refuses** |
 | `unknown` | differs from the plugin, no recorded hash to compare (scaffolded before 0.17.0) | **refuses** |
 | `kept` | a local version a human chose to hold, on the record | never copies |
+| `held` | safe to copy, but its script/schema pair is refused (e.g. `autopilot.mjs` with a locally edited `autopilot.schema.json`) | waits for the pair |
 | `current` | identical to the plugin | nothing |
+
+**From 0.27.0 it runs itself.** At the start of every pipeline session the skill runs the *plugin's* copy with `--auto`, so a plugin update reaches the workbench without anyone remembering to. `--auto` copies only `new` and `stale` files, only when no slice is `in-progress`, no autopilot run is engaged and the tree is clean, commits the upgrade as one commit, runs `validate`, and prints one line. Otherwise it defers to a later session start. It never forces and never keeps; refused files are named for a human to settle as below.
 
 A refused file stays refused on every later run. That is deliberate: an earlier draft recorded the refused file's current hash as its new baseline, which made the next run classify it `stale` and `--apply` overwrite the edit that had just been protected. Settle one of three ways — port your change onto the plugin's version and re-run, take the plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`. Read the diff first: `node scripts/upgrade.mjs --diff <path>`.
 
-The script finds the plugin through `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`, then `--plugin <path>`. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once:
+The script finds the plugin through `--plugin <path>`, then `.rebuild-plugin` at the workbench root (an absolute path, written at scaffold time), then `$CLAUDE_PLUGIN_ROOT`. A marker or env path inside the installed-plugin cache (`…/plugins/cache/…/<version>/`) is followed to the newest version installed beside it: the marker names the version that scaffolded the workbench, and read literally it would pin every later upgrade to that version. A workbench scaffolded before 0.17.0 has neither the marker nor the manifest, so bootstrap it once:
 
 ```sh
 cp "$CLAUDE_PLUGIN_ROOT/skills/rebuild-pipeline/scripts/upgrade.mjs" scripts/

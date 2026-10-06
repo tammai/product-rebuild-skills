@@ -256,6 +256,12 @@ script; the snapshot comes from yours, so on a new machine `preflight` fails unt
 A second, optional block persists the session's context size the same way; without it the
 context limit simply doesn't apply.
 
+**Plugin updates reach your workbench by themselves.** Each workbench carries its own copy of
+the scripts and schemas, so a project isn't changed under it mid-phase. At session start the
+skill brings that copy up to the plugin you're running: only files it can prove you never
+edited, only between slices, with autopilot off and a clean tree, as one commit. Anything
+it won't touch is named in one line for you to decide.
+
 ## What's in this plugin
 
 ```

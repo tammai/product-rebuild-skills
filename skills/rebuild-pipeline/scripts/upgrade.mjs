@@ -8,6 +8,8 @@
 //   node scripts/upgrade.mjs --diff scripts/gate.mjs   # full diff for one file
 //   node scripts/upgrade.mjs --keep scripts/parity.mjs # record: keep OUR version of this one
 //   node scripts/upgrade.mjs --plugin <path>     # override where the plugin lives
+//   node scripts/upgrade.mjs --auto [--plugin <path>]  # session start: apply the safe ones if
+//                                                      # now is a safe moment, commit, one line
 //
 // Zero-dependency, like every other script a hand-upgraded workbench might run before
 // `npm install` — which is most likely exactly when someone runs this one.
@@ -76,7 +78,27 @@ const markerPath = ".rebuild-plugin";
 const fromMarker = existsSync(markerPath)
   ? readFileSync(markerPath, "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"))
   : null;
-const pluginRoot = argAfter("--plugin") || fromMarker || process.env.CLAUDE_PLUGIN_ROOT || null;
+// An installed plugin lives in a per-version cache directory (…/plugins/cache/<market>/<name>/
+// <version>/), and the marker rebuild-init.mjs wrote points at whichever version scaffolded the
+// workbench. Read literally, that marker pins upgrades to the old version forever: the plugin
+// updates, the marker does not, and every run reports "up to date" against a copy nobody runs.
+// So a marker or env path inside the cache follows to the newest installed version beside it.
+// An explicit --plugin is taken as given.
+const newestCached = (p) => {
+  if (!p) return p;
+  const m = resolve(p).match(/^(.*[\/\\]plugins[\/\\]cache[\/\\].+)[\/\\](\d+\.\d+\.\d+)[\/\\]?$/);
+  if (!m) return p;
+  const cmp = (a, b) => a.split(".").map(Number).reduce((d, n, i) => d || n - b.split(".").map(Number)[i], 0);
+  let best = m[2];
+  try {
+    for (const v of readdirSync(m[1])) {
+      if (/^\d+\.\d+\.\d+$/.test(v) && existsSync(join(m[1], v, "skills", "rebuild-pipeline")) &&
+          cmp(v, best) > 0) best = v;
+    }
+  } catch { return p; }
+  return join(m[1], best);
+};
+const pluginRoot = argAfter("--plugin") || newestCached(fromMarker || process.env.CLAUDE_PLUGIN_ROOT) || null;
 if (!pluginRoot) {
   console.error(
     "Cannot find the plugin. This workbench has no `.rebuild-plugin` marker (it was scaffolded\n" +
@@ -140,6 +162,25 @@ for (const { rel, src } of VENDORED) {
   else rows.push({ rel, src, srcHash, state: "modified" });
 }
 
+// --- pairs: a script and the schema for the file it writes move together ----------------
+// scripts/autopilot.mjs writes plan/autopilot.yaml, which validate.mjs checks against
+// schemas/autopilot.schema.json. Copy the new script and refuse its old schema (or the reverse)
+// and the workbench fails validation on the next write — found in a real dry run, where the
+// script was `stale` and the schema `unknown`. So when one half of a pair is refused and not
+// forced, the safe half is HELD rather than copied, until the pair can move as one.
+const forcedEarly = new Set((argAfter("--force") || "").split(",").map((s) => s.trim()).filter(Boolean));
+const isSafe = (r) => r.state === "new" || r.state === "stale";
+const isBlocked = (r) => ["modified", "unknown", "kept"].includes(r.state) && !forcedEarly.has(r.rel);
+for (const r of rows) {
+  const m = r.rel.match(/^scripts[\/\\](.+)\.mjs$/);
+  if (!m) continue;
+  const mate = rows.find((x) => x.rel === join("schemas", `${m[1]}.schema.json`));
+  if (!mate) continue;
+  for (const [a, b] of [[r, mate], [mate, r]]) {
+    if (isSafe(a) && isBlocked(b)) { a.state = "held"; a.mate = b.rel; }
+  }
+}
+
 const of = (s) => rows.filter((r) => r.state === s);
 const diffOf = (rel, src) => {
   try {
@@ -166,6 +207,11 @@ if (has("--diff")) {
 }
 
 // --- report ----------------------------------------------------------------------------
+// --auto prints none of this: it runs at every session start, and its output lands in the
+// orchestrator's context, where a page of file lists is paid for on every later turn.
+const auto = has("--auto");
+const log = auto ? () => {} : (...a) => console.log(...a);
+if (!auto) {
 console.log(`Workbench tooling vs plugin ${pluginVersion}`);
 console.log(`  plugin: ${resolve(pluginRoot)}${fromMarker && !argAfter("--plugin") ? "  (from .rebuild-plugin)" : ""}`);
 console.log(`  baseline: ${manifest ? `${MANIFEST} (written for plugin ${manifest.plugin_version || "?"})`
@@ -197,11 +243,18 @@ show("unknown", "UNKNOWN PROVENANCE — refused",
   "Different from the plugin, with no recorded hash to compare against (this workbench was\n" +
   "  scaffolded before locks/tooling.json). It may be an old vendored copy or your own edit —\n" +
   "  this script cannot tell, and guessing wrong deletes work. Same remedy as above.");
+if (of("held").length) {
+  console.log(`HELD — safe to copy, but its pair is refused (${of("held").length})`);
+  for (const r of of("held")) console.log(`  ${r.rel}  (waits for ${r.mate})`);
+  console.log("  A script and the schema for the file it writes move together. Settle the refused\n" +
+    "  half (--force, or port your edit), and both copy on the next --apply.\n");
+}
 if (of("current").length) console.log(`UP TO DATE (${of("current").length})\n`);
+}
 
 const forced = new Set((argAfter("--force") || "").split(",").map((s) => s.trim()).filter(Boolean));
 const safe = [...of("new"), ...of("stale")];
-const refused = [...of("modified"), ...of("unknown"), ...of("kept")];
+const refused = [...of("modified"), ...of("unknown"), ...of("kept"), ...of("held")];
 const forcedRows = refused.filter((r) => forced.has(r.rel));
 const unknownForce = [...forced].filter((f) => !rows.some((r) => r.rel === f));
 if (unknownForce.length) {
@@ -231,7 +284,38 @@ if (has("--keep")) {
   process.exit(0);
 }
 
-if (!has("--apply")) {
+// --- --auto: the session-start path -----------------------------------------------------
+// Applies only the files this script can prove are pristine, and only at a moment when tooling
+// changing underneath the work cannot hurt: no slice in progress, no engaged autopilot run, a
+// clean tree (so the upgrade lands as its own commit and `gate.mjs lock` is not left facing a
+// dirty one). Anything else defers to a later session start. It never forces and never keeps;
+// refused files are named in one line for a human to settle.
+if (auto) {
+  if (forced.size || has("--keep")) { console.error("--auto takes neither --force nor --keep."); process.exit(1); }
+  const refusedLine = refused.length
+    ? ` ${refused.length} refused (${refused.map((r) => r.rel.split(/[\\/]/).pop()).join(", ")}) — run \`node scripts/upgrade.mjs\` to see why.`
+    : "";
+  if (!safe.length) {
+    console.log(`TOOLING  up to date with plugin ${pluginVersion}.${refusedLine}`);
+    process.exit(0);
+  }
+  const why = [];
+  try {
+    if (execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()) why.push("uncommitted changes");
+  } catch { why.push("git unavailable"); }
+  const prog = existsSync(join("plan", "progress.yaml")) ? readFileSync(join("plan", "progress.yaml"), "utf8") : "";
+  const inProg = (prog.match(/^\s+(S\d+):\s*in-progress\s*$/m) || [])[1];
+  if (inProg) why.push(`${inProg} in progress`);
+  const ap = existsSync(join("plan", "autopilot.yaml")) ? readFileSync(join("plan", "autopilot.yaml"), "utf8") : "";
+  if (/^status: engaged$/m.test(ap)) why.push("autopilot engaged");
+  if (why.length) {
+    console.log(`TOOLING  ${safe.length} update(s) from plugin ${pluginVersion} deferred — ${why.join(", ")}. ` +
+      `Applies at a session start with none of those true.${refusedLine}`);
+    process.exit(0);
+  }
+}
+
+if (!has("--apply") && !auto) {
   console.log(safe.length || forcedRows.length
     ? `Dry run. ${safe.length} file(s) would be copied. Re-run with --apply.`
     : "Dry run. Nothing to copy.");
@@ -245,7 +329,7 @@ for (const r of [...safe, ...forcedRows]) {
   mkdirSync(dirname(r.rel), { recursive: true });
   copyFileSync(r.src, r.rel);
   copied.push(r);
-  console.log(`copied  ${r.rel}${forced.has(r.rel) ? "  (FORCED — your version is gone; git has it if it was committed)" : ""}`);
+  log(`copied  ${r.rel}${forced.has(r.rel) ? "  (FORCED — your version is gone; git has it if it was committed)" : ""}`);
 }
 
 // Rewrite the baseline for the files this run actually vendored, and for those ONLY.
@@ -266,6 +350,28 @@ writeFileSync(MANIFEST, JSON.stringify({
   files,
   kept,
 }, null, 2) + "\n");
+
+if (auto) {
+  // One commit, so a regression bisects to it and `git revert` undoes the whole upgrade.
+  let committed = false;
+  try {
+    execFileSync("git", ["add", "--", ...copied.map((r) => r.rel), MANIFEST], { stdio: "pipe" });
+    execFileSync("git", ["commit", "-qm", `tooling: upgrade vendored scripts/schemas to plugin ${pluginVersion}`], { stdio: "pipe" });
+    committed = true;
+  } catch { /* reported below */ }
+  let valid = "not run (no node_modules)";
+  if (existsSync("node_modules")) {
+    try { execFileSync("node", [join("scripts", "validate.mjs")], { stdio: "pipe" }); valid = "passes"; }
+    catch { valid = "FAILS — run `npm run validate` and read it before any other work"; }
+  }
+  const refusedLine = refused.length
+    ? ` ${refused.length} refused (${refused.map((r) => r.rel.split(/[\\/]/).pop()).join(", ")}) — run \`node scripts/upgrade.mjs\` to see why.`
+    : "";
+  console.log(`TOOLING  upgraded ${copied.length} file(s) to plugin ${pluginVersion}` +
+    (committed ? ", committed" : " — NOT committed, commit it before anything else") +
+    `; validate ${valid}.${refusedLine}`);
+  process.exit(0);
+}
 
 console.log(`\n${copied.length} file(s) copied from plugin ${pluginVersion}. Baseline rewritten: ${MANIFEST}.`);
 const stillRefused = refused.filter((r) => !forced.has(r.rel) && r.state !== "kept");

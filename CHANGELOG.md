@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-06
+
+Plugin updates now reach existing workbenches. Each workbench vendors its scripts and schemas,
+and `upgrade.mjs` could re-copy them safely, but nothing ever ran it, and it could not have
+followed an update anyway.
+
+- `upgrade.mjs --auto`: the session-start path. Copies only `new`/`stale` files (proven
+  unmodified), only when no slice is `in-progress`, no autopilot run is engaged and the tree is
+  clean; commits as one commit, runs `validate`, prints one `TOOLING` line. Otherwise defers.
+  Never forces or keeps.
+- `upgrade.mjs` follows a `.rebuild-plugin` marker (or `$CLAUDE_PLUGIN_ROOT`) inside the plugin
+  cache to the newest installed version. The marker names the version that scaffolded the
+  workbench, so every installed workbench was pinned to it and reported "up to date" against a
+  copy nobody ran.
+- `upgrade.mjs` holds a script and its schema together (`held`): a dry run against a real
+  workbench found `autopilot.mjs` stale and `autopilot.schema.json` refused, and copying one
+  without the other fails validation on the next write.
+- `SKILL.md` Step 2 runs the plugin's own `upgrade.mjs --auto --plugin ${CLAUDE_PLUGIN_ROOT}`
+  first, since the workbench's vendored upgrader is as old as everything else in it.
+
 ## [0.26.0] - 2026-10-06
 
 Orchestrator context: autopilot now ends its session when the session gets big. The audited
