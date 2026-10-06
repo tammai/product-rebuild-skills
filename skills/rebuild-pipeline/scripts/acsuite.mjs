@@ -138,14 +138,16 @@ const RERUN_MEANING = {
 export const describeCounted = (c, jointPath) => {
   const rate = c.total ? Math.round((c.passed / c.total) * 100) : 0;
   const flaky = c.rerunPasses.length && c.label === "flaky" ? `, ${c.rerunPasses.length} of them flaky` : "";
+  const skips = describeSkips(c.cases);
   const headline = `${c.passed}/${c.total} passed (${rate}%)${flaky}` +
-    (c.failed ? `, ${c.failed} failed` : "") + (c.skipped ? `, ${c.skipped} skipped` : "");
+    (c.failed ? `, ${c.failed} failed` : "") + (c.skipped ? `, ${c.skipped} skipped` : "") +
+    (skips.notGreen ? " — NOT GREEN (skips)" : "");
   const lines = [];
-  if (!c.rerun) return { headline, lines };
+  if (!c.rerun) return { headline, lines: skips.lines, notGreen: skips.notGreen };
   if (c.rerun.unreadable) {
     lines.push(`- A rerun file exists but could not be read as JUnit (${c.rerun.unreadable}). ` +
       `The joint run's numbers stand alone; no failure counts as re-run.`);
-    return { headline, lines };
+    return { headline, lines: [...lines, ...skips.lines], notGreen: skips.notGreen };
   }
   const jointPassed = c.passed - c.rerunPasses.length;
   lines.push(`- **Rerun of the joint run's failures.** Joint run: ${jointPassed}/${c.total} passed ` +
@@ -166,7 +168,7 @@ export const describeCounted = (c, jointPath) => {
       `(${c.extra.slice(0, 3).join(", ")}${c.extra.length > 3 ? ", …" : ""}). They change no count here; ` +
       `a rerun re-runs only the failures.`);
   }
-  return { headline, lines };
+  return { headline, lines: [...lines, ...skips.lines], notGreen: skips.notGreen };
 };
 
 /**
@@ -232,6 +234,59 @@ export const readEquivTraces = (root = ".") => {
   return out.sort((a, b) => (a.feature + a.name).localeCompare(b.feature + b.name));
 };
 
+// Why a case was skipped: the <skipped message="..."> attribute, else the element's text. Go's
+// junit reporters, Jest and Playwright each use one or the other.
+const unescapeXml = (t) => t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&amp;/g, "&");
+const skipReason = (body) => {
+  const m = /<skipped\b([^>]*?)(\/>|>([\s\S]*?)<\/skipped>)/.exec(body);
+  const attr = m && (/\bmessage="([^"]*)"/.exec(m[1]) || [])[1];
+  const text = (attr || m?.[3] || "").replace(/<!\[CDATA\[|\]\]>/g, "").trim().split("\n")[0].trim();
+  return text ? unescapeXml(text).slice(0, 200) : "(no reason given)";
+};
+
+/**
+ * When a run with skips is still not green — the joint-run rule in g5-build.md: green means no
+ * failures, no errors, skips within SKIP_BOUND, and no skip caused by an unset environment
+ * variable.
+ *
+ * A joint run once reported 0 failures with 670 of 1209 tests skipped, because the integration
+ * database settings never reached the test processes. Each report already said "a skipped AC is
+ * not a passing one", and the run still read as green, because nothing said it was not.
+ *
+ * SKIP_BOUND is 10%: the AC suite has one test per criterion, so a legitimate skip (a test for a
+ * platform this machine is not) is rare, and a broken environment skips whole packages at once.
+ * An env-var skip is never legitimate in the joint run, whatever the ratio: the criterion was not
+ * tested, and the fix is the run's environment, not the test.
+ */
+export const SKIP_BOUND = 0.1;
+const ENV_SKIP = /\b(env(ironment)?\s+var(iable)?s?|env\s+not\s+set)\b|process\.env\.|os\.Getenv|\$\{?[A-Z][A-Z0-9]*_[A-Z0-9_]+|\bset\s+[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b[^.]*\b(not\s+set|unset|empty|missing|undefined|required)\b|\b(not\s+set|unset|missing|requires?)\b[^.]*\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/i;
+export const isEnvSkip = (reason) => ENV_SKIP.test(reason || "");
+export const describeSkips = (cases) => {
+  const skipped = (cases || []).filter((c) => c.state === "skipped");
+  if (!skipped.length) return { notGreen: false, lines: [] };
+  const ratio = skipped.length / cases.length;
+  const env = skipped.filter((c) => isEnvSkip(c.reason));
+  const lines = [];
+  if (ratio > SKIP_BOUND) {
+    lines.push(`- ⚠️ **NOT GREEN: ${skipped.length} of ${cases.length} tests skipped (${Math.round(ratio * 100)}%)**, ` +
+      `above the ${SKIP_BOUND * 100}% bound. A run that skipped this much did not test what it reports on; ` +
+      `find the shared cause below and run again.`);
+  }
+  if (env.length) {
+    lines.push(`- ⚠️ **NOT GREEN: ${env.length} skipped because an environment variable was unset.** ` +
+      `Those criteria were not tested and none counts as passed. Fix the run's environment ` +
+      `(a \`NAME=value\` line in run-phases.mjs's phases.txt reaches every later phase) and run again.`);
+  }
+  const byReason = new Map();
+  for (const c of skipped) byReason.set(c.reason, (byReason.get(c.reason) || 0) + 1);
+  const top = [...byReason.entries()].sort((a, b) => b[1] - a[1]);
+  lines.push(`- Skipped, by reason (${skipped.length}):`);
+  for (const [reason, n] of top.slice(0, 8)) lines.push(`  - ${n} × ${reason}${isEnvSkip(reason) ? " — unset environment variable" : ""}`);
+  if (top.length > 8) lines.push(`  - … and ${top.length - 8} more reason(s)`);
+  return { notGreen: ratio > SKIP_BOUND || env.length > 0, lines };
+};
+
 /** Parse one JUnit file. Returns { unreadable } rather than throwing or zeroing. */
 export const readAcSuite = (path) => {
   if (!existsSync(path)) return null;
@@ -250,7 +305,9 @@ export const readAcSuite = (path) => {
     const name = [classname, caseName].filter(Boolean).join(" › ") || "(unnamed)";
     const state = /<skipped\b/.test(body) ? "skipped"
       : /<(failure|error)\b/.test(body) ? "failed" : "passed";
-    return { name, classname, caseName, state };
+    return state === "skipped"
+      ? { name, classname, caseName, state, reason: skipReason(body) }
+      : { name, classname, caseName, state };
   });
   const count = (st) => cases.filter((c) => c.state === st).length;
   return {

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-06
+
+Fixes for gaps found running G5 (slice 8 of 18, plugin 0.22.0) with parallel build lanes and one
+joint-run lane. Issue #1. Its third gap, how lanes relate to `task-workflow` and its spec gate,
+was already closed by 0.29.0 and 0.30.0.
+
+- **A several-phase run is one tracked process: `scripts/run-phases.mjs`.** The joint-run lane
+  stalled three times in one slice, 13 to 18 minutes each, because it started each suite with
+  `nohup` and watched a done-marker with a Monitor. The harness does not track a `nohup`
+  process, and a Monitor expires after 30 minutes. The driver reads
+  `parity/runs/<local-date>-<label>/phases.txt` and runs the phases in order as the lane's one
+  `run_in_background` process. It writes `<phase>.log`, `<phase>.done` and `status.json`, and
+  stops at the first failure. `NAME=value` lines reach every later phase, because an `export`
+  inside one phase never reached the tests in the next. The build-lane brief now forbids
+  `nohup`, `&`, `setsid`, `disown` and `start`, and `g5-build.md` step 5 briefs the joint-run
+  lane to use the driver.
+- **`lanes-check.mjs` reads driver runs and quotes evidence.** A driver whose pid is alive counts
+  as a run in progress, even during a reset or redeploy that runs no test binary. A driver that
+  died mid-phase exits 2 by name. Every exit 2 names the newest file anywhere and its age. A
+  JUnit skip is no longer counted as a pass (it printed `total − failures` before). The
+  watchdog runs every 5 minutes while the joint run is open, instead of every 10.
+- **A skip-heavy run is NOT GREEN.** The first full backend pass reported 0 failures with 670
+  of 1209 tests skipped. `acsuite.mjs` now reads each skip's reason. `parity.mjs` and
+  `slice-review.mjs` mark a run NOT GREEN when more than 10% of it skipped, or when any test
+  skipped because an environment variable was unset, and list the skips by reason. The
+  build-lane brief has lanes report skips by reason and defines green the same way.
+- **Migration numbers are assigned, not picked.** Three lanes added a migration at once. The
+  project's migration tool records only the highest applied version, so one migration was
+  skipped silently on the shared stack. `g5-build.md` step 4 now has the orchestrator assign
+  each lane its number in its spec at slice start. A lane never runs `up` on a shared stack
+  from a tree missing a lower number, and the joint run starts from a clean reset. The
+  build-lane brief has a "Migrations" part, and the runbook template a `## Migration order`
+  section.
+- **A missing `.rebuild-workbench` marker is reported.** `runbook-guard.mjs` fails open without
+  one, so repos created before the marker step had the guard off and nothing said so.
+  `pause-check.mjs` (as an issue) and `lanes-check.mjs` now name any registered repo with no
+  marker, or one pointing at another directory, while a slice is in progress, and print the
+  one-line fix.
+- `eval/run-supervision.mjs`: 21 cases across the driver, lanes-check, parity and pause-check.
+
 ## [0.30.0] - 2026-10-06
 
 Every build lane's diff is now audited against its approved plan before the joint run. Until

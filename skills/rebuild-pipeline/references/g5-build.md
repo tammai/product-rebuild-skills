@@ -292,7 +292,22 @@ then resolves against the code repo's own remote, so a fresh
    session or local data — never a task appended to a feature module, because it is the one
    piece of code that runs once per user with no undo.
 4. **Infra** — CI/CD, environments, deploy. Migrations serialize through ONE queue
-   regardless of lane count.
+   regardless of lane count, and the queue is concrete:
+
+   - **Assign migration numbers when the slice starts.** For each lane whose spec changes the
+     schema, take the next free number (or a range) on the repo's main branch, in lane order,
+     and write it into that lane's spec before you approve it, so it reaches `PLAN.md` verbatim.
+     Put the same number in the lane's brief (the build-lane brief's "Migrations" part). A lane
+     never picks its own: in one slice three lanes each added a migration at the same time.
+   - **No lane runs `up` on a shared stack from a tree missing a lower-numbered migration.** A
+     migration tool that records only the highest applied version (most of them) silently skips
+     a lower number applied after a higher one. In that slice one lane took the shared test stack
+     to version 29, a later `up` from a tree that also had 28 skipped 28, and the schema
+     disagreed with the code until a clean reset. Lanes test migrations on their own databases.
+   - **The joint run starts with a clean `reset`** of the shared stack, after every lane's
+     migrations are merged, so they apply once, in number order.
+   - The runbook's `## Migration order` section records the tool's behavior and the reset
+     command, so S2's lanes do not learn it the same way.
 4b. **The lane-verifier loop — every lane, before the joint run.** Until 0.30.0 the first
    independent look at a lane's code was the joint run's test results, and those tests were
    written by the same lane. A criterion implemented differently from its spec, or quietly left
@@ -337,6 +352,20 @@ then resolves against the code repo's own remote, so a fresh
 
    JUnit goes straight to `parity/<local-date>-ac.xml`, where `<local-date>` is today on the
    machine's own calendar — the date `parity.mjs` and `slice-review.mjs` look it up by.
+
+   - **Brief the joint-run lane to drive the run with `scripts/run-phases.mjs`**: the clean
+     reset, the stamp, each suite, each redeploy, as phases of ONE `run_in_background` process
+     (the build-lane brief's "Long runs" part has the layout). One joint-run lane stalled three
+     times in a slice, 13 to 18 minutes each, because it ran each suite under `nohup` and
+     watched a done-marker with a Monitor. The harness does not track a `nohup` process, so its
+     exit woke nobody, and the Monitor expired before the 45-minute suites finished. A Monitor
+     is never the only signal that a run ended.
+   - **Green means no failures, no errors, no more than 10% skipped, and no skip for an unset
+     environment variable.** One joint run reported 0 failures with 670 of 1209 tests skipped,
+     because the integration database settings never reached the test processes. The lane
+     reports skips by reason, and `parity.mjs` and `slice-review.mjs` mark a run outside these
+     bounds NOT GREEN. A criterion skipped for an unset variable did not pass; fix the
+     environment and run again rather than rerunning the skipped specs one by one.
 6. **Rerun only the failures.** The lane that owns each failure re-runs exactly the failed
    specs — not another full run — after `node scripts/lanes-check.mjs stamp --rerun`, with JUnit
    to `parity/<local-date>-ac-rerun.xml`. Both reports count the pair the same way and label
@@ -437,14 +466,20 @@ relaxed to compensate.
   or to a fork. See "Test cadence within a slice".
 - **Watch the long runs, because nothing else will.** While any build lane has a run longer than
   a few minutes open, schedule a recurring 10-minute check (CronCreate, session-scoped) that runs
-  `node scripts/lanes-check.mjs` from the workbench root. It prints, per repo and worktree, the
-  last commit, the dirty count and the live test processes, plus the newest results file — and
-  exits 2 when no test process is alive and nothing has changed since the last results file for
-  more than 10 minutes. On exit 2, if a lane still has work, send it the exact evidence (file,
-  age, status, counts) and tell it to resume; tell the user in one line. Delete the check once
-  every lane has sent its final report. The failure this exists for is specific: a lane watching
-  its run with a Monitor, which expires after at most 30 minutes, then sitting idle "waiting for
-  the notification" — 2½ hours once, and several shorter gaps, noticed only when the user asked.
+  `node scripts/lanes-check.mjs` from the workbench root; while the joint run is open, every 5
+  minutes, because its phases hand off to each other and each hand-off is a chance to stall. It
+  prints, per repo and worktree, the last commit, the dirty count and the live test processes,
+  each `run-phases.mjs` run's phase and driver state, and the newest results file. It exits 2
+  when a driver died mid-phase, or when no test process or driver is alive and nothing has
+  changed for more than 10 minutes, and then names the newest file anywhere and its age. On
+  exit 2, if a lane still has work, send it that evidence verbatim (file, age, status, counts)
+  and tell it to resume; tell the user in one line. Delete the check once every lane has sent
+  its final report. The failure this exists for is specific: a lane watching its run with a
+  Monitor, which expires after at most 30 minutes, then sitting idle "waiting for the
+  notification" — 2½ hours once, and several shorter gaps, noticed only when the user asked.
+  The same check names any code repo whose `.rebuild-workbench` marker is missing or points
+  elsewhere while a slice is in progress (`pause-check.mjs` does too): `runbook-guard.mjs` fails
+  open without it, so a repo created before the marker step existed had the guard off silently.
 - **"Deployed" for a client app means a build a real person can install** — an internal
   TestFlight or Play internal-track release, on a device that is not the build machine, with
   the version and build number recorded. Not "it runs in the simulator", and not "CI built an
@@ -538,6 +573,12 @@ Per suite: the wall-clock of one full run, and the share of it spent in per-test
 and compare the slowest tests to their assertion work. Setup above half the runtime makes
 fixing the harness the next slice's first task. Per-suite exceptions to the test cadence, each
 with its reason, go here too.
+
+## Migration order
+How migration numbers are assigned across parallel lanes, what the migration tool records
+(every version applied, or only the highest), and the command that resets the shared stack
+before the joint run. If the tool records only the highest, say so here in one line: a lower
+number applied after a higher one is skipped without an error.
 
 ## Verification
 The checkpoint journey (steps, URL or install link, test account) and how to run each suite

@@ -284,6 +284,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/acsuite.mjs           JUnit reader shared by parity and slice-review; counts a rerun once
   scripts/lanes-check.mjs       is a build lane still working? + `stamp`: which commits a test run saw
+  scripts/run-phases.mjs        a several-phase test run as one tracked background process
   scripts/lane-plan.mjs         a lane's PLAN.md, written from the slice specs you approved
   scripts/sequence.mjs          slice execution order — the logged-decision reorder mechanism
   scripts/slice-review.mjs      the between-slices standing report (generated, advisory)

@@ -146,6 +146,9 @@ if (!acLib) {
       `. Source: \`${files[0].path}\`${counted?.rerun && !counted.rerun.unreadable ? ` and \`${counted.rerun.path}\`` : ""}` +
       (ageDays === 0 ? " (today)." : "."));
     if (described) md.run.push(...described.lines);
+    if (described?.notGreen) {
+      term.run.push("NOT GREEN: the joint run skipped too much, or skipped for an unset environment variable — see the skip reasons.");
+    }
     if (counted?.rerunPasses.length) {
       term.run.push(`${counted.rerunPasses.length} passed only on rerun — ${counted.label}` +
         (counted.label === "code-changed" ? `: ${counted.changed.map((c) => c.repo).join(", ")} moved between the runs.` : "."));

@@ -10,13 +10,14 @@
 // has actually left the machine (a remote exists; no unpushed commits — including on a
 // detached HEAD — no unpushed tags, no stash entries), any gate left mid-decision (reopened
 // but not re-locked), AC flow assertions left unlocked, shipped slices with no slice review,
+// code repos missing their `.rebuild-workbench` marker while a slice is in progress,
 // docker-compose stacks left running,
 // and host-native dev servers (pnpm dev, go run, etc.) left running. Exits 0 always; "unsafe"
 // is communicated in the report, not a process-failure exit code, since nothing here should
 // ever block a tool call the way the gate-guard hook does.
 // Zero-dependency: repos.yaml is parsed with the same fixed-subset regex style as gate.mjs.
 
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 
@@ -255,6 +256,39 @@ if (!repoEntries.length) {
 }
 for (const { name, path } of repoEntries) {
   checkRepo(name, resolve(path));
+}
+
+// --- 1b. Code repos whose `.rebuild-workbench` marker is missing or wrong, mid-slice ---
+// runbook-guard.mjs finds the live workbench through this marker and fails open without it, so a
+// repo created before the marker step existed had the guard off for its whole life, and nothing
+// said so; it was found by reading the repo checklist. Only while a slice is in progress, which
+// is when the guard has anything to guard. lanes-check.mjs carries the same check, copied, not
+// imported — if you change one, change both.
+const slicesInProgress = (() => {
+  try {
+    const block = readFileSync(join("plan", "progress.yaml"), "utf8").match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
+    return block ? [...block[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)].filter((m) => m[2] === "in-progress").map((m) => m[1]) : [];
+  } catch { return []; }
+})();
+if (slicesInProgress.length) {
+  const here = realpathSync(".");
+  for (const { name, path } of repoEntries) {
+    const dir = resolve(path);
+    if (!existsSync(dir)) continue; // already an issue above
+    let target = "";
+    try { target = readFileSync(join(dir, ".rebuild-workbench"), "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
+    catch { /* missing */ }
+    const points = target && resolve(dir, target);
+    const fix = `Fix: \`cd ${shq(dir)} && echo ${shq(here)} > .rebuild-workbench && git add .rebuild-workbench && ` +
+      `git commit -m "chore: point at the rebuild workbench"\` (g5-build.md, repo checklist step 5).`;
+    if (!target) {
+      issues.push(`${name}: no \`.rebuild-workbench\` marker while ${slicesInProgress.join(", ")} is in progress, ` +
+        `so runbook-guard.mjs is off for this repo (it fails open without one). ${fix}`);
+    } else if (!existsSync(join(points, "locks", "pipeline.yaml")) || realpathSync(points) !== here) {
+      issues.push(`${name}: \`.rebuild-workbench\` points at ${points}, not this workbench, so runbook-guard.mjs ` +
+        `reads the wrong progress file or none. ${fix}`);
+    }
+  }
 }
 
 // --- 2. Gates left mid-decision: reopened but not re-locked ---

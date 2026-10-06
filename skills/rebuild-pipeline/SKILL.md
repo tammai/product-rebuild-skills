@@ -311,7 +311,9 @@ conversation (a partial ADR, a draft matrix, in-flight findings) that hasn't rea
   only what they touch while building, the full cumulative suite runs once per slice as the
   joint run, then only its failures re-run. You, the orchestrator, run no tests at all — you
   read the JUnit — and while a lane has a long run open, `scripts/lanes-check.mjs` on a
-  10-minute schedule is what notices when it stops.
+  10-minute schedule (5 while the joint run is open) is what notices when it stops. The
+  joint run is one `scripts/run-phases.mjs` process, so its lane has one wake-up, not one per
+  phase.
 - All model-facing artifacts are English.
 
 ## Context hygiene (the pipeline's main token cost)

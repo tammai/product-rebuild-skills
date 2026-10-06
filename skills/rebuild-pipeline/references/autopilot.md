@@ -97,7 +97,8 @@ Per unit of work:
 2. Do the unit. Delegate per `subagent-briefs.md`; run independent lanes in one turn. In G5 a
    unit's test evidence is the JUnit its lane wrote — never a suite you re-run after it to be
    sure (`g5-build.md`, "Test cadence within a slice"). While a lane has a long run open, the
-   10-minute `lanes-check.mjs` watchdog from that file's guardrails runs here too.
+   `lanes-check.mjs` watchdog from that file's guardrails runs here too (every 10 minutes, every
+   5 while the joint run is open).
 3. Write the output to disk and commit it.
 4. `node scripts/autopilot.mjs log --unit "..." --outcome done|failed|skipped [--note "..."]`
 

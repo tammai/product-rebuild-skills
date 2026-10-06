@@ -35,6 +35,10 @@
 // not understand blocks unrelated work in repos that have nothing to do with this pipeline, and
 // the escape hatch it offers has to be one that exists: here it is always "write the runbook",
 // a file the person being blocked can create in the next tool call.
+//
+// Failing open on a missing marker has a cost: a repo created before the marker step existed had
+// this guard off for its whole life, and nothing said so. pause-check.mjs and lanes-check.mjs now
+// name any registered repo with no marker, or a wrong one, while a slice is in progress.
 
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join, isAbsolute } from "node:path";

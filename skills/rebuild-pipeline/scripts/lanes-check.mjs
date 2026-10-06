@@ -14,10 +14,24 @@
 // you enforce as orchestrator") runs this, so the check is one cheap call and the same in every
 // project, instead of a hand-assembled `ps | grep` that differs by machine.
 //
-// EXIT CODES. 0: nothing to act on. 2: a lane looks stalled — no test process is alive, and
-// nothing in any repo has changed since the newest results file was written, for longer than
-// --idle minutes. It is a heuristic and says so; the orchestrator decides, with the evidence this
+// EXIT CODES. 0: nothing to act on. 2: a lane looks stalled — a run-phases.mjs driver died
+// mid-phase, or no test process or driver is alive and nothing in any repo or run directory has
+// changed for longer than --idle minutes. It is a heuristic and says so; the orchestrator decides, with the evidence this
 // prints, and it is that evidence it sends the lane.
+//
+// RUN DIRECTORIES. A run driven by `run-phases.mjs` keeps `status.json` (driver pid, current
+// phase, state) in parity/runs/<local-date>-<label>/. A driver whose pid is alive counts as a run
+// in progress, even between test processes (a reset or a redeploy runs no test binary). One that
+// says `running` with a dead pid died mid-phase, and that is reported by name, not inferred from
+// silence.
+//
+// WHEN IT EXITS 2 it names the newest file it saw anywhere and its age, so the orchestrator's
+// nudge can quote evidence: "go.log, written 14 min ago" is something a lane acts on, where
+// "looks stalled" is something it argues with.
+//
+// MARKERS. A code repo with no `.rebuild-workbench` marker turns `runbook-guard.mjs` off silently,
+// because the guard fails open without it. While a slice is in progress this names the repo and
+// the one-line fix. pause-check.mjs carries the same check.
 //
 // STAMP. JUnit carries no field for the commit it ran against, and that is the one fact needed
 // to say what a pass on rerun means (acsuite.mjs countWithRerun: same commits → flaky, different
@@ -30,7 +44,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { localDate, runMetaPath } from "./acsuite.mjs";
+import { localDate, runMetaPath, readAcSuite } from "./acsuite.mjs";
 
 if (!existsSync(join("locks", "pipeline.yaml"))) {
   console.error("No locks/pipeline.yaml here — run from the workbench root.");
@@ -127,6 +141,9 @@ const ago = (ms) => {
 };
 const rows = [];
 let lastActivity = 0;
+// The newest file seen anywhere, by path: what the stall message quotes.
+let newestFile = null;
+const seeFile = (path, mtime) => { if (mtime && (!newestFile || mtime > newestFile.mtime)) newestFile = { path, mtime }; };
 for (const { name, path } of repoEntries()) {
   if (!existsSync(path)) { rows.push({ label: name, path, missing: true }); continue; }
   const trees = [];
@@ -139,7 +156,8 @@ for (const { name, path } of repoEntries()) {
     const status = (git(tree, ["status", "--porcelain"]) || "").split("\n").filter(Boolean);
     let dirtyMtime = null;
     for (const line of status) {
-      try { const t = statSync(join(tree, line.slice(3).replace(/^"|"$/g, "").split(" -> ").pop())).mtimeMs; if (t > (dirtyMtime || 0)) dirtyMtime = t; }
+      const file = join(tree, line.slice(3).replace(/^"|"$/g, "").split(" -> ").pop());
+      try { const t = statSync(file).mtimeMs; if (t > (dirtyMtime || 0)) dirtyMtime = t; seeFile(file, t); }
       catch { /* deleted file */ }
     }
     lastActivity = Math.max(lastActivity, committed || 0, dirtyMtime || 0);
@@ -156,10 +174,12 @@ const results = [];
 if (existsSync("parity")) {
   for (const f of readdirSync("parity").filter((f) => /-(ac|ac-rerun|equiv)\.xml$/.test(f))) {
     const p = join("parity", f);
-    const xml = readFileSync(p, "utf8");
-    const total = (xml.match(/<testcase\b/g) || []).length;
-    const failed = (xml.match(/<(failure|error)\b/g) || []).length;
-    results.push({ path: p, mtime: statSync(p).mtimeMs, status: `${total - failed}/${total} passed` });
+    // Skips are counted apart from passes. This used to be total minus failures, which showed a
+    // run with 670 of 1209 tests skipped as 1209/1209 passed.
+    const r = readAcSuite(p);
+    const status = !r || r.unreadable ? "unreadable as JUnit"
+      : `${r.passed}/${r.total} passed` + (r.failed ? `, ${r.failed} failed` : "") + (r.skipped ? `, ${r.skipped} skipped` : "");
+    results.push({ path: p, mtime: statSync(p).mtimeMs, status });
   }
 }
 // Playwright writes `.last-run.json` into its outputDir, which is `test-results/` by default and
@@ -184,6 +204,63 @@ for (const p of rows.filter((r) => !r.missing).flatMap((r) => findLastRun(r.path
   results.push({ path: p, mtime: statSync(p).mtimeMs, status });
 }
 results.sort((a, b) => b.mtime - a.mtime);
+for (const r of results) seeFile(r.path, r.mtime);
+
+// ---------------------------------------------------------------------------------------------
+// Runs driven by run-phases.mjs. parity/runs/ is gitignored by the driver, so nothing above sees
+// its logs change; they are read here directly.
+const pidAlive = (pid) => {
+  try { process.kill(Number(pid), 0); return true; }
+  catch (e) { return e.code === "EPERM"; } // exists, owned by someone else
+};
+const runs = [];
+const RUNS = join("parity", "runs");
+if (existsSync(RUNS)) {
+  for (const d of readdirSync(RUNS, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    const dir = join(RUNS, d.name);
+    let status = null;
+    try { status = JSON.parse(readFileSync(join(dir, "status.json"), "utf8")); } catch { /* not started, or not a driver run */ }
+    let newest = null;
+    for (const f of readdirSync(dir)) {
+      try { const t = statSync(join(dir, f)).mtimeMs; if (!newest || t > newest.mtime) newest = { path: join(dir, f), mtime: t }; }
+      catch { /* removed while listing */ }
+    }
+    if (newest) seeFile(newest.path, newest.mtime);
+    const alive = status?.state === "running" && status.pid && pidAlive(status.pid);
+    runs.push({ dir, status, newest, alive, died: status?.state === "running" && !alive });
+  }
+  runs.sort((a, b) => (b.newest?.mtime || 0) - (a.newest?.mtime || 0));
+}
+const liveRuns = runs.filter((r) => r.alive);
+// A driver that died a day ago was either rerun under a new directory or abandoned, and an
+// old one counted here would make every later check exit 2.
+const deadRuns = runs.filter((r) => r.died && r.newest && now - r.newest.mtime < 24 * 3600000);
+
+// ---------------------------------------------------------------------------------------------
+// Code repos with no usable `.rebuild-workbench` marker, while a slice is in progress. Copied
+// from pause-check.mjs, not imported, because both are standalone scripts — if you change one,
+// change both.
+const markerProblems = [];
+const inProgress = (() => {
+  try {
+    const block = readFileSync(join("plan", "progress.yaml"), "utf8").match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
+    return block ? [...block[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)].filter((m) => m[2] === "in-progress").map((m) => m[1]) : [];
+  } catch { return []; }
+})();
+if (inProgress.length) {
+  const here = resolve(".");
+  for (const { name, path } of repoEntries().slice(1)) {
+    if (!existsSync(path)) continue;
+    const marker = join(path, ".rebuild-workbench");
+    let target = "";
+    try { target = readFileSync(marker, "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
+    catch { /* missing: reported below */ }
+    const points = target && resolve(path, target);
+    if (!target) markerProblems.push(`${name}: no .rebuild-workbench marker`);
+    else if (!existsSync(join(points, "locks", "pipeline.yaml"))) markerProblems.push(`${name}: .rebuild-workbench points at ${points}, which is not a workbench`);
+    else if (realpathSync(points) !== realpathSync(here)) markerProblems.push(`${name}: .rebuild-workbench points at ${points}, not this workbench`);
+  }
+}
 
 // ---------------------------------------------------------------------------------------------
 console.log(`lanes-check — ${new Date().toLocaleString()}\n`);
@@ -200,6 +277,18 @@ else {
   console.log(`Test processes: ${testProcs.length} alive`);
   for (const p of testProcs.slice(0, 10)) console.log(`  ${p.pid}${p.elapsed ? ` (${p.elapsed})` : ""} ${p.command.slice(0, 140)}`);
 }
+if (runs.length) {
+  console.log("\nDriven runs (run-phases.mjs):");
+  for (const r of runs.slice(0, 5)) {
+    const st = r.status;
+    const what = !st ? "no status.json — not started by run-phases.mjs"
+      : r.alive ? `running phase ${st.phase} (pid ${st.pid})`
+      : r.died ? `DRIVER DIED during phase ${st.phase} — status says running, pid ${st.pid} is gone`
+      : st.state === "failed" ? `failed in phase ${st.phase}, exit ${st.exit}`
+      : `${st.state}`;
+    console.log(`  ${r.dir} — ${what}; newest file ${r.newest ? `${r.newest.path}, written ${ago(r.newest.mtime)}` : "none"}`);
+  }
+}
 console.log("");
 if (!results.length) console.log("Results files: none (parity/*-ac*.xml, Playwright .last-run.json).");
 else {
@@ -209,16 +298,24 @@ else {
 
 const idleMin = Number(opt("--idle", "10"));
 const newest = results[0];
-const quietSince = Math.max(lastActivity, newest?.mtime || 0);
-const stalled = procs !== null && !testProcs.length && quietSince && (now - quietSince) / 60000 > idleMin;
+const quietSince = Math.max(lastActivity, newest?.mtime || 0, newestFile?.mtime || 0);
+const busy = testProcs.length || liveRuns.length;
+const stalled = deadRuns.length || (procs !== null && !busy && quietSince && (now - quietSince) / 60000 > idleMin);
 console.log("");
+if (markerProblems.length) {
+  console.log(`MARKER: ${inProgress.join(", ")} in progress, and runbook-guard.mjs is off for these repos, because it fails open without a marker:`);
+  for (const m of markerProblems) console.log(`  - ${m}`);
+  console.log(`  Fix, in each repo: echo "${resolve(".")}" > .rebuild-workbench && git add .rebuild-workbench && git commit -m "chore: point at the rebuild workbench"\n`);
+}
 if (stalled) {
-  const since = newest && newest.mtime >= lastActivity
+  const since = newest && newest.mtime >= quietSince
     ? `the newest results file (${newest.path}, ${newest.status}) was written ${ago(newest.mtime)} and nothing in any repo has changed since`
-    : `nothing in any repo has changed for ${ago(lastActivity).replace(" ago", "")}`;
-  console.log(`LOOKS STALLED: no test process alive, and ${since}.`);
+    : `nothing in any repo or run directory has changed for ${ago(quietSince).replace(" ago", "")}`;
+  for (const r of deadRuns) console.log(`STALLED: the driver for ${r.dir} died during phase ${r.status.phase}; its newest file is ${r.newest?.path}, written ${ago(r.newest?.mtime)}.`);
+  if (!deadRuns.length) console.log(`LOOKS STALLED: no test process alive, and ${since}.`);
+  if (newestFile) console.log(`Newest file anywhere: ${newestFile.path}, written ${ago(newestFile.mtime)}.`);
   console.log("If a lane still has work, send it this evidence and tell it to resume. Heuristic — you decide.");
   process.exit(2);
 }
-console.log(testProcs.length ? "Nothing to act on: a test run is still in progress."
+console.log(busy ? "Nothing to act on: a test run is still in progress."
   : `Nothing to act on: activity within the last ${idleMin} min.`);

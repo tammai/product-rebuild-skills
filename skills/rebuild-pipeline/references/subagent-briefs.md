@@ -113,11 +113,35 @@ pass on rerun report as unverified, because no commit names the code that ran.
 - Start any command expected to take more than about 2 minutes with Bash `run_in_background: true`,
   output to a log file. The process exit is the completion signal. A Monitor is never the only
   signal that a long run ended — it expires after at most 30 minutes.
+- Never `nohup`, `&`, `setsid`, `disown` or `start`. Only `run_in_background: true` is tracked; a
+  process started any other way ends without waking you.
+- A run with more than one phase (reset, stamp, backend suite, redeploy, frontend suite) is ONE
+  background process: write the phases to `parity/runs/<local-date>-<label>/phases.txt`, then
+  start `node scripts/run-phases.mjs parity/runs/<local-date>-<label>` from the workbench root with
+  `run_in_background: true`. It runs the phases in order, writes `<phase>.log`, `<phase>.done` and
+  `status.json`, and stops at the first failure, so you have one wake-up instead of one per phase.
+  Settings the tests need go on `NAME=value` lines in `phases.txt`, never in an `export` inside one
+  phase: each phase is its own shell.
 - Whenever you wake, for any reason, first check whether your own run's process is alive. If it
   ended, read the result and act on it before anything else.
 - Never end a turn "waiting for the notification" unless your own background process is still
   running.
 - Report a run's result to the orchestrator in the same turn the run ends.
+- Report passed, failed, errored and skipped per suite, and every skip grouped by its reason. A run
+  is green only with no failures, no errors, no more than 10% skipped, and no test skipped because
+  an environment variable was unset. A criterion skipped for an unset variable was not tested:
+  fix the run's environment and run again before reporting it as passed.
+
+**Migrations** (part 4, verbatim, for a lane that changes a database schema):
+
+- Your migration number is `<N>`, assigned for this slice. Use only that number (or the range
+  given). Never pick the next free one yourself: parallel lanes picking at once collide.
+- Never run a migration `up` against a shared stack (the shared test database or deploy stack)
+  from a tree that lacks a lower-numbered migration another lane has applied there. A tool that
+  records only the highest applied version skips the lower one silently. Use your own database for
+  your own tests.
+- The joint run starts from a clean `reset` of the shared stack, with every lane's migrations
+  merged, so they apply in number order.
 
 **The plan and the repo's guards** (part 4, verbatim):
 

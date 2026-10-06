@@ -143,7 +143,8 @@ if (ac?.unreadable) {
     `(${ac.unreadable}). Pass rate NOT reported — do not read its absence as a pass.\n`;
   console.warn(`warning: ${AC_JUNIT} is not readable as JUnit (${ac.unreadable}) — no AC pass rate in the report.`);
 } else if (counted) {
-  const { headline, lines } = acLib.describeCounted(counted, AC_JUNIT);
+  const { headline, lines, notGreen } = acLib.describeCounted(counted, AC_JUNIT);
+  if (notGreen) console.warn(`warning: ${AC_JUNIT} is NOT GREEN — too many skips, or skips for an unset environment variable. See the report.`);
   const failed = counted.stillFailing.length
     ? "\n\nFailed:\n" + counted.stillFailing.map((n) => `- ${n}`).join("\n")
     : "";
