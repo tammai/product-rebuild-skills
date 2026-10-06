@@ -59,7 +59,11 @@ session started in that repo, and rebuild sessions start in the project's parent
 `repo-hooks.mjs` runs each code repo's own guards for tool calls that target it. A block naming a
 repo guard is the harness, never something to edit around. Its spec gate is satisfied by the
 lane `PLAN.md` that `lane-plan.mjs` writes from the slice specs the user approved
-(`references/g5-build.md` step 1b). What the pipeline does *not* use from `bigin-skills` is its
+(`references/g5-build.md` step 1b). Build lanes run as `bigin-skills`' worker agent, and each
+lane's diff is audited by `bigin-skills`' verifier against that plan before the joint run
+(step 4b: `task-workflow`'s implement/verify loop, run by you, capped at 3 rounds). Both
+are resolved through `scripts/routing.mjs` (`build-lane`, `lane-verifier`), and they need
+`bigin-skills` ≥ 1.105.0. What the pipeline does *not* use from `bigin-skills` is its
 planning workflows. `discovery-workflow`, `epic-workflow` and `task-workflow`'s spec and plan
 steps are replaced by G0–G5's gates and spec review, and their state would be a second record
 of decisions the workbench already locks.

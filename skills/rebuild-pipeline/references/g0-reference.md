@@ -131,6 +131,9 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   `PLAN.md`. The pipeline runs those guards for its lanes and writes each lane's plan from the
   slice specs the user approves. That approval is the one the gate checks, and no second
   approval is asked for (`g5-build.md` step 1b).
+  **Check the installed version is at least 1.105.0**, whatever the playbook: G5 dispatches build
+  lanes as its `worker` agent and audits them with its `verifier`, and versions before 1.105.0
+  name those agents differently (`g5-build.md` step 4b).
   **Check the installed version against the chosen playbook's `scaffold-profile:`.** The
   Flutter client playbook needs `bigin-skills` >= 1.68.0 for its `flutter` profile; below that
   there is no profile for the stack, and G5 must scaffold with the stack's own tool first and

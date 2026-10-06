@@ -118,5 +118,40 @@ writeFileSync(join(lanePath, "PLAN.md"), plan2.replace("rejected with 422", "rej
 sr = review();
 check("a hand-edited ## Spec is named in the review", /no longer matches what lane-plan\.mjs wrote/.test(sr), sr.slice(0, 1200));
 
+// --- E18: verifier rounds recorded, capped, and surfaced -----------------------------------------
+const rv = (...a) => spawnSync("node", [join("scripts", "lane-plan.mjs"), "record-verify", "S1", "api", ...a], { cwd: wb, encoding: "utf8" });
+writeFileSync(join(lanePath, "PLAN.md"), plan2); // undo the hand-edit above
+sr = review();
+check("a lane with no verifier round is named", /- api: .*no verifier round recorded/.test(sr) && /api has no recorded verifier PASS/.test(sr), sr.slice(0, 1400));
+r = rv("--verdict", "FAIL", "--round", "2");
+check("record-verify refuses a round out of order", r.status === 1 && /out of order/.test(r.stderr), r.stderr);
+check("round 1 FAIL recorded", rv("--verdict", "FAIL", "--round", "1", "--issues", "2").status === 0);
+check("round 2 FAIL recorded", rv("--verdict", "FAIL", "--round", "2", "--issues", "1").status === 0);
+r = rv("--verdict", "FAIL", "--round", "3", "--issues", "1");
+check("the third FAIL says HALT", r.status === 0 && /cap reached\. HALT/.test(r.stdout), r.stdout + r.stderr);
+r = rv("--verdict", "PASS", "--round", "4");
+check("a fourth round is refused", r.status === 1 && /past the cap/.test(r.stderr), r.stderr);
+sr = review();
+check("the review shows the last verdict", /verifier FAIL at round 3\/3/.test(sr), sr.slice(0, 1400));
+r = lanePlan(...args, "--amend", "--reason", "plan was wrong");
+const rec = JSON.parse(readFileSync(join(wb, "plan/lane-plans/S1.yaml"), "utf8").replace(/^#.*\n/gm, ""));
+check("an amended plan restarts the count and keeps prior rounds",
+  r.status === 0 && rec.lanes.api.verify.length === 0 && rec.lanes.api.verify_prior?.length === 3, JSON.stringify(rec.lanes.api));
+check("round 1 after an amendment is accepted, and PASS clears the review",
+  rv("--verdict", "PASS", "--round", "1").status === 0 && /verifier PASS at round 1\/3/.test(review()) && !/has no recorded verifier PASS/.test(review()));
+
+// --- E18: routing resolves build lanes to bigin's agents -----------------------------------------
+const route = (cfg) => {
+  if (cfg) w(wb, ".claude/model-routing.json", JSON.stringify(cfg));
+  return JSON.parse(sh(wb, "node", join("scripts", "routing.mjs"))).roles;
+};
+let roles = route(null);
+check("balanced: build-lane is bigin-skills:worker on sonnet", roles["build-lane"]?.agent === "bigin-skills:worker" && roles["build-lane"].model === "sonnet", JSON.stringify(roles["build-lane"]));
+check("balanced: lane-verifier is bigin-skills:verifier", roles["lane-verifier"]?.agent === "bigin-skills:verifier");
+roles = route({ profile: "frontier", models: { "lane-verifier": "opus" } });
+check("frontier: build-lane is worker-frontier on opus at medium",
+  roles["build-lane"].agent === "bigin-skills:worker-frontier" && roles["build-lane"].model === "opus" && roles["build-lane"].effort === "medium", JSON.stringify(roles["build-lane"]));
+check("a lane-verifier role override applies", roles["lane-verifier"].model === "opus" && roles["lane-verifier"].modelFrom === "override:role:lane-verifier");
+
 console.log(failures ? `\n${failures} failure(s). Workbench left at ${base}` : "\nall passed");
 process.exit(failures ? 1 : 0);

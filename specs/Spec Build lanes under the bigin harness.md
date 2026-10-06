@@ -153,7 +153,8 @@ E17b makes the plan real. With a real plan, `task-workflow`'s step 4 (an impleme
 
 - `references/g5-build.md`: the per-lane loop above, in the per-slice sequence between dispatch and the joint run.
 - `references/subagent-briefs.md`: a verifier brief (plan path, diff range, context budget, no lane summary).
-- `scripts/routing.mjs`: the `build-lane` and `lane-verifier` roles.
+- `scripts/routing.mjs`: the `build-lane` and `lane-verifier` roles. They resolve to `bigin-skills:worker` (`worker-frontier` under frontier) and `bigin-skills:verifier`, and routing now prints each role's `agent` as well as its model. This needs bigin-skills ≥ 1.105.0, the release that renamed the agents. `g0-reference.md` checks for it.
+- `scripts/lane-plan.mjs record-verify <Sn> <lane> --verdict PASS|FAIL --round <n>` records each round in `plan/lane-plans/<Sn>.yaml`. It refuses a round out of order or past the cap, and says HALT on the third FAIL. An amended plan restarts the count and keeps earlier rounds as `verify_prior`, which matches task-workflow's reset. This record was not in the first draft. Without it, "every lane audited" would be a claim made in the conversation, not something `slice-review.mjs` can check, and it now names any lane with no recorded PASS.
 - `references/autopilot.md`: verifier cap hit is a halt reason.
 - `SKILL.md`: the `bigin-skills` baseline paragraph names what the pipeline now uses: `bigin-harness-setup`, the plan gate it installs, and the worker and verifier agents. It also names what the pipeline deliberately does not use, with one line each on why, so the next reader doesn't have to reconstruct it.
 

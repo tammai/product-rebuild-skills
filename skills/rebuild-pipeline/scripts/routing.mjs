@@ -49,8 +49,20 @@
 // rather than silently, and buying the saving back means overriding the model. Two such
 // disagreements are EXPECTED and not a problem to fix: under the default `balanced` the
 // architect tier runs at medium while adr-drafter is pinned high, and under
-// `frontier` the worker tier runs at medium while miner, rubric-judge and spec-writer are pinned high. No role
-// is on the verifier tier; it is resolved only so a `models.verifier` key stays valid.
+// `frontier` the worker tier runs at medium while miner, rubric-judge and spec-writer are pinned high.
+//
+// BUILD LANES ARE BIGIN'S AGENTS (E18, 0.30.0)
+//
+// `build-lane` and `lane-verifier` are not this plugin's agents. A G5 build lane works inside a
+// code repo bigin-harness-setup created, under a PLAN.md in task-workflow's format, and is audited
+// by bigin's `verifier` exactly as task-workflow's loop audits it — task-workflow forbids running
+// that loop's implementer as a general-purpose agent. So these two roles resolve to bigin agents,
+// and for them the effort DOES follow the profile: bigin pins effort per agent variant
+// (`worker` high, `worker-frontier` medium, `verifier` high), and the variant is picked by profile
+// here exactly as bigin's classify.mjs picks it. BIGIN_AGENTS is copied from bigin's
+// `references/model-profiles.md` (v1.105.0 renamed the agents to worker/architect/verifier; older
+// bigin ships standard-worker/deep-architect, which these names will not find). If you change one,
+// change both.
 //
 // CONFIG
 //
@@ -59,7 +71,7 @@
 //
 // `profile` picks a ladder; `models` overrides on top of it and accepts either a TIER key
 // (worker · architect · verifier) or a ROLE key (miner · rubric-judge · spec-writer ·
-// adr-drafter), with a role key winning over the tier it belongs to. Per-role exists because the
+// adr-drafter · build-lane · lane-verifier), with a role key winning over the tier it belongs to. Per-role exists because the
 // most likely real override in this pipeline is a single role: G1 dispatches miners many at a
 // time and nothing else in the pipeline fans out like it. Fable is in no profile; it is reachable
 // only as an override (a tier or role key set to "fable").
@@ -83,6 +95,12 @@ const DEFAULT_PROFILE = "balanced";
 const PROFILES = {
   balanced: { worker: "sonnet", architect: "opus", verifier: "sonnet" },
   frontier: { worker: "opus", architect: "opus", verifier: "sonnet" },
+};
+
+// The subagent_type bigin's router spawns per tier — copied, see BUILD LANES ARE BIGIN'S AGENTS.
+const BIGIN_AGENTS = {
+  balanced: { worker: "worker", architect: "architect", verifier: "verifier" },
+  frontier: { worker: "worker-frontier", architect: "architect-frontier", verifier: "verifier" },
 };
 
 // Informational only — used to report where a profile's effort disagrees with a role's pin.
@@ -112,6 +130,16 @@ const ROLE_TIERS = {
   "adr-drafter": {
     tier: "architect",
     why: "architecture decisions, and a wrong structural call propagates into every slice built on it.",
+  },
+  "build-lane": {
+    tier: "worker",
+    external: "bigin-skills",
+    why: "implementation against a spec the user approved and contracts Gate 4 locked, in a repo whose patterns the scaffold set; the error it makes is the worker kind (didn't check its work), and the lane-verifier round after it is what catches that. A project whose lanes keep coming back FAIL moves to the frontier profile, as bigin's own guidance says.",
+  },
+  "lane-verifier": {
+    tier: "verifier",
+    external: "bigin-skills",
+    why: "the independent audit of a lane's diff against its PLAN.md; a false PASS silently voids the only check between the approved criteria and the code, so it never runs cheaper than the verifier tier.",
   },
 };
 
@@ -146,6 +174,7 @@ function readPins(agentsDir, warnings) {
     else warnings.push(`${f} declares no effort: — it will run at the model's default`);
   }
   for (const role of Object.keys(ROLE_TIERS)) {
+    if (ROLE_TIERS[role].external) continue; // bigin's agent file, not ours
     if (!Object.hasOwn(pins, role)) {
       warnings.push(`no agent file found for role "${role}" in ${agentsDir} — using this script's pin table`);
       pins[role] = PIN_FALLBACK[role];
@@ -226,7 +255,7 @@ function resolve_(root, agentsDir) {
   const ladder = PROFILES[profile];
 
   const roles = {};
-  for (const [role, { tier, why }] of Object.entries(ROLE_TIERS)) {
+  for (const [role, { tier, why, external }] of Object.entries(ROLE_TIERS)) {
     let model = ladder[tier];
     let from = `profile:${profile}`;
     if (Object.hasOwn(models, tier)) {
@@ -238,8 +267,11 @@ function resolve_(root, agentsDir) {
       from = `override:role:${role}`;
     }
 
-    const effort = pins[role];
+    // A bigin role's effort is the pin of the agent variant this profile spawns, so it always
+    // matches the ladder; one of ours keeps its own file's pin.
     const ladderEffort = PROFILE_EFFORTS[profile][tier];
+    const effort = external ? ladderEffort : pins[role];
+    const agent = external ? `${external}:${BIGIN_AGENTS[profile][tier]}` : `product-rebuild-skills:${role}`;
 
     // Haiku 4.5 accepts no effort level, so a role routed to it runs with its pin inert. Not an
     // error — but on a role whose whole argument for `high` was that its mistakes are omissions,
@@ -255,7 +287,7 @@ function resolve_(root, agentsDir) {
       );
     }
 
-    roles[role] = { tier, model, effort, modelFrom: from, why };
+    roles[role] = { tier, agent, model, effort, modelFrom: from, why };
   }
 
   return { profile, profileSource: source, effortSource: pinSource, roles, warnings };
@@ -287,4 +319,4 @@ if (only !== undefined) {
   console.log(JSON.stringify(out, null, 2));
 }
 
-export { PROFILES, PROFILE_EFFORTS, ROLE_TIERS, MODELS, TIERS, DEFAULT_PROFILE };
+export { PROFILES, PROFILE_EFFORTS, BIGIN_AGENTS, ROLE_TIERS, MODELS, TIERS, DEFAULT_PROFILE };

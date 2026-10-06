@@ -311,9 +311,20 @@ if (lanePlans) {
     const done = rows.filter((r) => r.status === "Done").length;
     const status = plan.match(/^Status:\s*(\S+)/m)?.[1] || "(none)";
     const edited = planLib.specHash(plan) !== rec.spec_sha256;
-    lanePlanMd.push(`- ${lane}: ${done}/${rows.length} task rows Done · Status: ${status} · approved @ workbench ` +
+    // The lane-verifier loop (E18). A lane with no PASS recorded reached the joint run unaudited,
+    // or its audit was never written down; either way the review names it rather than assuming.
+    const rounds = rec.verify || [];
+    const last = rounds[rounds.length - 1];
+    const verifyNote = !rounds.length ? "no verifier round recorded"
+      : `verifier ${last.verdict} at round ${last.round}/${planLib.VERIFY_CAP ?? 3}`;
+    lanePlanMd.push(`- ${lane}: ${done}/${rows.length} task rows Done · Status: ${status} · ${verifyNote} · approved @ workbench ` +
       `${rec.workbench_commit} by ${rec.approved_by}${rec.amendments ? ` · ${rec.amendments} amendment(s)` : ""}` +
       `${edited ? " · **`## Spec` differs from what was approved**" : ""}`);
+    if (planLib.VERIFY_CAP !== undefined && last?.verdict !== "PASS") press(
+      `${lane}: ${rounds.length ? `last verifier round ${last.round} was FAIL` : "no verifier round recorded"}`,
+      `- **${lane} has no recorded verifier PASS** (${rounds.length ? `${rounds.length} round(s), last FAIL` : "none recorded"}). ` +
+      `Its diff reached the joint run without an independent audit against its PLAN.md, or the audit was never ` +
+      `recorded (\`lane-plan.mjs record-verify\`).`);
     if (edited) press(`${lane}: its PLAN.md \`## Spec\` no longer matches the approved specs`,
       `- **${lane}'s PLAN.md \`## Spec\` no longer matches what lane-plan.mjs wrote** from the specs approved @ ` +
       `workbench ${rec.workbench_commit}. The spec gate cannot stop that edit, so this is the only place it shows. ` +

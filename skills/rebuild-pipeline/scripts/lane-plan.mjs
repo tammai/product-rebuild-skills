@@ -68,7 +68,38 @@ const acceptanceCriteria = (text) => {
   return sec.split("\n").filter((l) => /^\s*(?:\d+\.|[-*])\s+\S/.test(l)).map((l) => l.replace(/^\s*(?:\d+\.|[-*])\s+/, "").trim());
 };
 
+// `record-verify` (E18, 0.30.0): the orchestrator records each lane-verifier round here, so the
+// slice boundary can say whether every lane was audited and how it ended, instead of the claim
+// living in a conversation nobody re-reads. The cap of 3 is task-workflow's: every verifier
+// dispatch on a plan is a round, and the third FAIL ends the loop with a halt for the user.
+export const VERIFY_CAP = 3;
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+if (isMain && process.argv[2] === "record-verify") {
+  const args = process.argv.slice(3);
+  const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+  const [sliceId, lane] = args.filter((a, i) => !a.startsWith("--") && !["--verdict", "--round", "--issues"].includes(args[i - 1]));
+  const verdict = String(opt("--verdict") || "").toUpperCase();
+  const round = Number(opt("--round"));
+  const die = (msg) => { console.error(`lane-plan record-verify: ${msg}`); process.exit(1); };
+  if (!existsSync(join("locks", "pipeline.yaml"))) die("no locks/pipeline.yaml here — run from the workbench root.");
+  if (!sliceId || !lane || !["PASS", "FAIL"].includes(verdict) || !Number.isInteger(round) || round < 1) {
+    die("usage: lane-plan.mjs record-verify <Sn> <lane> --verdict PASS|FAIL --round <n> [--issues <count>]");
+  }
+  const rec = readLanePlans(sliceId);
+  if (!rec?.lanes?.[lane]) die(`no plan recorded for ${sliceId} ${lane} — a verifier audits a diff against a plan, so write the plan first.`);
+  const rounds = rec.lanes[lane].verify || [];
+  if (round !== rounds.length + 1) die(`round ${round} out of order: ${rounds.length} round(s) already recorded for ${lane}.`);
+  if (round > VERIFY_CAP) die(`round ${round} is past the cap of ${VERIFY_CAP}. The loop ended at round ${VERIFY_CAP}; that is a halt for the user, not another round.`);
+  const d = new Date();
+  rounds.push({ round, verdict, issues: Number(opt("--issues") || 0), at: d.toISOString() });
+  rec.lanes[lane].verify = rounds;
+  writeFileSync(join("plan", "lane-plans", `${sliceId}.yaml`),
+    "# Written by scripts/lane-plan.mjs; read by slice-review.mjs. Do not hand-edit.\n" + JSON.stringify(rec, null, 2) + "\n");
+  const capHit = verdict === "FAIL" && round === VERIFY_CAP;
+  console.log(`${sliceId} ${lane}: verifier round ${round}/${VERIFY_CAP} ${verdict}` +
+    (capHit ? ` — cap reached. HALT: show the user the issues and ask whether to amend the plan, raise the cap, or take over.` : ""));
+  process.exit(0);
+}
 if (isMain) {
   const args = process.argv.slice(2);
   const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -175,7 +206,13 @@ if (isMain) {
   const recPath = join("plan", "lane-plans", `${sliceId}.yaml`);
   mkdirSync(join("plan", "lane-plans"), { recursive: true });
   const rec = readLanePlans(sliceId) || { slice: sliceId, lanes: {} };
+  const prior = rec.lanes[lane] || {};
   rec.lanes[lane] = {
+    // A new or amended plan restarts the verifier count, as task-workflow resets it: earlier
+    // rounds audited a plan that no longer exists. They are kept, not dropped, as history.
+    verify: [],
+    ...(amend && (prior.verify?.length || prior.verify_prior?.length)
+      ? { verify_prior: [...(prior.verify_prior || []), ...(prior.verify || [])] } : {}),
     worktree: relative(".", worktree) || ".", branch, specs: specs.map((s) => s.replace(/\\/g, "/")),
     workbench_commit: commit, approved_by: approver, approved_at: date,
     spec_sha256: specHash(plan), tasks: acs.length,

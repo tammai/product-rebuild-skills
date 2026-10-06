@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-06
+
+Every build lane's diff is now audited against its approved plan before the joint run. Until
+now, the first independent look at a lane's code was the joint run's test results, and the lane
+wrote those tests itself. A criterion implemented differently from its spec, or quietly left
+out, is something the lane's own tests can agree with. Spec:
+`specs/Spec Build lanes under the bigin harness.md` (E18).
+
+- **`g5-build.md` step 4b: the lane-verifier loop**, which is `task-workflow`'s step 4 run by
+  the orchestrator, because `task-workflow` forbids a general-purpose implementer and a lane
+  cannot spawn subagents. The steps:
+  - Each lane is dispatched as `bigin-skills:worker`.
+  - When it reports its rows done, a fresh `bigin-skills:verifier` audits its diff against the
+    worktree's `PLAN.md`, never seeing the lane's own report.
+  - On FAIL, the same lane is resumed with the issues verbatim, then a new verifier runs.
+  - The cap is 3 rounds. The third FAIL halts for the user. A plan that turns out wrong goes to
+    the amend path, not another round.
+  - `/code-review` stays at the slice boundary.
+- **`routing.mjs`: `build-lane` and `lane-verifier` roles**, resolving to `bigin-skills:worker`
+  (`worker-frontier` under frontier) and `bigin-skills:verifier`. Routing now prints each role's
+  `agent` as well as its model. For these bigin roles, effort follows the profile, because bigin
+  picks the agent variant by profile. The agent table is copied from bigin's
+  `model-profiles.md`. This needs bigin-skills ≥ 1.105.0, the release that renamed the agents;
+  `g0-reference.md` checks for it.
+- **`lane-plan.mjs record-verify`** records each round in `plan/lane-plans/<Sn>.yaml`. It
+  refuses a round out of order or past the cap, and prints HALT on the third FAIL. An amended
+  plan restarts the count, as `task-workflow` resets it, and keeps earlier rounds as
+  `verify_prior`.
+- **`slice-review.mjs`** shows each lane's last verdict and names any lane with no recorded
+  PASS.
+- `subagent-briefs.md` adds a lane-verifier brief (the `task-workflow` handoff with paths filled
+  in) and the build-lane dispatch rule. `autopilot.md` adds the third-FAIL halt. `SKILL.md` names
+  the worker and verifier among what is used from `bigin-skills`.
+- `eval/lane-plan.mjs` gains 13 E18 cases.
+
 ## [0.29.0] - 2026-10-06
 
 The bigin harness's guards now run for pipeline work. Before this they were installed in every

@@ -160,6 +160,9 @@ scattered across the phase references; this is the whole list:
 - **a lane that reports `Status: amending`**, meaning it found its approved spec wrong.
   Correcting the spec is a spec approval, so the halt is `needs-user-decision`, with the
   lane's report attached.
+- **a lane whose third verifier round comes back `FAIL`** (`g5-build.md` step 4b). Rounds 1
+  and 2, relaying the issues to the lane, re-verifying and recording each round, are
+  autopilot's. The decision after the cap (amend the plan, raise the cap, or take over) is not.
 - a block from a code repo's own guard (`spec-gate-guard`, `bash-guard`, …) that the lane
   cannot resolve within the repo's rules. It is the harness speaking, so never edit a guard
   or its registration to get past it.

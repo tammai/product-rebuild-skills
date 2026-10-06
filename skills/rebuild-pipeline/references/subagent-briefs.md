@@ -151,6 +151,36 @@ Parallelism: dispatch independent lanes/modules in the same turn. On subagent ou
 validation, send it back with the validator error — do not hand-fix, the fix must come from a
 run that could have produced it.
 
+**Dispatch** (part 6): a build lane runs as the `build-lane` role, on the agent *and* model
+`scripts/routing.mjs --role build-lane` resolves, passed as `subagent_type` and `model` on the
+Agent call. It is a `bigin-skills` agent, never `general-purpose`: `task-workflow`'s loop requires
+its implementer to be one, and the lane-verifier round below assumes it was.
+
+## The lane-verifier brief (`lane-verifier`, after each build lane — G5 step 4b)
+
+A fresh dispatch per round. Never resume one, and never show it the lane's own report: an audit
+that reads the implementer's account of its work is the failure it exists to catch. It is
+`bigin-skills:verifier`, whose agent file carries its rules and its output contract. The brief
+is the handoff `task-workflow` gives it, with the paths filled in:
+
+```
+PLAN: {absolute path to <worktree>/PLAN.md}
+Diff: git -C {worktree} diff {base}   (base = git -C {worktree} merge-base <repo main branch> HEAD; covers committed and uncommitted work)
+Files: {git -C {worktree} diff --stat {base}, plus untracked files from git -C {worktree} status --porcelain}
+Implementer's test run: {the command the lane reported} → {its pass/fail line}
+Return only the verify-contract JSON.
+```
+
+Then add the context budget (part 4, verbatim, as for every brief) and one line of pipeline
+context: "The spec section of PLAN.md is a module spec approved in a rebuild workbench. Its
+acceptance criteria are the task rows. A criterion with a `rule_id` must match that Rule Card's
+values, as quoted in the spec." Pass `subagent_type` and `model` exactly as
+`scripts/routing.mjs --role lane-verifier` resolves them.
+
+Read the verdict, which is one JSON object (`{"verdict":"PASS"|"FAIL","issues":[...]}`), and
+record it with `lane-plan.mjs record-verify`. Relay a FAIL's issues to the lane verbatim, and
+nothing else of the verifier's.
+
 ## Which model each role runs on
 
 This used to read "route model tiers if the environment supports it: extraction → low tier;
