@@ -19,6 +19,13 @@ import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const STATE = join("plan", "autopilot.yaml");
 const DEFAULT_THRESHOLD = 80;
 
@@ -84,7 +91,7 @@ const argAfter = (flag) => {
 // with a lock file. Nothing else writes this file, so round-tripping a fixed shape is safe.
 const readState = () => {
   if (!existsSync(STATE)) return null;
-  const text = readFileSync(STATE, "utf8");
+  const text = readText(STATE);
   const top = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
   const block = (name) => {
     const m = text.match(new RegExp(`^${name}:\\n((?:  [^ \\n].*\\n?)*)`, "m"));

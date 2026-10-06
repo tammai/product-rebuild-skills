@@ -14,16 +14,24 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { parse } from "yaml";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 if (!existsSync("matrix/features.yaml")) {
   console.error("No matrix/features.yaml here — run from the workbench root.");
   process.exit(1);
 }
-const readYaml = (p, fallback) => (existsSync(p) ? parse(readFileSync(p, "utf8")) ?? fallback : fallback);
+const readYaml = (p, fallback) => (existsSync(p) ? parse(readText(p)) ?? fallback : fallback);
 
 const progress = readYaml("plan/progress.yaml", {}) || {};
 const featureProgress = progress.features || {};
 const sliceProgress = progress.slices || {};
 const notes = progress.notes || {};
+const featureNotes = progress.feature_notes || {};
 
 const features = (readYaml("matrix/features.yaml", []) || [])
   .map((f) => ({ ...f, status: featureProgress[f.id] || f.status || "planned" }));
@@ -54,6 +62,7 @@ const buckets = {
   covered: by("covered"), partial: by("partial"),
   missing: by("missing"), planned: by("planned"),
   upstream: by("upstream-candidate"),
+  descoped: by("descoped"),
 };
 // `deployed` counts too: a slice that shipped should have its features recorded,
 // even when a done_means clause is knowingly unmet and it never reaches `done`.
@@ -94,8 +103,14 @@ if (unrecorded.length) {
 // falling back to the UTC date when it is missing would bring back the bug it fixed.
 const _d = new Date();
 const date = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
-const pct = features.length ? Math.round((buckets.covered.length / features.length) * 100) : 0;
-const list = (arr) => arr.length ? arr.map((f) => `- ${f.id} ${f.name}`).join("\n") : "- none";
+// A descoped feature is a recorded ruling not to build it, so it leaves the denominator: counting
+// it as uncovered would make the figure unreachable by design. It stays visible in its own
+// section with its reason (validate.mjs refuses one without), and in the headline count.
+const inScope = features.length - buckets.descoped.length;
+const pct = inScope ? Math.round((buckets.covered.length / inScope) * 100) : 0;
+const list = (arr) => arr.length
+  ? arr.map((f) => `- ${f.id} ${f.name}${featureNotes[f.id] ? ` — ${featureNotes[f.id].trim()}` : ""}`).join("\n")
+  : "- none";
 
 // ---------------------------------------------------------------------------
 // AC pass rate, from the AC suite's own JUnit output — not from a hand-written summary.
@@ -245,7 +260,7 @@ const EQUIV_TITLE = "Equivalence (vs the legacy system)";
 let equivSection = "";
 if (acLib?.readEquivTraces) {
   const refKind = (() => {
-    const t = existsSync("sources.yaml") ? readFileSync("sources.yaml", "utf8") : "";
+    const t = existsSync("sources.yaml") ? readText("sources.yaml") : "";
     const b = t.match(/^reference:\n((?:(?:[ \t]+.*)?\n)*)/m);
     return (b?.[1].match(/^\s+kind:\s*(.*)$/m) || [])[1]?.trim().split(/\s+#/)[0].replace(/^["']|["']$/g, "") || "";
   })();
@@ -370,6 +385,7 @@ const OWNED = [
   "Missing (in a done slice but not covered — investigate)",
   "Partial",
   "Upstream candidates (from re-mining — decide at next slice boundary)",
+  "Descoped (by recorded decision)",
   "Slice progress",
   ...(acSection ? [AC_TITLE] : []),
   ...(rulesSection ? [RULES_TITLE] : []),
@@ -379,7 +395,7 @@ const OWNED = [
 const path = `parity/${date}.md`;
 let preserved = "";
 if (existsSync(path)) {
-  const kept = readFileSync(path, "utf8")
+  const kept = readText(path)
     .split(/\n(?=## )/)
     .filter((chunk) => chunk.startsWith("## ") && !OWNED.includes(chunk.slice(3).split("\n")[0].trim()));
   if (kept.length) preserved = "\n" + kept.join("\n").trimEnd() + "\n";
@@ -388,7 +404,7 @@ if (existsSync(path)) {
 mkdirSync("parity", { recursive: true });
 writeFileSync(path, `# Parity report — ${date}
 
-Coverage: ${buckets.covered.length}/${features.length} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned.
+Coverage: ${buckets.covered.length}/${inScope} covered (${pct}%), ${buckets.partial.length} partial, ${buckets.missing.length} missing, ${buckets.planned.length} planned${buckets.descoped.length ? `, ${buckets.descoped.length} descoped (not counted)` : ""}.
 ${overlayWarning}${acSection}${rulesSection}${equivSection}${basisSection}
 ## Missing (in a done slice but not covered — investigate)
 ${list(suspicious)}
@@ -398,6 +414,9 @@ ${list(buckets.partial)}
 
 ## Upstream candidates (from re-mining — decide at next slice boundary)
 ${list(buckets.upstream)}
+
+## Descoped (by recorded decision)
+${list(buckets.descoped)}
 
 ## Slice progress
 ${slices.map((s) => `- ${s.id} ${s.name}: ${s.status}${notes[s.id] ? `\n  - ${notes[s.id].trim().replace(/\n/g, "\n    ")}` : ""}`).join("\n") || "- no slice plan yet"}

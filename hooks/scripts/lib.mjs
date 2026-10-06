@@ -27,8 +27,11 @@ export const locate = () => {
 
 // The paths a lock file protects: the `  - x` items of the top-level `protects:` block only,
 // not any other indented list in the file (e.g. `history:` entries).
+// CRLF is normalised here rather than at each caller: a lock file checked out with
+// core.autocrlf=true never matches `^protects:[ \t]*\n`, and an empty list means gate-guard
+// lets every edit through to a locked gate.
 export const parseProtects = (text) => {
-  const block = text.match(/^protects:[ \t]*\n((?:[ \t]+.*\n?)*)/m);
+  const block = text.replace(/\r\n?/g, "\n").match(/^protects:[ \t]*\n((?:[ \t]+.*\n?)*)/m);
   if (!block) return [];
   return [...block[1].matchAll(/^  - (.+)$/gm)].map((m) => m[1].trim());
 };

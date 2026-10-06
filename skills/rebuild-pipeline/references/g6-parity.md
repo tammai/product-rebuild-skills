@@ -237,8 +237,9 @@ At slice completion, write status to **`plan/progress.yaml`** (ungated, validate
 
 ```yaml
 slices:   { S1: deployed }
-features: { F-API-001: covered }
+features: { F-API-001: covered, F-API-007: descoped }
 notes:    { S1: "one-line asterisk carried into the report" }
+feature_notes: { F-API-007: "ruled out by <who>, <date>: <why>" }
 ```
 
 `parity.mjs` overlays it onto `matrix/features.yaml` and `plan/slices.yaml` — an entry here
@@ -255,8 +256,14 @@ Two behaviors worth knowing:
 - **`deployed` counts as shipped** for scope-creep detection, alongside `done`. Use it when a
   slice ships with a `done_means` clause knowingly unmet, so the creep check still runs instead
   of going inert. Reserve `done` for a slice that meets its criteria outright.
+- **`descoped` is a user ruling, not a status the build reaches.** Use it only when the user
+  decides this rebuild will not build a feature. It takes the feature out of the coverage
+  denominator in both `parity.mjs` and `slice-review.mjs`, and lists it under "Descoped" with its
+  `feature_notes:` line. `validate.mjs` fails a descoped feature that has no note: a feature
+  that leaves every figure needs its reason on the record. Record it here, not in the matrix:
+  `matrix/features.yaml` describes the reference, which still has the feature.
 - **Hand-written sections survive a re-run.** The script owns the coverage line and the Missing
-  / Partial / Upstream-candidates / Slice-progress sections; any other `## ` section — the AC
+  / Partial / Upstream-candidates / Descoped / Slice-progress sections; any other `## ` section — the AC
   suite result, the re-mine writeup — is preserved, and re-running on the same date is
   idempotent.
 

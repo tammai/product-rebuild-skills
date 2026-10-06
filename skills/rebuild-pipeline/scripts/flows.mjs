@@ -28,6 +28,13 @@
 import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 export const FLOWS_DIR = "parity/flows";
 export const UNLOCK_FILE = join(FLOWS_DIR, ".unlocked.yaml");
 export const DECISION_LOG = join(FLOWS_DIR, "DECISIONS.md");
@@ -37,13 +44,16 @@ export const readUnlock = (root = ".") => {
   const p = join(root, UNLOCK_FILE);
   if (!existsSync(p)) return null;
   let text = "";
-  try { text = readFileSync(p, "utf8"); } catch { return null; }
+  try { text = readText(p); } catch { return null; }
   const get = (k) => (text.match(new RegExp(`^${k}:\\s*(.*)$`, "m")) || [])[1]?.trim().replace(/^"|"$/g, "");
   return { reason: get("reason") || "(no reason recorded)", at: get("at") || "(unknown)", by: get("by") || "unknown" };
 };
 
 // --- CLI below. Importing this module runs nothing. ---
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+// Split on either separator: on Windows argv[1] arrives with backslashes, a "/" split returned the
+// whole path, and the CLI exited 0 having done nothing. Same line in equiv, flows, lane-plan and
+// sequence — change all four together.
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop());
 if (isMain) {
   if (!existsSync(join("locks", "pipeline.yaml"))) {
     console.error("No locks/pipeline.yaml here — run from the workbench root.");

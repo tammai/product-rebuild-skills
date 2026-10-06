@@ -31,6 +31,13 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 
 import { join } from "node:path";
 import { parse } from "yaml";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const REVIEW_DIR = "plan/slice-reviews";
 const SHIPPED = new Set(["done", "deployed"]);
 
@@ -40,7 +47,7 @@ if (!existsSync(join("locks", "pipeline.yaml"))) {
 }
 const readYaml = (p, fallback) => {
   if (!existsSync(p)) return fallback;
-  try { return parse(readFileSync(p, "utf8")) ?? fallback; } catch { return fallback; }
+  try { return parse(readText(p)) ?? fallback; } catch { return fallback; }
 };
 
 // Late-added sibling modules are imported guarded, the same way validate.mjs handles erd.mjs
@@ -309,7 +316,7 @@ if (lanePlans) {
         `or removed. Approved @ workbench ${rec.workbench_commit} by ${rec.approved_by}.`);
       continue;
     }
-    const plan = readFileSync(planPath, "utf8");
+    const plan = readText(planPath);
     const rows = planLib.taskRows(plan);
     const done = rows.filter((r) => r.status === "Done").length;
     const status = plan.match(/^Status:\s*(\S+)/m)?.[1] || "(none)";
@@ -353,9 +360,15 @@ if (lanePlans) {
 // denominator. So only an explicit progress entry counts here, the number is labelled
 // `recorded covered`, and the count of features with no entry is printed beside it so the gap
 // between this figure and parity's is visible rather than surprising.
+//
+// A `descoped` entry is a recorded ruling not to build the feature, so it leaves the denominator
+// here exactly as it does in parity.mjs — otherwise the two reports would disagree by the
+// descoped count with nothing saying why.
 const recordedCovered = matrix.filter((f) => featureProgress[f?.id] === "covered").length;
 const noEntry = matrix.filter((f) => !featureProgress[f?.id]).length;
-const pct = matrix.length ? Math.round((recordedCovered / matrix.length) * 100) : 0;
+const descoped = matrix.filter((f) => featureProgress[f?.id] === "descoped").length;
+const inScope = matrix.length - descoped;
+const pct = inScope ? Math.round((recordedCovered / inScope) * 100) : 0;
 const shippedSlices = order.filter((id) => SHIPPED.has(statusOf(id)));
 const pos = order.indexOf(sliceId);
 const pendingAfter = order.slice(pos + 1).filter((id) => !SHIPPED.has(statusOf(id)));
@@ -444,7 +457,7 @@ if (!existsSync(RUNBOOK)) {
       `S1's lessons on its own. Write it now from what the lanes reported; the guard will block ` +
       `the next slice's code writes until it exists.`);
 } else {
-  const text = readFileSync(RUNBOOK, "utf8");
+  const text = readText(RUNBOOK);
   const amendments = [...text.matchAll(/^##\s+Amendment after (S\d+)/gm)].map((m) => m[1]);
   const prevShipped = shippedSlices.filter((id) => id !== sliceId);
   const prev = prevShipped[prevShipped.length - 1];
@@ -505,7 +518,7 @@ ${lanePlanMd.length ? `\nLane plans (\`plan/lane-plans/${sliceId}.yaml\`):\n\n${
 
 \`\`\`
 ${bar(shippedSlices.length, order.length)}  ${shippedSlices.length} of ${order.length} slices shipped
-${bar(recordedCovered, matrix.length)}  ${recordedCovered} of ${matrix.length} features recorded covered (${pct}%)
+${bar(recordedCovered, inScope)}  ${recordedCovered} of ${inScope} features recorded covered (${pct}%)${descoped ? `, ${descoped} descoped (not counted)` : ""}
 \`\`\`
 
 Coverage here counts **only explicit \`plan/progress.yaml\` entries**${noEntry ? `; ${noEntry} of ${matrix.length} matrix features have none yet` : ""}.
@@ -558,7 +571,7 @@ console.log(wrap(runHeadline, "  Runs?     "));
 for (const l of term.run) console.log(wrap(l, INDENT));
 console.log(`\n  Shipped   ${sliceFeatures.length} feature(s) · slice is ${sliceStatus}`);
 console.log(`\n  Standing  ${bar(shippedSlices.length, order.length)}  ${shippedSlices.length}/${order.length} slices shipped`);
-console.log(`${INDENT}${bar(recordedCovered, matrix.length)}  ${recordedCovered}/${matrix.length} features recorded covered (${pct}%)`);
+console.log(`${INDENT}${bar(recordedCovered, inScope)}  ${recordedCovered}/${inScope} features recorded covered (${pct}%)${descoped ? `, ${descoped} descoped` : ""}`);
 console.log(wrap(`Next: ${next ? `${next} ${byId.get(next)?.name || ""}` : "nothing pending"}`, INDENT));
 if (pendingAfter.length > 1) console.log(wrap(`Then: ${pendingAfter.slice(1).join(" · ")}`, INDENT));
 if (term.pressure.length) {

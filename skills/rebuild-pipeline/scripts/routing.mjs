@@ -88,6 +88,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const CONFIG = ".claude/model-routing.json";
 const DEFAULT_PROFILE = "balanced";
 
@@ -167,7 +174,7 @@ function readPins(agentsDir, warnings) {
   for (const f of files) {
     const role = f.replace(/\.md$/, "");
     if (!Object.hasOwn(ROLE_TIERS, role)) continue;
-    const text = readFileSync(join(agentsDir, f), "utf8");
+    const text = readText(join(agentsDir, f));
     const fm = /^---\n([\s\S]*?)\n---/.exec(text);
     const effort = fm && /^effort:\s*(\S+)\s*$/m.exec(fm[1]);
     if (effort) pins[role] = effort[1];
@@ -189,7 +196,7 @@ function loadConfig(root, warnings) {
   const path = join(root, CONFIG);
   let raw;
   try {
-    raw = readFileSync(path, "utf8");
+    raw = readText(path);
   } catch {
     return { profile: DEFAULT_PROFILE, models: {}, source: "default" };
   }

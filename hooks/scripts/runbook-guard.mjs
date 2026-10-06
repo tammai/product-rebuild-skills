@@ -41,7 +41,7 @@
 // name any registered repo with no marker, or a wrong one, while a slice is in progress.
 
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, resolve, join, isAbsolute } from "node:path";
+import { dirname, resolve, join, isAbsolute, sep } from "node:path";
 
 let input = "";
 try { input = readFileSync(0, "utf8"); } catch { process.exit(0); }
@@ -73,7 +73,9 @@ if (!existsSync(join(wbRoot, "locks", "pipeline.yaml"))) process.exit(0); // sta
 // Never guard the workbench itself. Writing the runbook is the remedy this hook names, and a
 // guard that blocked its own remedy would be the pre-0.14.0 flows-guard mistake again: an
 // escape hatch that does not exist.
-if (resolve(abs) === resolve(wbRoot) || resolve(abs).startsWith(resolve(wbRoot) + "/")) process.exit(0);
+// `sep`, not "/": resolve() returns backslashes on Windows, where a "/" suffix never matched and
+// the guard blocked writing the runbook itself.
+if (resolve(abs) === resolve(wbRoot) || resolve(abs).startsWith(resolve(wbRoot) + sep)) process.exit(0);
 
 const RUNBOOK = join(wbRoot, "plan", "BUILD_RUNBOOK.md");
 if (existsSync(RUNBOOK)) process.exit(0); // the thing this guard exists to require
@@ -83,7 +85,9 @@ if (existsSync(RUNBOOK)) process.exit(0); // the thing this guard exists to requ
 const progressPath = join(wbRoot, "plan", "progress.yaml");
 if (!existsSync(progressPath)) process.exit(0);
 let progress = "";
-try { progress = readFileSync(progressPath, "utf8"); } catch { process.exit(0); }
+// CRLF to LF first: with core.autocrlf=true the `^slices:\n` header never matches a CRLF file,
+// and the guard fails open on every Windows checkout.
+try { progress = readFileSync(progressPath, "utf8").replace(/\r\n?/g, "\n"); } catch { process.exit(0); }
 const block = progress.match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
 if (!block) process.exit(0);
 const inProgress = [...block[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)]

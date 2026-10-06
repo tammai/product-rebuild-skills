@@ -94,11 +94,12 @@ node ${CLAUDE_PLUGIN_ROOT}/skills/rebuild-pipeline/scripts/upgrade.mjs --auto --
 ```
 
 It prints one `TOOLING` line. It copies only the vendored files it can prove are unmodified,
-and only when no slice is in progress, no autopilot run is engaged and the tree is clean;
-otherwise it defers to a later session start. An applied upgrade is one commit, followed by
-`validate`. Relay the line in Step 3. A `refused` file is a local edit or an unknown-provenance
-copy: say so and leave it to the user (`node scripts/upgrade.mjs` shows why). A `FAILS` from
-validate after an upgrade is the first thing to look at, before any pipeline work.
+and only when no slice is in progress, no autopilot run is engaged, the tree is clean and no
+copy would break an import between scripts; otherwise it defers to a later session start. An
+applied upgrade is one commit, followed by `validate` and `gate status`. Relay the line in
+Step 3. A `refused` file is a local edit or an unknown-provenance copy: say so and leave it to
+the user (`node scripts/upgrade.mjs` shows why). A `FAILS` from validate, or a `gate status
+changed`, after an upgrade is the first thing to look at, before any pipeline work.
 
 This prints each gate's state (open/locked, date, artifact hashes) and derives the
 **current phase**: the first phase whose entry gate is locked but whose own exit gate

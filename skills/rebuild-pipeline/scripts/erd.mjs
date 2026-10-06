@@ -9,6 +9,13 @@
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 /** Directory holding one Mermaid erDiagram per bounded context. */
 export const DATA_MODEL_DIR = "contracts/data-model";
 
@@ -23,7 +30,7 @@ export const DATA_MODEL_DIR = "contracts/data-model";
 export const isLegacyWorkbench = (root = ".") => {
   const p = join(root, "locks", "pipeline.yaml");
   if (!existsSync(p)) return true;
-  const v = (readFileSync(p, "utf8").match(/^schema_version:\s*"?([\d.]+)"?/m) || [])[1];
+  const v = (readText(p).match(/^schema_version:\s*"?([\d.]+)"?/m) || [])[1];
   if (!v) return true;
   const [major, minor] = v.split(".").map(Number);
   return major === 0 && minor < 2;
@@ -50,7 +57,7 @@ const entityName = (s) => s.replace(/\[[^\]]*\]$/, "");
 export const readErd = (file) => {
   const problems = [], entities = new Set();
   let relationships = 0, inBlock = false, sawHeader = false;
-  for (const raw of readFileSync(file, "utf8").split("\n")) {
+  for (const raw of readText(file).split("\n")) {
     const line = raw.replace(/%%.*$/, ""); // Mermaid comment
     if (!line.trim()) continue;
     if (inBlock) { if (/^\s*\}/.test(line)) inBlock = false; continue; }

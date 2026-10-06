@@ -36,6 +36,13 @@ import { join, resolve, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 // Section boundaries of a PLAN.md this script wrote. Spec headings are demoted two levels when
 // embedded (below), so `## Tasks` and `## Amendments` are the only h2s after `## Spec`.
 export const specSection = (plan) => {
@@ -57,13 +64,15 @@ export const taskRows = (plan) => {
 export const readLanePlans = (sliceId, root = ".") => {
   const p = join(root, "plan", "lane-plans", `${sliceId}.yaml`);
   if (!existsSync(p)) return null;
-  try { return JSON.parse(readFileSync(p, "utf8").replace(/^#.*\n/gm, "")); } catch { return null; }
+  try { return JSON.parse(readText(p).replace(/^#.*\n/gm, "")); } catch { return null; }
 };
 
 // The acceptance criteria of one spec: the list items under `## Acceptance criteria`, the same
-// section and item shape validate.mjs counts for its rule_id figures.
+// section and item shape validate.mjs counts for its rule_id figures, numbered heading
+// (`## 5. Acceptance criteria`) included. Change the heading pattern in both together.
 const acceptanceCriteria = (text) => {
-  const sec = text.split(/^##\s+/m).slice(1).find((c) => /^acceptance criteria\s*$/i.test(c.split("\n")[0].trim()));
+  const sec = text.split(/^##\s+/m).slice(1)
+    .find((c) => /^(\d+[a-z]?\.\s*)?acceptance criteria\s*$/i.test(c.split("\n")[0].trim()));
   if (!sec) return [];
   return sec.split("\n").filter((l) => /^\s*(?:\d+\.|[-*])\s+\S/.test(l)).map((l) => l.replace(/^\s*(?:\d+\.|[-*])\s+/, "").trim());
 };
@@ -73,7 +82,10 @@ const acceptanceCriteria = (text) => {
 // living in a conversation nobody re-reads. The cap of 3 is task-workflow's: every verifier
 // dispatch on a plan is a round, and the third FAIL ends the loop with a halt for the user.
 export const VERIFY_CAP = 3;
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+// Split on either separator: on Windows argv[1] arrives with backslashes, a "/" split returned the
+// whole path, and the CLI exited 0 having done nothing. Same line in equiv, flows, lane-plan and
+// sequence — change all four together.
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop());
 if (isMain && process.argv[2] === "record-verify") {
   const args = process.argv.slice(3);
   const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -145,7 +157,7 @@ if (isMain) {
   }
 
   const planPath = join(worktree, "PLAN.md");
-  const existing = existsSync(planPath) ? readFileSync(planPath, "utf8") : null;
+  const existing = existsSync(planPath) ? readText(planPath) : null;
   const oldRows = existing ? taskRows(existing) : [];
   if (existing && !amend && oldRows.some((r) => r.status !== "Done")) {
     die(`${planPath} has unfinished rows. Finish or archive that plan, or use --amend if the approved specs changed.`);
@@ -156,12 +168,12 @@ if (isMain) {
   // stays the only h2 after `## Spec`.
   const date = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
   const specBody = specs.map((s) => {
-    const text = readFileSync(s, "utf8").replace(/^(#{1,4})(\s)/gm, "##$1$2");
+    const text = readText(s).replace(/^(#{1,4})(\s)/gm, "##$1$2");
     return `### ${s.replace(/\\/g, "/")}\n\n${text.trim()}\n`;
   }).join("\n");
   const acs = specs.flatMap((s) => {
     const mod = s.split(/[\\/]/).pop().replace(/\.md$/, "");
-    return acceptanceCriteria(readFileSync(s, "utf8")).map((ac, i) => `${mod} AC${i + 1}: ${ac}`.replace(/(?<!\\)\|/g, "\\|"));
+    return acceptanceCriteria(readText(s)).map((ac, i) => `${mod} AC${i + 1}: ${ac}`.replace(/(?<!\\)\|/g, "\\|"));
   });
   if (!acs.length) die("the specs carry no `## Acceptance criteria` items, so there is nothing to make task rows from.");
 

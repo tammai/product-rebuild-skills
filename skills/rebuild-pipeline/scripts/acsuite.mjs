@@ -14,6 +14,13 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 /**
  * Today on the LOCAL calendar, as YYYY-MM-DD — the date every dated file in parity/ is named by.
  *
@@ -291,7 +298,7 @@ export const describeSkips = (cases) => {
 export const readAcSuite = (path) => {
   if (!existsSync(path)) return null;
   let xml;
-  try { xml = readFileSync(path, "utf8"); }
+  try { xml = readText(path); }
   catch (e) { return { unreadable: e.message }; }
   // Split on the opening tag so each chunk is one test case plus whatever it contained.
   const chunks = xml.split(/<testcase\b/).slice(1);
@@ -425,7 +432,7 @@ export const readRuleCards = (root = ".", parseYaml) => {
   const out = [];
   for (const f of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
     let data;
-    try { data = parseYaml(readFileSync(join(dir, f), "utf8")); } catch { continue; }
+    try { data = parseYaml(readText(join(dir, f))); } catch { continue; }
     if (!Array.isArray(data)) continue;
     const domain = f.replace(/\.ya?ml$/, "");
     for (const r of data) if (r?.id) out.push({ id: r.id, domain, kind: r.kind, features: r.features || [] });

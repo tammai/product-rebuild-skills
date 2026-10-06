@@ -46,6 +46,13 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { localDate, runMetaPath, readAcSuite } from "./acsuite.mjs";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 if (!existsSync(join("locks", "pipeline.yaml"))) {
   console.error("No locks/pipeline.yaml here — run from the workbench root.");
   process.exit(1);
@@ -64,7 +71,7 @@ const git = (dir, a) => {
 const repoEntries = () => {
   const out = [{ name: "workbench", path: resolve(".") }];
   if (!existsSync("repos.yaml")) return out;
-  const text = readFileSync("repos.yaml", "utf8");
+  const text = readText("repos.yaml");
   for (const m of text.matchAll(/^\s*-\s*(?:name:\s*(\S+)\s*)?path:\s*(\S+)/gm)) {
     out.push({ name: m[1] || m[2], path: resolve(m[2]) });
   }
@@ -243,7 +250,7 @@ const deadRuns = runs.filter((r) => r.died && r.newest && now - r.newest.mtime <
 const markerProblems = [];
 const inProgress = (() => {
   try {
-    const block = readFileSync(join("plan", "progress.yaml"), "utf8").match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
+    const block = readText(join("plan", "progress.yaml")).match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
     return block ? [...block[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)].filter((m) => m[2] === "in-progress").map((m) => m[1]) : [];
   } catch { return []; }
 })();
@@ -253,7 +260,7 @@ if (inProgress.length) {
     if (!existsSync(path)) continue;
     const marker = join(path, ".rebuild-workbench");
     let target = "";
-    try { target = readFileSync(marker, "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
+    try { target = readText(marker).split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
     catch { /* missing: reported below */ }
     const points = target && resolve(path, target);
     if (!target) markerProblems.push(`${name}: no .rebuild-workbench marker`);

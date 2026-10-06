@@ -30,6 +30,13 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { parse, parseDocument } from "yaml";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const ajv = new Ajv({ allErrors: true });
 addFormats(ajv);
 const schema = (n) => JSON.parse(readFileSync(join("schemas", n), "utf8"));
@@ -70,7 +77,7 @@ const yamlFilesUnder = (dir) => {
 };
 const check = (file, validator) => {
   let data;
-  try { data = parse(readFileSync(file, "utf8")); }
+  try { data = parse(readText(file)); }
   catch (e) { return fail(file, `YAML parse error: ${e.message}`); }
   if (data == null) return ok(file + " (empty)");
   if (!validator(data)) return fail(file, ajv.errorsText(validator.errors, { separator: "\n  " }));
@@ -414,7 +421,7 @@ if (specFiles.length) {
   const domainsWithRules = new Set();
   const invariantIds = new Set();
   for (const f of yamlFilesUnder("findings").filter(isRuleFile)) {
-    let data; try { data = parse(readFileSync(f, "utf8")); } catch { continue; }
+    let data; try { data = parse(readText(f)); } catch { continue; }
     if (!Array.isArray(data)) continue;
     // Domain is the filename (findings/rules/<domain>.yaml) — the same key a spec's
     // `domains:` frontmatter uses, which is what makes "does this spec's domain have rules"
@@ -429,15 +436,19 @@ if (specFiles.length) {
 
   let acTotal = 0, acWithRule = 0, acInRuleDomains = 0, acInRuleDomainsWithRule = 0;
   for (const f of specFiles) {
-    const text = readFileSync(f, "utf8");
+    const text = readText(f);
     const fm = text.match(/^---\n([\s\S]*?)\n---/);
     const domainsLine = fm?.[1].match(/^domains:\s*\[?(.*?)\]?\s*$/m)?.[1] || "";
     const domains = domainsLine.split(",").map((d) => d.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
     const ruleBearing = domains.some((d) => domainsWithRules.has(d));
 
-    // The AC section runs from its heading to the next heading of the same level or EOF.
+    // The AC section runs from its heading to the next heading of the same level or EOF. A
+    // numbered heading (`## 5. Acceptance criteria`) counts: specs number their sections, and
+    // matching only the bare title dropped every criterion of a numbered spec from the figures
+    // below with a warning that read as a missing section. Same pattern as lane-plan.mjs's
+    // acceptanceCriteria — change both together.
     const sec = text.split(/^##\s+/m).slice(1)
-      .find((c) => /^acceptance criteria\s*$/i.test(c.split("\n")[0].trim()));
+      .find((c) => /^(\d+[a-z]?\.\s*)?acceptance criteria\s*$/i.test(c.split("\n")[0].trim()));
     if (!sec) {
       warn(f, "no `## Acceptance criteria` section — spec-writer's output contract requires one, " +
         "and without it this spec's criteria are not counted in the rule_id figures below.");
@@ -501,8 +512,19 @@ if (validators.progress && existsSync("plan/progress.yaml")) {
       }
     };
     crossRef("features", featureIds, "feature");
+    crossRef("feature_notes", featureIds, "feature");
     crossRef("slices", sliceIds, "slice");
     crossRef("notes", sliceIds, "slice");
+    // A descoped feature leaves the coverage denominator in parity.mjs and slice-review.mjs, so
+    // one with no recorded reason is a feature that vanished from every figure unexplained.
+    const unexplained = Object.entries(progress.features || {})
+      .filter(([id, st]) => st === "descoped" && !String(progress.feature_notes?.[id] || "").trim())
+      .map(([id]) => id);
+    if (unexplained.length) {
+      fail("plan/progress.yaml", `descoped with no reason under feature_notes: ${unexplained.join(", ")}\n` +
+        `  Descoping drops a feature from every coverage figure; the reason is what keeps that ` +
+        `visible. Add one line per feature, e.g. feature_notes: { ${unexplained[0]}: "ruled out by <who>, <date>: <why>" }`);
+    }
   }
 }
 // ---------------------------------------------------------------------------
@@ -603,7 +625,7 @@ const contractDocs = new Map(); // path -> parsed doc, so cross-file refs parse 
 const loadContract = (file) => {
   if (contractDocs.has(file)) return contractDocs.get(file);
   let doc = null;
-  try { doc = parse(readFileSync(file, "utf8")); } catch { /* reported by its own pass */ }
+  try { doc = parse(readText(file)); } catch { /* reported by its own pass */ }
   contractDocs.set(file, doc);
   return doc;
 };
@@ -637,7 +659,7 @@ for (const file of yamlFilesUnder("contracts")) {
   // parse silently resolves last-wins. Two operations sharing a path key, or a
   // schema defined twice, is exactly the merge accident this catches.
   let docNode;
-  try { docNode = parseDocument(readFileSync(file, "utf8"), { uniqueKeys: true }); }
+  try { docNode = parseDocument(readText(file), { uniqueKeys: true }); }
   catch (e) { fail(file, `YAML parse error: ${e.message}`); continue; }
   if (docNode.errors?.length) {
     fail(file, docNode.errors.map((e) => e.message).join("\n  "));
@@ -720,7 +742,7 @@ catch { fail("scripts/erd.mjs", "missing — data model not checked. Copy it fro
 if (erd) {
   const { DATA_MODEL_DIR, DATA_MODEL_REMEDY, checkDataModel, isLegacyWorkbench } = erd;
   const gate4 = join("locks", "gate-4.yaml");
-  const gate4Locked = existsSync(gate4) && /^status: locked$/m.test(readFileSync(gate4, "utf8"));
+  const gate4Locked = existsSync(gate4) && /^status: locked$/m.test(readText(gate4));
   const dm = checkDataModel();
   const issues = [...dm.problems];
   if (dm.missing && gate4Locked) issues.push(`no .mermaid file, but gate-4 is locked`);
@@ -767,7 +789,7 @@ if (pb) {
     // is gate.mjs's job, for the same reason the data-model check lives there: gate status is
     // open|locked with nothing between, so a validator firing on `locked` is one tag too late.
     const gate3 = join("locks", "gate-3.yaml");
-    const gate3Locked = existsSync(gate3) && /^status: locked$/m.test(readFileSync(gate3, "utf8"));
+    const gate3Locked = existsSync(gate3) && /^status: locked$/m.test(readText(gate3));
     const issues = [...res.problems];
     if (res.missingVendored && gate3Locked) {
       issues.push(`gate-3 is locked but ${VENDORED_PLAYBOOK} does not exist — the ADRs cite a playbook nothing pins`);

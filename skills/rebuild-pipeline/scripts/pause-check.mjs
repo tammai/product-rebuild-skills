@@ -21,6 +21,13 @@ import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const LOCKS = "locks";
 const ORDER = ["gate-1", "gate-2", "gate-3", "gate-4", "gate-5"];
 
@@ -245,7 +252,7 @@ checkRepo("workbench", ".");
 
 let repoEntries = [];
 if (existsSync("repos.yaml")) {
-  const text = readFileSync("repos.yaml", "utf8");
+  const text = readText("repos.yaml");
   // Two supported shapes: `repos: []` (empty stub) or a `- path: ...` / `- name: ... path: ...` list.
   const pathMatches = [...text.matchAll(/^\s*-\s*(?:name:\s*(\S+)\s*)?path:\s*(\S+)/gm)];
   repoEntries = pathMatches.map((m) => ({ name: m[1] || m[2], path: m[2] }));
@@ -266,7 +273,7 @@ for (const { name, path } of repoEntries) {
 // imported — if you change one, change both.
 const slicesInProgress = (() => {
   try {
-    const block = readFileSync(join("plan", "progress.yaml"), "utf8").match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
+    const block = readText(join("plan", "progress.yaml")).match(/^slices:\n((?:(?:[ \t]+.*)?\n)*)/m);
     return block ? [...block[1].matchAll(/^\s+(S\d+):\s*([a-z-]+)/gm)].filter((m) => m[2] === "in-progress").map((m) => m[1]) : [];
   } catch { return []; }
 })();
@@ -276,7 +283,7 @@ if (slicesInProgress.length) {
     const dir = resolve(path);
     if (!existsSync(dir)) continue; // already an issue above
     let target = "";
-    try { target = readFileSync(join(dir, ".rebuild-workbench"), "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
+    try { target = readText(join(dir, ".rebuild-workbench")).split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || ""; }
     catch { /* missing */ }
     const points = target && resolve(dir, target);
     const fix = `Fix: \`cd ${shq(dir)} && echo ${shq(here)} > .rebuild-workbench && git add .rebuild-workbench && ` +
@@ -300,7 +307,7 @@ const unquote = (s) => s !== undefined && /^".*"$/.test(s)
 const parseLock = (id) => {
   const p = join(LOCKS, `${id}.yaml`);
   if (!existsSync(p)) return null;
-  const text = readFileSync(p, "utf8");
+  const text = readText(p);
   const get = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
   const historyBlock = text.match(/history:[\s\S]*$/)?.[0] || "";
   const actions = [...historyBlock.matchAll(/^\s*-\s*action:\s*(\S+)/gm)].map((m) => m[1]);
@@ -326,7 +333,7 @@ for (const id of ORDER) {
 // mid-flight, safe for an hour and not safe to sleep on.
 const unlockFile = join("parity", "flows", ".unlocked.yaml");
 if (existsSync(unlockFile)) {
-  const text = readFileSync(unlockFile, "utf8");
+  const text = readText(unlockFile);
   const get = (k) => (text.match(new RegExp(`^${k}:\\s*(.*)$`, "m")) || [])[1]?.trim().replace(/^"|"$/g, "");
   issues.push(`parity/flows: AC flow assertions still UNLOCKED (since ${get("at") || "?"}, ` +
     `by ${get("by") || "?"}: ${get("reason") || "no reason recorded"}) — the guard is off. ` +
@@ -350,7 +357,7 @@ const progressSliceStatuses = () => {
   const p = join("plan", "progress.yaml");
   if (!existsSync(p)) return null;
   let lines;
-  try { lines = readFileSync(p, "utf8").split("\n"); } catch { return null; }
+  try { lines = readText(p).split("\n"); } catch { return null; }
   const i = lines.findIndex((l) => /^slices:/.test(l));
   if (i === -1) return new Map();
   const out = new Map();

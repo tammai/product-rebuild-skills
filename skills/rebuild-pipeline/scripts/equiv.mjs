@@ -49,6 +49,13 @@ import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
 import { localDate } from "./acsuite.mjs";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 export const EQUIV_DIR = "parity/equiv";
 export const UNLOCK_FILE = join(EQUIV_DIR, ".unlocked.yaml");
 export const DECISION_LOG = join(EQUIV_DIR, "DECISIONS.md");
@@ -167,7 +174,7 @@ const diffValues = (a, b, path, ignore, out = []) => {
 // never applied look identical in a report, and only one of them means anything.
 // ---------------------------------------------------------------------------
 const readSources = () => {
-  const text = existsSync("sources.yaml") ? readFileSync("sources.yaml", "utf8") : "";
+  const text = existsSync("sources.yaml") ? readText("sources.yaml") : "";
   const block = text.match(/^reference:\n((?:(?:[ \t]+.*)?\n)*)/m);
   const get = (k) => (block?.[1].match(new RegExp(`^\\s+${k}:\\s*(.*)$`, "m")) || [])[1]
     ?.trim().split(/\s+#/)[0].replace(/^["']|["']$/g, "") || "";
@@ -216,7 +223,7 @@ const requireGate = (cmd) => {
 // ---------------------------------------------------------------------------
 const readConfig = () => {
   if (!existsSync(CONFIG_FILE)) return null;
-  try { return parse(readFileSync(CONFIG_FILE, "utf8")) || null; } catch { return null; }
+  try { return parse(readText(CONFIG_FILE)) || null; } catch { return null; }
 };
 // Connections come from ENV VAR NAMES in config.yaml, not from literals. The workbench is a git
 // repo that gets pushed, and a DSN with a password in it is a credential in version control —
@@ -273,14 +280,17 @@ const doRequest = async (baseUrl, req) => {
 };
 
 // --- CLI. Importing this module runs nothing. ---
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+// Split on either separator: on Windows argv[1] arrives with backslashes, a "/" split returned the
+// whole path, and the CLI exited 0 having done nothing. Same line in equiv, flows, lane-plan and
+// sequence — change all four together.
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop());
 if (!isMain) { /* imported for EQUIV_DIR / readUnlock etc. */ }
 
 export const readUnlock = (root = ".") => {
   const p = join(root, UNLOCK_FILE);
   if (!existsSync(p)) return null;
   let text = "";
-  try { text = readFileSync(p, "utf8"); } catch { return null; }
+  try { text = readText(p); } catch { return null; }
   const get = (k) => (text.match(new RegExp(`^${k}:\\s*(.*)$`, "m")) || [])[1]?.trim().replace(/^"|"$/g, "");
   return { reason: get("reason") || "(no reason recorded)", at: get("at") || "(unknown)", by: get("by") || "unknown" };
 };
@@ -385,7 +395,7 @@ if (isMain) {
     mkdirSync(join(EQUIV_DIR, featureId), { recursive: true });
     let written = 0;
     for (const rf of reqs) {
-      const spec = parse(readFileSync(rf, "utf8")) || {};
+      const spec = parse(readText(rf)) || {};
       const name = basename(rf).replace(/\.request\.yaml$/, "");
       const out = join(EQUIV_DIR, featureId, `${name}.trace.yaml`);
       if (existsSync(out) && !has("--force")) {
@@ -473,7 +483,7 @@ if (isMain) {
 
     const cases = [];
     for (const tf of traces) {
-      const t = parse(readFileSync(tf, "utf8")) || {};
+      const t = parse(readText(tf)) || {};
       const name = basename(tf).replace(/\.trace\.yaml$/, "");
       const feature = t.feature || basename(join(tf, ".."));
       // classname carries the feature id and any rule ids, because that is the only thing JUnit

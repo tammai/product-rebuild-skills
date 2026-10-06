@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-06
+
+Fixes for gaps found upgrading a Windows 11 workbench (`core.autocrlf=true`) from plugin 0.22.0
+to 0.31.0. Issue #2. Forcing the plugin's versions over nine kept files broke the workbench in
+four ways.
+
+- **CRLF files are read correctly.** With `core.autocrlf=true` the working copy is CRLF, and
+  every pattern with a literal `\n` matched nothing. `gate.mjs status` reported "0/18 slices
+  done" on a workbench with eight done. Worse, `gate-guard.mjs` read a locked gate's
+  `protects:` as empty and allowed every edit. Every script that parses YAML or markdown, and
+  the hooks' `parseProtects`, now turns CRLF into LF on read. This is the helper `playbook.mjs`
+  already had.
+- **Windows path separators.** `flows.mjs`, `sequence.mjs`, `equiv.mjs` and `lane-plan.mjs`
+  did nothing when run directly, because `isMain` split `argv[1]` on `/` only. `gate.mjs lock`
+  reported the lock file as dirty against itself (git prints `/`, `join` gives `\`). It also
+  wrote `\` into `artifact_hashes` keys. `runbook-guard.mjs` blocked writing the runbook
+  inside the workbench.
+- **`descoped` feature status and `feature_notes:`** in `plan/progress.yaml`. A user ruling
+  not to build a feature is recorded as `features: { F-X-001: descoped }` with its reason under
+  `feature_notes:`. `validate.mjs` fails a descoped feature with no note and a note for an
+  unknown feature. `parity.mjs` and `slice-review.mjs` leave descoped features out of the
+  coverage denominator. `parity.mjs` lists them, with their reasons, under "Descoped".
+- **A numbered `## 5. Acceptance criteria` heading** is read by `validate.mjs` and
+  `lane-plan.mjs`. Before this, they warned that the section was missing and left those
+  criteria out of the rule_id figures and lane task rows.
+- **`upgrade.mjs` sees files as a set.**
+  - `--force`, `--keep` and `--diff` accept either separator. The manifest uses `\` on Windows,
+    so `--force scripts/acsuite.mjs` was rejected.
+  - A vendored copy re-checked-out as CRLF now matches its LF hash, so it no longer reads as
+    `modified` on every clone. `--keep` records the LF hash.
+  - It reports any import between scripts that will not resolve after the run, for example a
+    kept `slice-review.mjs` calling an export the forced `acsuite.mjs` no longer has.
+    `--auto` defers rather than cause one.
+  - `--apply` runs `validate` and `gate status` before and after the copy. It warns when
+    validate newly fails or the phase changes, and prints how to undo the run.
+- `eval/windows-and-upgrade.mjs`: 14 cases. The path-separator fixes need a Windows host and
+  are not covered.
+
 ## [0.31.0] - 2026-10-06
 
 Fixes for gaps found running G5 (slice 8 of 18, plugin 0.22.0) with parallel build lanes and one

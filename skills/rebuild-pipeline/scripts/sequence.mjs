@@ -43,12 +43,19 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } fr
 import { join } from "node:path";
 import { parse } from "yaml";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 export const SEQUENCE_FILE = "plan/sequence.yaml";
 export const DECISION_LOG = "plan/sequence-decisions.md";
 
 const readYaml = (p, fallback) => {
   if (!existsSync(p)) return fallback;
-  try { return parse(readFileSync(p, "utf8")) ?? fallback; } catch { return fallback; }
+  try { return parse(readText(p)) ?? fallback; } catch { return fallback; }
 };
 
 /** Slice ids in plan/slices.yaml's positional order — the pre-sequence.yaml fallback. */
@@ -133,7 +140,10 @@ export const dependencyViolation = (order, byId) => {
 };
 
 // --- CLI below. Importing this module runs nothing. ---
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+// Split on either separator: on Windows argv[1] arrives with backslashes, a "/" split returned the
+// whole path, and the CLI exited 0 having done nothing. Same line in equiv, flows, lane-plan and
+// sequence — change all four together.
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split(/[\\/]/).pop());
 if (isMain) {
   if (!existsSync(join("locks", "pipeline.yaml"))) {
     console.error("No locks/pipeline.yaml here — run from the workbench root.");
@@ -175,7 +185,7 @@ order:    [${order.join(", ")}]
   };
   const gateLocked = (id) => {
     const p = join("locks", `${id}.yaml`);
-    return existsSync(p) && /^status: locked$/m.test(readFileSync(p, "utf8"));
+    return existsSync(p) && /^status: locked$/m.test(readText(p));
   };
 
   // ---------------------------------------------------------------- status

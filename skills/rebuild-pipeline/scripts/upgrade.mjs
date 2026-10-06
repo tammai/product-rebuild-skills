@@ -54,15 +54,35 @@
 // separate `kept:` map, and a kept file is reported every run, never copied, and never counted
 // as up to date. The nag becomes one quiet line instead of a wall of text, which was the real
 // problem the bad design was trying to solve.
+//
+// FILES DEPEND ON EACH OTHER, AND A FORCED UPGRADE CAN BREAK THE ONES IT LEAVES
+//
+// Every file is classified on its own, but scripts import each other. A 0.22.0 → 0.31.0 upgrade
+// forced the plugin's acsuite.mjs over a kept slice-review.mjs that called an export the new
+// acsuite no longer had, and slice-review crashed (`acLib.pickRun is not a function`). So the
+// set of scripts as it will be AFTER this run is checked for imports that no longer resolve,
+// and an --apply runs validate and gate status before and after, and says when either got worse.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, copyFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
 const argAfter = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : undefined; };
+// Paths the user names, in the manifest's form. `rel` is built with join(), so the manifest holds
+// `scripts\gate.mjs` on Windows and `--force scripts/gate.mjs` was refused as "not a vendored
+// file". Keys stay native rather than moving to "/" so an existing Windows manifest still matches.
+const native = (p) => join(...p.split(/[\\/]/).filter(Boolean));
+const pathList = (flag) => (argAfter(flag) || "").split(",").map((x) => x.trim()).filter(Boolean).map(native);
 
 if (!existsSync(join("locks", "pipeline.yaml"))) {
   console.error("No locks/pipeline.yaml here — run from the workbench root.");
@@ -76,7 +96,7 @@ if (!existsSync(join("locks", "pipeline.yaml"))) {
 // copy that was since moved would upgrade from the wrong source without saying so.
 const markerPath = ".rebuild-plugin";
 const fromMarker = existsSync(markerPath)
-  ? readFileSync(markerPath, "utf8").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"))
+  ? readText(markerPath).split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("#"))
   : null;
 // An installed plugin lives in a per-version cache directory (…/plugins/cache/<market>/<name>/
 // <version>/), and the marker rebuild-init.mjs wrote points at whichever version scaffolded the
@@ -144,21 +164,29 @@ const manifest = (() => {
 const baseline = manifest?.files || {};
 const kept = manifest?.kept || {};
 const sha = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
+// A file's hash as it is on disk AND with CRLF turned to LF. With core.autocrlf=true, a vendored
+// copy re-checked-out from git is CRLF while its recorded hash is of the plugin's LF bytes, so a
+// pristine copy read as `modified` on every clone. Either form matches, which keeps hashes
+// recorded before this change (some of them CRLF, for `kept`) valid.
+const hex = (buf) => createHash("sha256").update(buf).digest("hex");
+const toLF = (buf) => Buffer.from(buf.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
+const shas = (p) => { const buf = readFileSync(p); return new Set([hex(buf), hex(toLF(buf))]); };
+const lfSha = (p) => hex(toLF(readFileSync(p)));
 
 // --- classify --------------------------------------------------------------------------
 const rows = [];
 for (const { rel, src } of VENDORED) {
   const srcHash = sha(src);
   if (!existsSync(rel)) { rows.push({ rel, src, srcHash, state: "new" }); continue; }
-  const mine = sha(rel);
-  if (mine === srcHash) { rows.push({ rel, src, srcHash, state: "current" }); continue; }
+  const mine = shas(rel);
+  if (mine.has(srcHash)) { rows.push({ rel, src, srcHash, state: "current" }); continue; }
   // `kept` is checked FIRST and against the live hash: a file the human chose to keep, still
   // exactly as they left it, is its own state. Edited again since the decision, it drops back
   // to `modified` — the decision covered that version of the file, not the path forever.
-  if (kept[rel] === mine) { rows.push({ rel, src, srcHash, state: "kept" }); continue; }
+  if (mine.has(kept[rel])) { rows.push({ rel, src, srcHash, state: "kept" }); continue; }
   const recorded = baseline[rel];
   if (!recorded) rows.push({ rel, src, srcHash, state: "unknown" });
-  else if (recorded === mine) rows.push({ rel, src, srcHash, state: "stale" });
+  else if (mine.has(recorded)) rows.push({ rel, src, srcHash, state: "stale" });
   else rows.push({ rel, src, srcHash, state: "modified" });
 }
 
@@ -168,7 +196,7 @@ for (const { rel, src } of VENDORED) {
 // and the workbench fails validation on the next write — found in a real dry run, where the
 // script was `stale` and the schema `unknown`. So when one half of a pair is refused and not
 // forced, the safe half is HELD rather than copied, until the pair can move as one.
-const forcedEarly = new Set((argAfter("--force") || "").split(",").map((s) => s.trim()).filter(Boolean));
+const forcedEarly = new Set(pathList("--force"));
 const isSafe = (r) => r.state === "new" || r.state === "stale";
 const isBlocked = (r) => ["modified", "unknown", "kept"].includes(r.state) && !forcedEarly.has(r.rel);
 for (const r of rows) {
@@ -197,7 +225,7 @@ const diffStat = (rel, src) => {
 
 // --- --diff <file>: the full thing, for one file ---------------------------------------
 if (has("--diff")) {
-  const want = argAfter("--diff");
+  const want = native(argAfter("--diff") || "");
   const row = rows.find((r) => r.rel === want || r.rel.endsWith(`/${want}`) || r.rel.endsWith(`\\${want}`));
   if (!row) { console.error(`Not a vendored file: ${want}`); process.exit(1); }
   if (row.state === "new") { console.log(`${row.rel} does not exist here yet — nothing to diff.`); process.exit(0); }
@@ -252,7 +280,7 @@ if (of("held").length) {
 if (of("current").length) console.log(`UP TO DATE (${of("current").length})\n`);
 }
 
-const forced = new Set((argAfter("--force") || "").split(",").map((s) => s.trim()).filter(Boolean));
+const forced = new Set(pathList("--force"));
 const safe = [...of("new"), ...of("stale")];
 const refused = [...of("modified"), ...of("unknown"), ...of("kept"), ...of("held")];
 const forcedRows = refused.filter((r) => forced.has(r.rel));
@@ -262,9 +290,66 @@ if (unknownForce.length) {
   process.exit(1);
 }
 
+// --- imports that will not resolve after this run ---------------------------------------
+// The scripts as they will be once this run copies what it copies, local ones included, and every
+// name one of them takes from a sibling that the sibling will no longer export. Regex-read, like
+// everything else here: the three import shapes these scripts use are `import { a } from "./x.mjs"`,
+// `const { a } = await import("./x.mjs")`, and `lib = await import("./x.mjs")` followed by
+// `lib.a` / `lib?.a` / `const { a } = lib`. A name a script feature-detects (`lib.a ? … : …`)
+// is still listed — in a mixed set that is worth a look, and a pristine set has none.
+const willCopy = new Set([...safe, ...forcedRows].map((r) => r.rel));
+const after = new Map();
+for (const f of existsSync("scripts") ? readdirSync("scripts") : []) {
+  if (f.endsWith(".mjs")) after.set(f, { text: readText(join("scripts", f)), from: "this workbench" });
+}
+for (const r of rows) {
+  const m = r.rel.match(/^scripts[\/\\](.+\.mjs)$/);
+  if (m && willCopy.has(r.rel)) after.set(m[1], { text: readText(r.src), from: `plugin ${pluginVersion}` });
+}
+const ID = "[A-Za-z_$][\\w$]*";
+const exportsOf = (t) => new Set([
+  ...[...t.matchAll(new RegExp(`^export\\s+(?:async\\s+)?(?:function\\*?|const|let|var|class)\\s+(${ID})`, "gm"))].map((m) => m[1]),
+  ...[...t.matchAll(/^export\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(",").map((x) => x.trim().split(/\s+as\s+/).pop())),
+]);
+const namesFrom = (t, mod) => {
+  const src = `["']\\./${mod.replace(/\./g, "\\.")}["']`;
+  const keys = (list, sep) => list.split(",").map((x) => x.trim().split(sep)[0].replace(/^\.\.\./, "")).filter(Boolean);
+  const names = new Set();
+  for (const m of t.matchAll(new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*${src}`, "g"))) keys(m[1], /\s+as\s+/).forEach((n) => names.add(n));
+  for (const m of t.matchAll(new RegExp(`\\{([^{}]*)\\}\\s*=\\s*await\\s+import\\(\\s*${src}`, "g"))) keys(m[1], /\s*:\s*/).forEach((n) => names.add(n));
+  for (const m of t.matchAll(new RegExp(`(${ID})\\s*=\\s*await\\s+import\\(\\s*${src}`, "g"))) {
+    // The lookbehind skips the variable's name inside a path or a message ("./erd.mjs").
+    for (const u of t.matchAll(new RegExp(`(?<![\\w$./\`'"-])${m[1]}\\??\\.(${ID})`, "g"))) if (u[1] !== "mjs") names.add(u[1]);
+    // `const { a } = lib;` only — not `const { a } = lib.fn()`, whose keys belong to fn's result.
+    for (const u of t.matchAll(new RegExp(`\\{([^{}]*)\\}\\s*=\\s*${m[1]}(?![\\w$.?(\\[])`, "g"))) keys(u[1], /\s*:\s*/).forEach((n) => names.add(n));
+  }
+  return names;
+};
+const brokenImports = [];
+for (const [importer, a] of after) {
+  for (const [mod, b] of after) {
+    if (mod === importer) continue;
+    const exported = exportsOf(b.text);
+    for (const name of namesFrom(a.text, mod)) {
+      if (!exported.has(name)) brokenImports.push({ importer, mod, name, a: a.from, b: b.from });
+    }
+  }
+}
+// Only the ones this run causes block --auto; one already broken before it is not its to fix.
+const causedHere = brokenImports.filter((x) => x.a !== "this workbench" || x.b !== "this workbench");
+if (brokenImports.length && !auto) {
+  console.log(`BROKEN IMPORTS after this run (${brokenImports.length})`);
+  for (const x of brokenImports) {
+    console.log(`  ${x.importer} (${x.a}) uses \`${x.name}\` from ${x.mod} (${x.b}), which does not export it`);
+  }
+  console.log("  Copying one half of a pair of scripts that call each other breaks the other half at\n" +
+    "  run time, not here. Settle them as a set: port your edit onto the plugin's version, or force\n" +
+    "  both files.\n");
+}
+
 // --- --keep: record a deliberate decision to hold our own version ----------------------
 if (has("--keep")) {
-  const want = (argAfter("--keep") || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const want = pathList("--keep");
   const bad = want.filter((w) => !rows.some((r) => r.rel === w));
   if (!want.length || bad.length) {
     console.error(bad.length ? `--keep names path(s) that are not vendored files: ${bad.join(", ")}`
@@ -272,7 +357,8 @@ if (has("--keep")) {
     process.exit(1);
   }
   const nextKept = { ...kept };
-  for (const w of want) nextKept[w] = sha(w);
+  // The LF hash, so the decision survives the file being re-checked-out as CRLF.
+  for (const w of want) nextKept[w] = lfSha(w);
   mkdirSync("locks", { recursive: true });
   writeFileSync(MANIFEST, JSON.stringify({
     ...(manifest || {}), comment: MANIFEST_COMMENT, plugin_version: manifest?.plugin_version || pluginVersion,
@@ -303,11 +389,12 @@ if (auto) {
   try {
     if (execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()) why.push("uncommitted changes");
   } catch { why.push("git unavailable"); }
-  const prog = existsSync(join("plan", "progress.yaml")) ? readFileSync(join("plan", "progress.yaml"), "utf8") : "";
+  const prog = existsSync(join("plan", "progress.yaml")) ? readText(join("plan", "progress.yaml")) : "";
   const inProg = (prog.match(/^\s+(S\d+):\s*in-progress\s*$/m) || [])[1];
   if (inProg) why.push(`${inProg} in progress`);
-  const ap = existsSync(join("plan", "autopilot.yaml")) ? readFileSync(join("plan", "autopilot.yaml"), "utf8") : "";
+  const ap = existsSync(join("plan", "autopilot.yaml")) ? readText(join("plan", "autopilot.yaml")) : "";
   if (/^status: engaged$/m.test(ap)) why.push("autopilot engaged");
+  if (causedHere.length) why.push(`it would break ${causedHere.length} import(s) between scripts`);
   if (why.length) {
     console.log(`TOOLING  ${safe.length} update(s) from plugin ${pluginVersion} deferred — ${why.join(", ")}. ` +
       `Applies at a session start with none of those true.${refusedLine}`);
@@ -324,6 +411,25 @@ if (!has("--apply") && !auto) {
 }
 
 // --- apply ------------------------------------------------------------------------------
+// What validate and gate status say, taken before and after copying. A script that cannot read
+// this workbench's data any more (a schema that rejects a status the workbench uses, a parser
+// that misreads its files) shows up here as a worse answer from the same command, which is the
+// only comparison that does not need to know what changed.
+const health = () => {
+  const run = (...a) => {
+    try { return { ok: true, out: execFileSync(process.execPath, a, { encoding: "utf8", stdio: "pipe" }) }; }
+    catch (e) { return { ok: false, out: `${e.stdout || ""}${e.stderr || ""}` }; }
+  };
+  const v = existsSync("node_modules") && existsSync(join("scripts", "validate.mjs"))
+    ? run(join("scripts", "validate.mjs")).ok : null;
+  const g = run(join("scripts", "gate.mjs"), "status");
+  const phase = g.ok
+    ? (g.out.match(/^(?:Current phase: .*|All gates locked.*)$/m) || ["(no phase line)"])[0]
+    : `gate.mjs status failed: ${(g.out.trim().split("\n")[0] || "no output")}`;
+  return { validate: v, phase };
+};
+const before = health();
+const existedBefore = new Set([...safe, ...forcedRows].filter((r) => existsSync(r.rel)).map((r) => r.rel));
 const copied = [];
 for (const r of [...safe, ...forcedRows]) {
   mkdirSync(dirname(r.rel), { recursive: true });
@@ -359,17 +465,19 @@ if (auto) {
     execFileSync("git", ["commit", "-qm", `tooling: upgrade vendored scripts/schemas to plugin ${pluginVersion}`], { stdio: "pipe" });
     committed = true;
   } catch { /* reported below */ }
-  let valid = "not run (no node_modules)";
-  if (existsSync("node_modules")) {
-    try { execFileSync("node", [join("scripts", "validate.mjs")], { stdio: "pipe" }); valid = "passes"; }
-    catch { valid = "FAILS — run `npm run validate` and read it before any other work"; }
-  }
+  const now = health();
+  const valid = now.validate === null ? "not run (no node_modules)"
+    : now.validate ? "passes"
+    : before.validate ? "FAILS, and passed before this upgrade — `git revert HEAD` undoes it; run `npm run validate` to see why"
+    : "FAILS (failed before this upgrade too) — run `npm run validate` and read it before any other work";
+  const phaseNote = now.phase !== before.phase
+    ? ` gate status changed: "${before.phase}" → "${now.phase}" — check which is right before any other work.` : "";
   const refusedLine = refused.length
     ? ` ${refused.length} refused (${refused.map((r) => r.rel.split(/[\\/]/).pop()).join(", ")}) — run \`node scripts/upgrade.mjs\` to see why.`
     : "";
   console.log(`TOOLING  upgraded ${copied.length} file(s) to plugin ${pluginVersion}` +
     (committed ? ", committed" : " — NOT committed, commit it before anything else") +
-    `; validate ${valid}.${refusedLine}`);
+    `; validate ${valid}.${phaseNote}${refusedLine}`);
   process.exit(0);
 }
 
@@ -381,5 +489,23 @@ if (stillRefused.length) {
     "point. To settle one: port your change onto the plugin's version and re-run, take the " +
     "plugin's with `--apply --force <path>`, or hold yours on the record with `--keep <path>`.");
 }
-console.log("Re-run `npm run validate` before doing anything else, and commit this in one go: " +
-  "a half-upgraded workbench is the state nothing else in the pipeline expects.");
+
+const now = health();
+const worse = [];
+if (before.validate && now.validate === false) worse.push("validate passed before this run and FAILS now (npm run validate)");
+if (now.phase !== before.phase) worse.push(`gate status said "${before.phase}" and now says "${now.phase}"`);
+if (worse.length) {
+  console.log(`\nWARNING — this upgrade changed what the workbench reports:\n${worse.map((w) => `  - ${w}`).join("\n")}`);
+  console.log("  A changed phase can be a fix (a parser that now reads the file correctly) or a break;\n" +
+    "  read both before deciding. To undo the whole run, if these files were committed before it:");
+  const restore = copied.filter((r) => existedBefore.has(r.rel)).map((r) => r.rel);
+  const added = copied.filter((r) => !existedBefore.has(r.rel)).map((r) => r.rel);
+  if (restore.length) console.log(`    git checkout -- ${[...restore, MANIFEST].join(" ")}`);
+  else console.log(`    git checkout -- ${MANIFEST}`);
+  if (added.length) console.log(`    and delete the file(s) this run added: ${added.join(", ")}`);
+} else if (now.validate === null) {
+  console.log("validate not run (no node_modules) — run `npm install && npm run validate` before anything else.");
+} else {
+  console.log(`validate ${now.validate ? "passes" : "fails, as it did before this run"}; gate status unchanged.`);
+}
+console.log("Commit this in one go: a half-upgraded workbench is the state nothing else in the pipeline expects.");

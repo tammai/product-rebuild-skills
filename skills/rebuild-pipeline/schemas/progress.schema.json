@@ -12,12 +12,18 @@
       "additionalProperties": { "enum": ["pending", "in-progress", "deployed", "done"] }
     },
     "features": {
-      "description": "Feature id -> status. Overrides `status:` in matrix/features.yaml (gate-1).",
+      "description": "Feature id -> status. Overrides `status:` in matrix/features.yaml (gate-1). `descoped` is a user ruling that this rebuild will not build the feature: it leaves the coverage denominator, and validate.mjs requires its reason under `feature_notes:`. It is progress-only on purpose — the matrix records the reference, which still has the feature.",
       "type": "object",
       "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
       "additionalProperties": {
-        "enum": ["planned", "covered", "partial", "missing", "upstream-candidate"]
+        "enum": ["planned", "covered", "partial", "missing", "upstream-candidate", "descoped"]
       }
+    },
+    "feature_notes": {
+      "description": "Feature id -> one-line remark carried into the parity report. Required for every `descoped` feature: the reason, and who ruled it.",
+      "type": "object",
+      "propertyNames": { "pattern": "^F-[A-Z0-9]+-[0-9]{3}$" },
+      "additionalProperties": { "type": "string", "minLength": 1 }
     },
     "runbook_amended": {
       "description": "Slice ids whose boundary wrote something into plan/BUILD_RUNBOOK.md — the S1 entry for the initial write, one per `## Amendment after S<n>` thereafter. Exists so slice-review.mjs can tell a boundary that had nothing to add from one that skipped the question: without it, both look like silence, and only one of them is fine.",

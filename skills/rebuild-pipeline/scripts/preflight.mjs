@@ -42,6 +42,13 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "
 import { join, basename, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
+// CRLF to LF on every text read. With git's core.autocrlf=true (the Windows default) the working
+// copy is CRLF, and a pattern with a literal `\n` (`^slices:\n`, `^---\n`) silently matches
+// nothing — read as "no such block" rather than an error. Same helper in every script that
+// parses text; copied, not imported, because each is vendored and must run alone. See
+// playbook.mjs's readText for the incident.
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
+
 const args = process.argv.slice(2);
 const argAfter = (flag) => {
   const i = args.indexOf(flag);
@@ -55,7 +62,7 @@ if (!existsSync(join("locks", "pipeline.yaml"))) {
 }
 
 // --- sources.yaml, fixed subset -------------------------------------------------------
-const sourcesText = existsSync("sources.yaml") ? readFileSync("sources.yaml", "utf8") : "";
+const sourcesText = existsSync("sources.yaml") ? readText("sources.yaml") : "";
 const stripQuotes = (v) => (v || "").trim().replace(/^["'](.*)["']$/, "$1");
 // A `key:` whose value lives in the two-space-indented block under it.
 const blockField = (block, key) => {
@@ -151,7 +158,7 @@ if (checkout) {
   const wfDir = join(checkout, ".github", "workflows");
   if (existsSync(wfDir)) {
     for (const f of readdirSync(wfDir).filter((f) => /\.ya?ml$/.test(f))) {
-      const body = readFileSync(join(wfDir, f), "utf8");
+      const body = readText(join(wfDir, f));
       const runs = [...body.matchAll(/^\s*(?:- )?run:\s*(?:\||>-?)?\s*(.*)$/gm)]
         .map((m) => m[1].trim()).filter(Boolean);
       // Verb lists, not loose keywords. The first draft used `bundle` as a build verb and
@@ -170,7 +177,7 @@ if (checkout) {
   }
   const mk = ["Makefile", "makefile", "GNUmakefile"].map((m) => join(checkout, m)).find(existsSync);
   if (mk) {
-    const body = readFileSync(mk, "utf8");
+    const body = readText(mk);
     if (/^build:/m.test(body)) buildDefs.push({ source: basename(mk), command: "make build" });
     for (const t of ["test", "tests", "check"]) {
       if (new RegExp(`^${t}:`, "m").test(body)) { testDefs.push({ source: basename(mk), command: `make ${t}` }); break; }
@@ -300,7 +307,7 @@ if (checkout) {
 // 6. The two G0 interview answers. Recorded in license-posture.md, and they feed
 //    sources.yaml `denied:` — an off-limits path the deny list does not carry is an
 //    instruction that exists only in a conversation nobody will re-read.
-const posture = existsSync("license-posture.md") ? readFileSync("license-posture.md", "utf8") : "";
+const posture = existsSync("license-posture.md") ? readText("license-posture.md") : "";
 // The heading alone does not count — the scaffold ships both headings with a prompt in an
 // HTML comment, so "section present" would pass on an unanswered question, which is the
 // exact failure this check exists to catch. Answered means a line of prose under it.

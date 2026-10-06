@@ -9,10 +9,18 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { execSync } from "node:child_process";
 
 const LOCKS = "locks";
+
+// Every YAML/markdown file this script parses is read through here. With git's
+// core.autocrlf=true (the Windows default) the working copy is CRLF, `^slices:\n` never
+// matches, and `status` reported "0/18 slices done" on a workbench with eight done — a wrong
+// phase, at the step the orchestration protocol trusts over its own memory. Same helper as
+// playbook.mjs's readText; copied, not imported, because this file must run when others are
+// missing (see the erd.mjs import below).
+const readText = (p) => readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
 const ORDER = ["gate-1", "gate-2", "gate-3", "gate-4", "gate-5"];
 
 // Paths a gate protects REGARDLESS of what its lock file's `protects:` list says.
@@ -55,7 +63,7 @@ const PHASE_BEFORE = {
 // plan/progress.yaml's `slices:` map wins over plan/slices.yaml's own `status:`, matching
 // parity.mjs's overlay precedence.
 const sliceStates = () => {
-  const read = (p) => (existsSync(p) ? readFileSync(p, "utf8") : "");
+  const read = (p) => (existsSync(p) ? readText(p) : "");
   const overlay = {};
   const progress = read("plan/progress.yaml");
   // Indented lines OR blank ones: a hand-written progress file groups its entries with blank
@@ -109,18 +117,22 @@ const unquote = (s) => s !== undefined && /^".*"$/.test(s)
   : s;
 
 const parseLock = (id) => {
-  const text = readFileSync(join(LOCKS, `${id}.yaml`), "utf8");
+  const text = readText(join(LOCKS, `${id}.yaml`));
   const get = (k) => unquote((text.match(new RegExp(`^${k}: (.*)$`, "m")) || [])[1]?.trim());
   const block = (text.match(/^protects:[ \t]*\n((?:[ \t]+.*\n?)*)/m) || [])[1] || "";
   const protects = [...block.matchAll(/^  - (.+)$/gm)].map((m) => m[1].trim());
   return { id, title: get("title"), status: get("status"), locked_at: get("locked_at"), text, protects };
 };
 
+// Paths come back with `/` on every platform. They become artifact_hashes keys, which
+// validate.mjs re-reads; a lock cut on Windows with join()'s backslashes would name files
+// that do not exist on any other machine the workbench is cloned to.
 const filesUnder = (p) => {
   if (!existsSync(p)) return [];
   if (statSync(p).isFile()) return [p];
   return readdirSync(p, { recursive: true })
-    .map((f) => join(p, String(f))).filter((f) => statSync(f).isFile());
+    .map((f) => join(p, String(f))).filter((f) => statSync(f).isFile())
+    .map((f) => f.split(sep).join("/"));
 };
 const sha = (f) => createHash("sha256").update(readFileSync(f)).digest("hex");
 
@@ -277,7 +289,7 @@ if (cmd === "lock") {
         .filter((c) => c.failed).map((c) => c.name);
       if (failing.length) {
         const log = join("parity", "equiv", "DECISIONS.md");
-        const decisions = existsSync(log) ? readFileSync(log, "utf8") : "";
+        const decisions = existsSync(log) ? readText(log) : "";
         const accepted = new Set([...decisions.matchAll(/^\s*-\s*accepted:\s*`([^`]+)`/gm)].map((m) => m[1]));
         const undecided = failing.filter((n) => !accepted.has(n));
         if (undecided.length) {
@@ -306,7 +318,10 @@ if (cmd === "lock") {
   // code repo pinning that tag then gets the OLD file while the lock claims the NEW hash.
   // Refuse rather than let that drift through silently. (Not `git add -A`: sweeping in
   // unrelated in-progress work would land it in a "gate-N: locked" commit uninvited.)
-  const lockPath = join(LOCKS, `${id}.yaml`);
+  // Forward slashes, not join(): git prints `/` on every platform, and on Windows join() gives
+  // `locks\gate-N.yaml`, which never equals it — the lock file was reported as dirty against
+  // itself and every lock refused.
+  const lockPath = `${LOCKS}/${id}.yaml`;
   try {
     const dirty = execSync("git status --porcelain", { encoding: "utf8" })
       .split("\n").filter(Boolean).map((l) => l.slice(3).trim())
