@@ -100,11 +100,11 @@ run the slow suites runs all of them after every batch, which is the failure it 
 
 | When | Run | Don't run |
 |---|---|---|
-| While building | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE deploy test for the criterion being worked on (`--grep` / `-run`) | the full deploy suite; the full backend suite |
-| The joint run, if this lane is named for it | `node scripts/lanes-check.mjs stamp` from the workbench root, then ONE full run of the cumulative suite, JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
+| While building | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE E2E for the criterion being worked on, if it is a UI-level one (`--grep` / `-run`) | the E2E set; the full backend suite |
+| The joint run, if this lane is named for it | `node scripts/lanes-check.mjs stamp` from the workbench root, then ONE run of the cumulative suite — all unit and integration/API suites, then the E2E set (latest smoke journey plus each slice's one UI-level E2E) — JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
 | After the joint run, for failures this lane owns | `node scripts/lanes-check.mjs stamp --rerun`, then ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
 
-`<local-date>` is today on this machine's own calendar, not UTC. Redeploy only when a deploy test
+`<local-date>` is today on this machine's own calendar, not UTC. Redeploy only when an E2E test
 needs the new build, and say so before and after. Commit before stamping: a dirty tree makes every
 pass on rerun report as unverified, because no commit names the code that ran.
 

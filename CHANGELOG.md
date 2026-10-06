@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-06
+
+The joint run follows the E2E budget from 0.23.0, which it still contradicted.
+
+- `g5-build.md` step 5: the joint run is every unit and integration/API suite, then the E2E set
+  — the latest checkpoint's smoke journey plus each slice's one UI-level E2E. It no longer runs
+  "every backend deploy suite, then the full frontend deploy suite" every slice. An earlier smoke
+  journey retires when a later checkpoint supersedes it.
+- Cadence table (`g5-build.md` and its verbatim copy in `subagent-briefs.md`): "the ONE deploy
+  test" becomes the one E2E for the criterion being worked on, only when it is UI-level.
+- Step 1: pricing prerequisites now targets the smoke journey and the UI-level criterion.
+- New repo `CLAUDE.md` with code-comment conventions (header block, why not what, rationale
+  beside the decision, sync warnings, exact edge cases, sparse inline comments).
+- No script change: `acsuite`, `parity`, `slice-review` and `lanes-check` count whatever JUnit
+  the run writes and assume no suite per slice.
+
 ## [0.24.0] - 2026-10-05
 
 `spec-writer` moves from the architect tier to the worker tier. Under the default `balanced`

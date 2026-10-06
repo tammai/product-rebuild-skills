@@ -230,8 +230,8 @@ then resolves against the code repo's own remote, so a fresh
    `path` + `commit` + `line` into the reference's own source. A spec quietly specifying
    something else is the drift lane R exists to prevent, arriving by a different door.
 
-   **Price the DEPLOY criterion's prerequisites while writing it, not when running it.**
-   For each deploy AC, name what has to exist for it to run at all — which operation
+   **Price the E2E criteria's prerequisites while writing them, not when running them.**
+   For the smoke journey and the slice's one UI-level criterion, if it has one, name what has to exist for it to run at all — which operation
    creates the state it asserts on, which credential, which network path — and check each
    one is reachable through the locked contract. A criterion nobody can execute is
    indistinguishable from a passing one right up to the end of the slice, and by then the
@@ -256,8 +256,11 @@ then resolves against the code repo's own remote, so a fresh
 4. **Infra** — CI/CD, environments, deploy. Migrations serialize through ONE queue
    regardless of lane count.
 5. **The joint run — once, at the end of the build.** One lane, named when the slice starts,
-   runs the whole cumulative suite: the full backend suite plus every backend deploy suite,
-   then the full frontend deploy suite. Immediately before it starts:
+   runs the cumulative suite: every unit and integration/API suite in every repo, then the
+   E2E set against the deployment — the latest checkpoint's smoke journey plus each slice's
+   one UI-level E2E (at most one per slice, so the set grows by one a slice at most). An
+   earlier checkpoint's smoke journey retires when a later one supersedes it; the
+   lower-level suites carry its criteria. Immediately before it starts:
 
    ```sh
    node scripts/lanes-check.mjs stamp          # from the workbench root
@@ -313,12 +316,12 @@ setting:
 
 | When | Who | Run | Don't run |
 |---|---|---|---|
-| During the build | the lane | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE deploy test for the criterion being worked on (`--grep` / `-run`) | the full deploy suite; the full backend suite |
+| During the build | the lane | lint, type-check, unit and fixture tests for touched files; integration tests for touched packages; the ONE E2E for the criterion being worked on, if it is a UI-level one (`--grep` / `-run`) | the E2E set; the full backend suite |
 | End of build, once per slice | the lane named for it (step 5) | ONE joint full run, JUnit to `parity/<local-date>-ac.xml` | extra "clean" full runs |
 | After the joint run | the lane that owns the failure (step 6) | ONLY the failed specs, JUnit to `parity/<local-date>-ac-rerun.xml` | another full run |
 | Any time | the orchestrator | nothing — it reads the JUnit files and the lanes' reports. A failure to investigate goes to a lane or a fork, never into the main context | any test command |
 
-- **Redeploys are batched.** A lane redeploys only when a deploy test needs the new build, and
+- **Redeploys are batched.** A lane redeploys only when an E2E test needs the new build, and
   says so before and after.
 - **The evidence bar does not move.** A criterion is PASS only if its test passed in the joint
   run or in its rerun, counted as `g6-parity.md` describes.
