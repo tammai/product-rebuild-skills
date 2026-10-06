@@ -38,6 +38,10 @@
 // recognised here: the harness's own commit-msg-guard parses `git commit -m` and does not see
 // a message behind `git -C <dir> commit` (checked 2026-10-06 against bigin-skills 1.106.0 —
 // forwarded or run directly, it allows it; the repo's git commit-msg hook still catches it).
+// On Windows the directory may be written `C:/...` or MSYS-style `/c/...`; both resolve to the
+// same repo (lib.mjs nativePath — before 0.33.0 the MSYS spelling ran no guards at all).
+// A PowerShell tool call is not inspected: the repos' guards register for `Bash`, so there is
+// nothing of theirs to forward for it.
 //
 // WHEN IT DOES NOTHING (fails open, exit 0): the target is in no git repo; the repo is not
 // listed in the `repos.yaml` of a workbench at or directly under the session root (a lane's
@@ -48,6 +52,8 @@
 import { readFileSync, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, resolve, join, isAbsolute } from "node:path";
 import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { hookShell, nativePath } from "./lib.mjs";
 
 const raw = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
 let payload;
@@ -62,17 +68,18 @@ const cwd = payload?.cwd || sessionRoot;
 
 const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
 const unquote = (s) => s.replace(/^(["'])(.*)\1$/, "$2");
+const native = (p) => nativePath(p, process.platform, homedir());
 
 // --- the directory this call acts on -----------------------------------------------------------
 const targetDir = (() => {
   const file = input.file_path || input.notebook_path || (typeof input.path === "string" ? input.path : "");
-  if (file) return dirname(resolve(cwd, file));
+  if (file) return dirname(resolve(cwd, native(file)));
   if (tool === "Bash" && typeof input.command === "string") {
     const cmd = input.command;
     const cd = cmd.match(/^\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)/);
     const gitC = cmd.match(/\bgit\s+-C\s+("[^"]+"|'[^']+'|\S+)/);
     const dir = cd?.[1] ?? gitC?.[1];
-    if (dir) return resolve(cwd, unquote(dir).replace(/^~(?=\/|$)/, process.env.HOME || "~"));
+    if (dir) return resolve(cwd, native(unquote(dir)));
   }
   return null;
 })();
@@ -118,7 +125,8 @@ for (const wb of workbenches) {
   const reposFile = join(wb, "repos.yaml");
   if (!existsSync(reposFile)) continue;
   for (const m of readFileSync(reposFile, "utf8").matchAll(/^\s*-\s*(?:name:\s*(\S+)\s*)?path:\s*(\S+)/gm)) {
-    listed.add(real(isAbsolute(m[2]) ? m[2] : resolve(wb, m[2])));
+    const p = native(m[2]);
+    listed.add(real(isAbsolute(p) ? p : resolve(wb, p)));
   }
 }
 if (!listed.has(real(mainRepo)) && !listed.has(real(worktree))) process.exit(0);
@@ -147,10 +155,12 @@ for (const group of settings?.hooks?.[event] || []) {
 if (!commands.length) process.exit(0);
 
 // --- run them, combine strictest-first ----------------------------------------------------------
+// In the shell Claude Code itself uses for hook commands: /bin/sh, or Git Bash on Windows.
 const blocks = [], asks = [], context = [];
+const shell = hookShell(process.platform);
 const label = (h) => (h.command.match(/[\w.-]+\.(?:mjs|js|sh|py)/) || [h.command.slice(0, 60)])[0];
 for (const h of commands) {
-  const r = spawnSync("/bin/sh", ["-c", h.command], {
+  const r = spawnSync(shell, ["-c", h.command], {
     input: raw, cwd: settingsRoot, encoding: "utf8",
     env: { ...process.env, CLAUDE_PROJECT_DIR: settingsRoot },
     timeout: (Number(h.timeout) || 60) * 1000,
@@ -159,6 +169,8 @@ for (const h of commands) {
   if (r.error || r.signal || (r.status !== 0 && r.status !== 2)) {
     blocks.push(`${who} did not complete (${r.error?.code || r.signal || `exit ${r.status}`}) — ` +
       `treated as a block, since a guard that stopped running must not read as a pass.` +
+      `${r.error?.code === "ENOENT" ? `\nNo shell at "${shell}" to run it in: install Git for Windows, or ` +
+        `set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe.` : ""}` +
       `${r.stderr?.trim() ? `\n${r.stderr.trim()}` : ""}`);
     continue;
   }

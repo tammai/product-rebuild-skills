@@ -15,8 +15,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+const LIB = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "hooks", "scripts", "lib.mjs");
+const { hookShell, nativePath } = await import(pathToFileURL(LIB).href);
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "hooks", "scripts", "repo-hooks.mjs");
 const project = mkdtempSync(join(tmpdir(), "repo-hooks-eval-"));
 const w = (rel, text) => { mkdirSync(dirname(join(project, rel)), { recursive: true }); writeFileSync(join(project, rel), text); };
@@ -111,6 +113,25 @@ check("SessionStart is never forwarded", r.code === 0, JSON.stringify(r));
 
 r = run("PreToolUse", "Read", { file_path: join(project, "app", "main.go") });
 check("a tool the repo registers nothing for runs nothing", r.code === 0 && !r.err, JSON.stringify(r));
+
+r = run("PreToolUse", "Bash", { command: `cd ~/nowhere-${Date.now()} && ls` });
+check("a ~ path that is no repo runs nothing", r.code === 0 && !r.err, JSON.stringify(r));
+
+// Issue #3 (0.33.0): the win32 branches, checked here with the platform passed in.
+check("POSIX hooks run in /bin/sh", hookShell("darwin") === "/bin/sh" && hookShell("linux") === "/bin/sh");
+const pf = { ProgramFiles: "C:\\Program Files" };
+check("win32 prefers CLAUDE_CODE_GIT_BASH_PATH",
+  hookShell("win32", { ...pf, CLAUDE_CODE_GIT_BASH_PATH: "D:\\git\\bash.exe" }, () => true) === "D:\\git\\bash.exe");
+check("win32 finds Git for Windows' bash under Program Files",
+  hookShell("win32", pf, (p) => p === "C:\\Program Files\\Git\\bin\\bash.exe") === "C:\\Program Files\\Git\\bin\\bash.exe");
+check("win32 falls back to sh on PATH, never /bin/sh", hookShell("win32", pf, () => false) === "sh");
+check("win32: MSYS /c/... and /cygdrive/c/... read as C:/...",
+  nativePath("/c/Users/x/app", "win32") === "C:/Users/x/app" &&
+  nativePath("/cygdrive/d/w", "win32") === "D:/w" && nativePath("/c", "win32") === "C:/" &&
+  nativePath("C:/Users/x", "win32") === "C:/Users/x" && nativePath("/code/app", "win32") === "/code/app");
+check("POSIX: /c/... is left alone; ~ expands everywhere",
+  nativePath("/c/x", "linux") === "/c/x" && nativePath("~/a", "linux", "/h") === "/h/a" &&
+  nativePath("~\\a", "win32", "C:\\h") === "C:\\h\\a");
 
 console.log(failures ? `\n${failures} failure(s). Project left at ${project}` : "\nall passed");
 process.exit(failures ? 1 : 0);

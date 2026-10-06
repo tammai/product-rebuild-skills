@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-10-06
+
+Windows fixes for `repo-hooks.mjs`, the forwarder that runs a code repo's own guards. Issue #3.
+
+- **Forwarded hooks run in Git Bash on Windows.** The forwarder started every guard with a
+  hard-coded `/bin/sh`, which does not exist on Windows. Every spawn failed with `ENOENT`, and a
+  guard that did not complete counts as a block, so every tool call aimed at a guarded repo was
+  rejected, read-only ones included. The shell is now `/bin/sh` on POSIX. On Windows it is
+  `CLAUDE_CODE_GIT_BASH_PATH` if set, then Git for Windows' `bash.exe`/`sh.exe` under Program
+  Files or `%LOCALAPPDATA%\Programs`, then `sh` on `PATH`. When no shell is found it still blocks,
+  and the message says to install Git for Windows or set that variable.
+- **MSYS paths name the same repo.** `cd /c/Users/x/app && ...` resolved to `C:\c\Users\...`, so
+  the forwarder found no repo and ran no guards. Guard coverage depended on how the path was
+  spelled. `/c/...` and `/cygdrive/c/...` now read as `C:/...` in commands, file paths and
+  `repos.yaml`. `~` expands to the home directory even when `HOME` is unset.
+- Not covered: a PowerShell tool call. The repos' guards register for `Bash`, so the forwarder
+  has none of theirs to run for it, and the repos' git hooks remain the only check there.
+- `eval/repo-hooks.mjs`: 7 more cases. The win32 shell and path logic is checked with the
+  platform passed in. A real Windows host is still not covered.
+
 ## [0.32.0] - 2026-10-06
 
 Fixes for gaps found upgrading a Windows 11 workbench (`core.autocrlf=true`) from plugin 0.22.0
