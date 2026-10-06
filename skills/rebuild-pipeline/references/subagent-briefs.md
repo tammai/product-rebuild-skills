@@ -119,10 +119,33 @@ pass on rerun report as unverified, because no commit names the code that ran.
   running.
 - Report a run's result to the orchestrator in the same turn the run ends.
 
+**The plan and the repo's guards** (part 4, verbatim):
+
+- You work in `<worktree>` on branch `slice/<Sn>-<lane>`, under the `PLAN.md` at its root. The rebuild
+  pipeline wrote that plan from the slice specs the user approved. Its `Status: approved` is what the
+  repo's spec gate reads before it allows any edit over ~20 lines.
+- This repo's `CLAUDE.md` sends non-trivial work to `/task-workflow`. For this lane, steps 1–3 are
+  already done: the spec was approved in the rebuild workbench and `PLAN.md` was written from it. Do
+  not start `task-workflow`, do not write a spec, and do not ask for approval. Work the task rows in
+  `PLAN.md`, one per acceptance criterion, and set each to `Done` when its test passes.
+- Edit only the task rows' Status and Notes. Never edit `Status:`, `Branch:`, `Approved:` or `## Spec`,
+  and never write a new `PLAN.md`. If the spec is wrong or contradicts a Rule Card or a contract,
+  set `Status: amending`, which blocks your own non-trivial edits, and report what is wrong. That is
+  the only `Status:` edit you may make.
+- The repo's own guards (spec gate, bash guard, bugfix-test, commit-msg, injection gate) run for
+  you. A block from one of them is the repo's rule: follow its message, and never edit
+  `.claude/guards/` or `.claude/settings*.json`.
+- Start every shell command that acts on the repo with `cd <worktree> && …`, in the same call. The
+  guards can only see which repo a command acts on when the command says so. Use `cd`, not
+  `git -C`: the repo's commit-message guard does not read a message behind `git -C <dir> commit`.
+
 **Helpers** (part 4). A lane may run helper agents only in their own worktrees, with disjoint file
 ownership, unique test database and role prefixes, and test pools capped and closed in cleanup —
 one harness once leaked 34 connections and exhausted Postgres for every lane. Only the lane merges
-to main.
+to main. A helper's worktree needs its own plan, because the spec gate reads one per worktree. Before
+dispatching a helper, run from the workbench root `npm run lane-plan -- <Sn> <lane>-h<N> --worktree
+<helper worktree> --branch <helper branch> --specs <the specs it builds>`. Never copy your own
+`PLAN.md` into the helper's worktree: a copy carries the wrong `Branch:` and no record of its own.
 
 Parallelism: dispatch independent lanes/modules in the same turn. On subagent output failing
 validation, send it back with the validator error — do not hand-fix, the fix must come from a

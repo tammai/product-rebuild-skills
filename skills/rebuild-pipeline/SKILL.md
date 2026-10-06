@@ -54,6 +54,15 @@ harness second in its `generic` profile. That is a version gap to state out loud
 standing arrangement — the procedure and what `generic` skips are in `references/g5-build.md`
 step 0. Confirm the plugin is installed at G0
 (it is needed at G5, and discovering it missing months in is the expensive way to find out).
+**The harness's guards apply to pipeline work.** Claude Code loads a repo's hooks only when the
+session started in that repo, and rebuild sessions start in the project's parent, so the plugin's
+`repo-hooks.mjs` runs each code repo's own guards for tool calls that target it. A block naming a
+repo guard is the harness, never something to edit around. Its spec gate is satisfied by the
+lane `PLAN.md` that `lane-plan.mjs` writes from the slice specs the user approved
+(`references/g5-build.md` step 1b). What the pipeline does *not* use from `bigin-skills` is its
+planning workflows. `discovery-workflow`, `epic-workflow` and `task-workflow`'s spec and plan
+steps are replaced by G0–G5's gates and spec review, and their state would be a second record
+of decisions the workbench already locks.
 
 ## Orchestration Protocol
 

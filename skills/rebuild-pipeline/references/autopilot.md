@@ -153,7 +153,16 @@ scattered across the phase references; this is the whole list:
   because no other artifact in this pipeline records team facts
 - each ADR decision, in dependency order (G4a) — drafting is delegable, deciding is not
 - the G4b coherence and callee checks, including before a re-lock after a reopen
-- spec approval before any code is written (G5)
+- spec approval before any code is written (G5). Once the user approves, cutting each lane's
+  worktree and running `lane-plan.mjs` is autopilot's: the plan only carries the approval
+  just given to the file the repo's spec gate reads (`g5-build.md` step 1b). So is
+  `lane-plan.mjs --amend`, but only after the user has approved the corrected spec.
+- **a lane that reports `Status: amending`**, meaning it found its approved spec wrong.
+  Correcting the spec is a spec approval, so the halt is `needs-user-decision`, with the
+  lane's report attached.
+- a block from a code repo's own guard (`spec-gate-guard`, `bash-guard`, …) that the lane
+  cannot resolve within the repo's rules. It is the harness speaking, so never edit a guard
+  or its registration to get past it.
 - **marking a slice done** — the slice is not done until deployed and `done_means` is
   demonstrably true
 - **reordering the slice sequence** (`sequence.mjs reorder`). Generating the review that

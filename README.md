@@ -284,6 +284,7 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/parity.mjs            G6 coverage report + AC pass rate from the suite's JUnit
   scripts/acsuite.mjs           JUnit reader shared by parity and slice-review; counts a rerun once
   scripts/lanes-check.mjs       is a build lane still working? + `stamp`: which commits a test run saw
+  scripts/lane-plan.mjs         a lane's PLAN.md, written from the slice specs you approved
   scripts/sequence.mjs          slice execution order — the logged-decision reorder mechanism
   scripts/slice-review.mjs      the between-slices standing report (generated, advisory)
   scripts/pause-check.mjs       is it safe to pause the session? (advisory, not a gate)
@@ -291,7 +292,8 @@ skills/rebuild-pipeline/        THE skill you interact with
   scripts/routing.mjs           which model each subagent role dispatches on (.claude/model-routing.json)
 agents/                         miner, adr-drafter, spec-writer, rubric-judge subagents
 hooks/                          PreToolUse guards: locked artifacts, recorded AC flows, and
-                                the autopilot usage threshold
+                                the autopilot usage threshold; plus repo-hooks.mjs, which runs
+                                each code repo's own harness guards for pipeline sessions
 docs/PLAYBOOK.md                the full methodology
 ```
 

@@ -126,6 +126,11 @@ Goal: pick the reference and record the legal posture BEFORE any agent reads any
   it (`/plugin marketplace add tammai/bigin-skills`, then
   `/plugin install bigin-skills@bigin` — the marketplace is named `bigin`, not
   `bigin-skills`) but do **not** block G0 on it — nothing before G5 touches it.
+  **Say what its harness will do at G5**, so the user hears it at the start: every code repo
+  gets guards, including a spec gate that blocks large edits until the worktree has an approved
+  `PLAN.md`. The pipeline runs those guards for its lanes and writes each lane's plan from the
+  slice specs the user approves. That approval is the one the gate checks, and no second
+  approval is asked for (`g5-build.md` step 1b).
   **Check the installed version against the chosen playbook's `scaffold-profile:`.** The
   Flutter client playbook needs `bigin-skills` >= 1.68.0 for its `flutter` profile; below that
   there is no profile for the stack, and G5 must scaffold with the stack's own tool first and

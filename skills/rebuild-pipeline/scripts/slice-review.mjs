@@ -46,9 +46,10 @@ const readYaml = (p, fallback) => {
 // Late-added sibling modules are imported guarded, the same way validate.mjs handles erd.mjs
 // and playbook.mjs: a hand-upgraded workbench that copied this file without them should lose
 // one section with an explanation, not die on an unresolved import before writing anything.
-let seqLib = null, acLib = null;
+let seqLib = null, acLib = null, planLib = null;
 try { seqLib = await import("./sequence.mjs"); } catch { /* reported in the report */ }
 try { acLib = await import("./acsuite.mjs"); } catch { /* reported in the report */ }
+try { planLib = await import("./lane-plan.mjs"); } catch { /* section 2b is skipped */ }
 
 const slices = readYaml("plan/slices.yaml", []) || [];
 if (!slices.length) {
@@ -289,6 +290,40 @@ md.shipped = sliceFeatures.map((id) =>
   `- ${id} ${featureName.get(id) || "(not in matrix/features.yaml)"} — **${featureProgress[id] || "no progress entry"}**` +
   (featureProgress[id] ? "" : " *(falls back to the gate-1 mining status, which is about the REFERENCE)*"));
 
+// --- 2b. lane plans ------------------------------------------------------
+// Each lane worked under a PLAN.md that lane-plan.mjs wrote from the approved specs (E17b). The
+// harness's spec gate cannot stop a lane rewriting its own approved spec — `*.md` is exempt from
+// it — so this is where that edit becomes visible: the `## Spec` section is re-hashed against
+// what lane-plan.mjs recorded. Advisory like everything here, but named, because a lane that
+// rewrote the spec it was approved against is the failure the plan exists to prevent.
+const lanePlanMd = [];
+const lanePlans = planLib?.readLanePlans(sliceId);
+if (lanePlans) {
+  for (const [lane, rec] of Object.entries(lanePlans.lanes || {})) {
+    const planPath = join(rec.worktree, "PLAN.md");
+    if (!existsSync(planPath)) {
+      lanePlanMd.push(`- ${lane}: no PLAN.md in \`${rec.worktree}\` — archived by task-workflow's cleanup, ` +
+        `or removed. Approved @ workbench ${rec.workbench_commit} by ${rec.approved_by}.`);
+      continue;
+    }
+    const plan = readFileSync(planPath, "utf8");
+    const rows = planLib.taskRows(plan);
+    const done = rows.filter((r) => r.status === "Done").length;
+    const status = plan.match(/^Status:\s*(\S+)/m)?.[1] || "(none)";
+    const edited = planLib.specHash(plan) !== rec.spec_sha256;
+    lanePlanMd.push(`- ${lane}: ${done}/${rows.length} task rows Done · Status: ${status} · approved @ workbench ` +
+      `${rec.workbench_commit} by ${rec.approved_by}${rec.amendments ? ` · ${rec.amendments} amendment(s)` : ""}` +
+      `${edited ? " · **`## Spec` differs from what was approved**" : ""}`);
+    if (edited) press(`${lane}: its PLAN.md \`## Spec\` no longer matches the approved specs`,
+      `- **${lane}'s PLAN.md \`## Spec\` no longer matches what lane-plan.mjs wrote** from the specs approved @ ` +
+      `workbench ${rec.workbench_commit}. The spec gate cannot stop that edit, so this is the only place it shows. ` +
+      `Diff \`${planPath}\` against those specs; a legitimate change goes through \`lane-plan.mjs --amend\`.`);
+    if (status !== "approved") press(`${lane}: PLAN.md is \`Status: ${status}\``,
+      `- **${lane}'s PLAN.md is \`Status: ${status}\`**, so the spec gate blocks its non-trivial edits. ` +
+      `\`amending\` means the lane found the spec wrong and is waiting on a re-approval.`);
+  }
+}
+
 // --- 3. standing ---------------------------------------------------------
 //
 // COVERAGE IS COUNTED FROM plan/progress.yaml ONLY, and that is the whole point of this block.
@@ -451,7 +486,7 @@ ${md.run.join("\n")}
 ## 2. What shipped
 
 ${md.shipped.length ? md.shipped.join("\n") : "- this slice lists no features"}
-${unrecorded.length ? `\n${unrecorded.length} of them have no \`plan/progress.yaml\` entry. Record them under \`features:\` — until then they count as uncovered here and fall back to mining status in the parity report.\n` : ""}${(slice.learning_goals || []).length ? `\nLearning goals: ${slice.learning_goals.join(" · ")}\n` : ""}
+${lanePlanMd.length ? `\nLane plans (\`plan/lane-plans/${sliceId}.yaml\`):\n\n${lanePlanMd.join("\n")}\n` : ""}${unrecorded.length ? `\n${unrecorded.length} of them have no \`plan/progress.yaml\` entry. Record them under \`features:\` — until then they count as uncovered here and fall back to mining status in the parity report.\n` : ""}${(slice.learning_goals || []).length ? `\nLearning goals: ${slice.learning_goals.join(" · ")}\n` : ""}
 ## 3. Where that puts us
 
 \`\`\`

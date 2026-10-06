@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-06
+
+The bigin harness's guards now run for pipeline work. Before this they were installed in every
+code repo and never ran. Claude Code loads a repo's `.claude/settings.json` hooks only when the
+session started in that repo, and rebuild sessions start in the project's parent directory. So
+the spec gate, bash, bugfix-test, commit-msg and injection guards were inert for the whole linear
+rebuild: 56 of the backend's 68 slice commits added over 20 lines of non-test code, and no
+`PLAN.md` ever existed. Only the repos' git hooks ran. A scratch test confirmed the cause. Spec:
+`specs/Spec Build lanes under the bigin harness.md` (E17a, E17b; E18 is still to come).
+
+- **E17a: `hooks/scripts/repo-hooks.mjs`.** On PreToolUse and PostToolUse for every tool, it runs
+  the repo's own registered hooks for a call that targets a code repo listed in a workbench's
+  `repos.yaml`, using bigin's code unchanged. The strictest result wins (block, then ask, then
+  allow), and a guard that crashes or times out counts as a block.
+  - A lane worktree counts as its main repo, and falls back to the main checkout's registrations
+    when it has none.
+  - It skips sessions started in the repo, `SessionStart` and `PreCompact`, and Bash commands
+    that name no directory.
+  - It adds about 65 ms per tool call, mostly Node startup.
+- **E17b: `scripts/lane-plan.mjs`** (`npm run lane-plan`). After spec approval, it writes each
+  lane's `PLAN.md` in `task-workflow`'s format: `Status: approved`, the lane's branch, an
+  `Approved:` line with spec paths, workbench commit and approver, the specs verbatim, and one
+  task row per acceptance criterion.
+  - It refuses uncommitted specs, the wrong branch, and an unfinished plan.
+  - `--amend` keeps a row's status only when its criterion is unchanged, and logs the reason.
+  - Each plan is recorded in `plan/lane-plans/<Sn>.yaml`.
+- `slice-review.mjs` lists each lane's plan and names any lane whose `## Spec` changed after
+  approval. The spec gate exempts `*.md`, so the slice boundary is the only place that edit shows.
+- `g5-build.md` adds step 1b (one worktree and branch per lane, plans before code, the amend
+  path) and a guardrail on the forwarded guards. The build-lane brief now covers:
+  - working the plan's rows;
+  - ignoring the repo `CLAUDE.md`'s `/task-workflow` line for steps 1–3;
+  - `Status: amending` as a lane's only `Status:` edit;
+  - `cd <worktree> &&` rather than `git -C`, because the harness's commit-msg guard does not
+    read `git -C <dir> commit`;
+  - a separate plan for each helper worktree.
+- `autopilot.md` adds two halts: a lane reporting `amending`, and a repo-guard block the lane
+  cannot resolve. `g0-reference.md` tells the user about the spec gate at G0. `SKILL.md` names
+  what is used from `bigin-skills`, and what is deliberately not used.
+- New evals: `eval/repo-hooks.mjs` and `eval/lane-plan.mjs`.
+- **Upgrading mid-project turns on guards the project has never run under.** Expect bash-guard,
+  bugfix-test and spec-gate blocks in the first slice afterwards. Cut lane worktrees and run
+  `lane-plan` before the next lane starts.
+
 ## [0.28.0] - 2026-10-06
 
 Rule Cards get checked for completeness, not only precision, and lane R's recall becomes a

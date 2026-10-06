@@ -245,6 +245,37 @@ then resolves against the code repo's own remote, so a fresh
    code is written: one project found its two hardest deploy ACs unrunnable *after* the
    whole slice was built and pushed, for two independent reasons, one of which was a Gate 4
    reopen. Both were answerable in a minute at spec time.
+1b. **Lane plans — after spec approval, before any lane writes feature code.** Every code repo
+   carries `bigin-harness-setup`'s spec gate: no edit over ~20 lines until `PLAN.md` at the
+   worktree root says `Status: approved`. Since 0.29.0 that gate runs for pipeline sessions too
+   (see "The harness's guards run for lanes" under Guardrails), so a lane with no plan is
+   blocked on its first real edit. Your approval of the slice's specs is the approval the gate
+   wants, and this step carries it there:
+
+   - **One worktree and one branch per lane**, `slice/<Sn>-<lane>`, cut from the repo's main
+     branch (`git -C <repo> worktree add -b slice/S3-billing-backend ../<repo>-S3-billing-backend`).
+     The gate reads `PLAN.md` per worktree, so two lanes sharing a checkout would share a plan.
+     On S1 the repo does not exist yet: run the repo checklist (step 0) first, then cut the
+     worktrees.
+   - **Write each lane's plan** with `npm run lane-plan -- <Sn> <lane> --worktree <path> --specs
+     <the specs this lane builds>`. It writes `task-workflow`'s `PLAN.md` format: `Status:
+     approved`, the lane's `Branch:`, an `Approved:` line (spec paths, workbench commit,
+     approver), the specs verbatim, and one task row per acceptance criterion. It refuses specs
+     with uncommitted changes, a worktree on the wrong branch, and an existing plan with
+     unfinished rows. It records each plan in `plan/lane-plans/<Sn>.yaml`.
+   - **Never let a lane write or approve its own plan.** `*.md` is exempt from the gate, so
+     nothing mechanical stops it. That is why the plan comes from this script at the approval
+     moment, and why `slice-review.mjs` re-hashes each plan's `## Spec` against what was
+     recorded and names any lane whose approved spec changed underneath it.
+   - **When a lane finds the spec wrong**, it sets `Status: amending`, which blocks its own
+     non-trivial edits, and reports. That is the only `Status:` edit a lane may make, because it
+     can only remove permission. Take it to the user. Once the corrected spec is approved and
+     committed, run `npm run lane-plan -- <Sn> <lane> --worktree <path> --specs <...> --amend
+     --reason "..."`. A row keeps its status only if its criterion text is unchanged, and the
+     reason is logged under `## Amendments`.
+   - **At slice end**, once every row is `Done` and the slice is deployed, `PLAN.md` leaves the
+     worktree through `task-workflow`'s own cleanup step: a `knowledge/implementation/` record
+     where the repo has one, and `.claude/memory/PLAN.archive.*` otherwise.
 2. **Backend** — one lane per bounded context touched (module or service per Gate 3).
    On the first slice this is where the repo checklist above runs (`bigin-harness-setup`,
    then the locked contract replacing the scaffold's starter spec); on every slice after,
@@ -353,6 +384,18 @@ relaxed to compensate.
   hooks, rewriting its `CLAUDE.md` wholesale, or swapping the scaffolded stack for a
   hand-rolled one is a Gate 3 conversation (it contradicts the locked stack ADR), not a
   lane-level decision.
+- **The harness's guards run for lanes, through the plugin.** Claude Code loads a repo's
+  `.claude/settings.json` hooks only when the session started in that repo. Rebuild sessions
+  start in the project's parent directory, so before 0.29.0 every Claude Code guard the harness
+  installed (spec gate, bash, bugfix-test, commit-msg, injection gate and scan) was inert for
+  all pipeline work. In the linear rebuild that went unnoticed for the whole build; only the repos'
+  git hooks ran. The plugin's `repo-hooks.mjs` now runs each listed code repo's own hooks for any
+  tool call that targets it, with the repo's code, unchanged. A block that names a repo
+  guard (`spec-gate-guard.mjs`, `bash-guard.mjs`, …) comes from the harness, not from this
+  pipeline. Handle it the way that repo's conventions say to; never edit the guard. It does
+  not forward `SessionStart` or `PreCompact` hooks, which belong to a session in one repo.
+  It cannot see which repo a Bash command acts on unless the command says so, which is why
+  the build-lane brief has lanes start commands with `cd <worktree> &&`.
 - CI per lane: lint, tests, security scan, license scan, AC-coverage (every AC has a test).
   The scaffold already wrote `.github/workflows/ci.yml` with lint/test/build — this
   pipeline's extra jobs (license scan, AC-coverage) are **added to that file**, not a

@@ -41,7 +41,8 @@ cpSync(SCHEMAS, join(root, "schemas"), { recursive: true });
 for (const s of ["validate.mjs", "gate.mjs", "parity.mjs", "pause-check.mjs", "erd.mjs",
                  "playbook.mjs", "basis.mjs", "flows.mjs", "autopilot.mjs",
                  "sequence.mjs", "slice-review.mjs", "acsuite.mjs", "routing.mjs",
-                 "preflight.mjs", "upgrade.mjs", "equiv.mjs", "lanes-check.mjs"]) {
+                 "preflight.mjs", "upgrade.mjs", "equiv.mjs", "lanes-check.mjs",
+                 "lane-plan.mjs"]) {
   cpSync(join(HERE, s), join(root, "scripts", s));
 }
 
@@ -311,6 +312,7 @@ write("package.json", JSON.stringify({
     "slice-review": "node scripts/slice-review.mjs",
     "pause-check": "node scripts/pause-check.mjs",
     "lanes-check": "node scripts/lanes-check.mjs",
+    "lane-plan": "node scripts/lane-plan.mjs",
     autopilot: "node scripts/autopilot.mjs",
     routing: "node scripts/routing.mjs",
   },
