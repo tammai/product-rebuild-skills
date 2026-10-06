@@ -53,11 +53,36 @@ Rules that define success:
   **after lane D**, and its findings plus `reference-erd.mermaid` are inputs in your brief:
   you cannot cite an entity before somebody has transcribed which entities exist.
 
-  - **One behavior per card.** `given` / `when` / `then` in executable-style Gherkin, with
+  - **One behavior per card.** Six kinds: `calculation`, `validation`, `eligibility`,
+    `state-transition`, `derivation`, and `invariant` (below). `given` / `when` / `then` in executable-style Gherkin, with
     the concrete values a test could assert on — rates, limits, thresholds, error codes,
     the exact set of states. "Then the invoice is validated" is not a rule; "then the
     request is rejected with `422` and the message `amount exceeds credit limit`" is. An
     `and` in `when` almost always means two cards.
+  - **Read the failure side of every rule-bearing route.** For each route you carded, open
+    its error handlers and the defaults it applies to missing input, and card what they do,
+    with concrete values. A `rescue` that swallows an exception and returns an empty list is
+    a rule. So is a nil amount that becomes `0`, a retry with a backoff, a `fetch` with a
+    fallback, and a default argument. Mark these `path_kind: error` or `path_kind: default`.
+    A rebuild drops them silently, because nobody ever wrote a test for them, and they are
+    the class extraction misses most often. Look for them deliberately, not only when they
+    happen to be on the line you were reading.
+  - **A property that holds after every write is one `invariant` card**, not a card per
+    operation that preserves it. "An invoice's total equals the sum of its line items plus
+    tax", maintained by callbacks on several models, is one card: `kind: invariant`, `given`
+    the scope, no `when`, `then` the property with values, `entities[]` every entity whose
+    writes can break it, and evidence at each place that maintains it. Per-operation cards
+    each pass, while the property itself is written down nowhere, so a new writer can break
+    it without any card noticing. **A constraint the database enforces is not a card.** A
+    `CHECK`, a unique index, a foreign key or `NOT NULL` belongs to lane D's schema findings
+    and the ERD. Card an invariant only when application code is what keeps it true.
+  - **Every `state-transition` card carries `transition`:** `entity` (also in `entities[]`),
+    `field` (the attribute holding the state, e.g. `status`), `from` (every state the edge
+    leaves, with `(none)` for creation) and `to`. `validate.mjs` assembles each entity's state
+    machine from these and reports states no card moves into, states no card moves out of,
+    and a missing creation edge. So card the creation edge too: "a new invoice starts in
+    draft" is a transition from `(none)`. A card without `transition` still validates, but
+    its edge is missing from the machine, and so is any gap it would have revealed.
   - **`then` is the sentence a judge re-derives**, so write it against what the source
     does, not what the feature is for. A `then` that paraphrases intent cannot be confirmed
     or refuted by opening the file, which makes the citation decorative.

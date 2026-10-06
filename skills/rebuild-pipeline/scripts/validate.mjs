@@ -286,6 +286,64 @@ if (ruleFiles.length && !validators.rule) {
       "cross-checked. Lane R is supposed to run after lane D has written one.");
   }
 
+  // State machines, assembled from `transition` on state-transition cards. Each card is one
+  // edge in prose, so before this an entity's lifecycle was N unrelated cards and the Gate 1
+  // rubric's "no state-transition cards for an entity that clearly has a state machine" was
+  // found by a judge reading, if at all. One failure, everything else advisory:
+  //
+  //   - `transition.entity` missing from the card's own `entities[]` FAILS. Two fields on one
+  //     card disagreeing is a defect in the card, in the same register as an unknown entity.
+  //   - Unreachable states, dead ends and a missing creation edge are REPORTED. A reference can
+  //     genuinely carry an orphaned legacy state or a terminal state, and whether the rebuild
+  //     keeps it is the gate reviewer's call. Failing here would make such a reference unlockable.
+  //
+  // Only states some card names are visible: a state the schema has and no card mentions is
+  // invisible to this check too. Comparing against lane D's enum values needs a lane D field.
+  {
+    const normEnt = (e) => String(e).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const NONE = "(none)";
+    const machines = new Map();
+    const mismatched = new Map();
+    let withoutTransition = 0;
+    for (const { file, rule } of allRules) {
+      if (rule?.kind !== "state-transition") continue;
+      const t = rule.transition;
+      if (!t || typeof t !== "object" || !Array.isArray(t.from)) { withoutTransition++; continue; }
+      if (!(rule.entities || []).some((e) => normEnt(e) === normEnt(t.entity))) {
+        if (!mismatched.has(file)) mismatched.set(file, []);
+        mismatched.get(file).push(`${rule.id} has transition.entity "${t.entity}", which is not in its entities[]`);
+      }
+      const key = `${normEnt(t.entity)}.${t.field}`;
+      if (!machines.has(key)) machines.set(key, { label: `${t.entity}.${t.field}`, edges: [], cards: new Set() });
+      const m = machines.get(key);
+      for (const from of t.from) m.edges.push({ from, to: t.to });
+      m.cards.add(rule.id);
+    }
+    for (const [file, problems] of mismatched) {
+      fail(file, problems.join("\n  ") + "\n  The state-machine check files the edge under transition.entity, " +
+        "and entities[] is what G5 loads the card by — they have to name the same thing.");
+    }
+    if (machines.size) {
+      console.log(`\nstate machines (advisory — read beside Gate 1's D6):`);
+      for (const m of machines.values()) {
+        const into = new Set(m.edges.map((e) => e.to));
+        const outOf = new Set(m.edges.map((e) => e.from).filter((s) => s !== NONE));
+        const states = new Set([...into, ...outOf]);
+        const unreachable = [...outOf].filter((s) => !into.has(s));
+        const deadEnds = [...into].filter((s) => !outOf.has(s));
+        const created = m.edges.some((e) => e.from === NONE);
+        console.log(`  ${m.label}: ${states.size} state(s), ${m.edges.length} edge(s) from ${m.cards.size} card(s)`);
+        if (unreachable.length) console.log(`    unreachable — no card moves into: ${unreachable.join(", ")}`);
+        if (deadEnds.length) console.log(`    dead ends — no card moves out of: ${deadEnds.join(", ")} (confirm they are terminal)`);
+        if (!created) console.log(`    no creation edge — no card has from: [${NONE}], so nothing says which state a new record starts in`);
+      }
+    }
+    if (withoutTransition) {
+      console.log(`  ${withoutTransition} state-transition card(s) carry no \`transition\` and are not part of ` +
+        `the state-machine check. Expected for cards mined before it existed; new lane R runs fill it in.`);
+    }
+  }
+
   // Judge verification state. Advisory and always will be: `re-derived` is set by
   // rubric-judge, which runs AFTER this validator passes, so a pre-judge run showing every
   // card pending is the normal case and failing on it would make the gate unreachable.
@@ -298,6 +356,25 @@ if (ruleFiles.length && !validators.rule) {
     console.log(`ok   ${RULES_DIR}/ (${total} rule card(s) in ${parsedFiles.length} file(s)` +
       `${skipped ? `, ${skipped} file(s) skipped for schema failures above` : ""}; ` +
       `${total - pending.length}/${total} re-derived by the judge)`);
+
+    // Which side of the behavior each domain's cards are on. Error handlers and fallback
+    // defaults are the rules a rebuild drops with no test failing, and before `path_kind` a
+    // domain with none of them looked exactly like a domain fully mined. Advisory: a domain can
+    // genuinely have no error path, but the Gate 1 reviewer should see the zero, not infer it.
+    const byDomain = new Map();
+    for (const { file, rule } of allRules) {
+      const domain = file.split(/[/\\]/).pop().replace(/\.ya?ml$/, "");
+      if (!byDomain.has(domain)) byDomain.set(domain, { normal: 0, error: 0, default: 0, invariant: 0 });
+      const d = byDomain.get(domain);
+      const side = ["error", "default"].includes(rule?.path_kind) ? rule.path_kind : "normal";
+      d[side]++;
+      if (rule?.kind === "invariant") d.invariant++;
+    }
+    for (const [domain, d] of byDomain) {
+      console.log(`  ${domain}: ${d.normal} normal, ${d.error} error-path, ${d.default} default` +
+        `${d.invariant ? `; ${d.invariant} invariant(s)` : ""}` +
+        `${d.error ? "" : " — no error-path cards; name it in the Gate 1 review if its routes document error responses"}`);
+    }
     if (pending.length) {
       console.log(`  ${pending.length} card(s) still \`verification: pending\` — no agent has opened ` +
         `their citation:\n    ${pending.map(({ rule }) => rule.id).slice(0, 12).join(", ")}` +
@@ -335,6 +412,7 @@ const specFiles = (() => {
 if (specFiles.length) {
   const ruleIds = new Set();
   const domainsWithRules = new Set();
+  const invariantIds = new Set();
   for (const f of yamlFilesUnder("findings").filter(isRuleFile)) {
     let data; try { data = parse(readFileSync(f, "utf8")); } catch { continue; }
     if (!Array.isArray(data)) continue;
@@ -342,8 +420,12 @@ if (specFiles.length) {
     // `domains:` frontmatter uses, which is what makes "does this spec's domain have rules"
     // answerable without a second index nobody would maintain.
     const domain = f.split(/[/\\]/).pop().replace(/\.ya?ml$/, "");
-    for (const r of data) if (r?.id) { ruleIds.add(r.id); domainsWithRules.add(domain); }
+    for (const r of data) if (r?.id) {
+      ruleIds.add(r.id); domainsWithRules.add(domain);
+      if (r.kind === "invariant") invariantIds.add(r.id);
+    }
   }
+  const citedIds = new Set();
 
   let acTotal = 0, acWithRule = 0, acInRuleDomains = 0, acInRuleDomainsWithRule = 0;
   for (const f of specFiles) {
@@ -371,6 +453,7 @@ if (specFiles.length) {
       acWithRule++;
       if (ruleBearing) acInRuleDomainsWithRule++;
       for (const id of cited) {
+        citedIds.add(id);
         if (!ruleIds.has(id)) problems.push(`cites rule_id ${id}, which no Rule Card in findings/rules/ defines`);
       }
     }
@@ -390,6 +473,17 @@ if (specFiles.length) {
   } else if (acTotal) {
     console.log(`\nrule_id coverage: not applicable — ${acTotal} acceptance criteria, none in a domain ` +
       `that has Rule Cards.`);
+  }
+
+  // An invariant has no trigger, so no single module "owns" it: every module that writes its
+  // entities must test it (g5-build.md). One that no criterion cites anywhere is a property
+  // nothing in the build checks. Advisory, because before the first slice that writes the
+  // entity, being uncited is the expected state.
+  const uncitedInvariants = [...invariantIds].filter((id) => !citedIds.has(id));
+  if (uncitedInvariants.length) {
+    console.log(`\ninvariants no acceptance criterion cites yet (${uncitedInvariants.length}): ` +
+      `${uncitedInvariants.join(", ")}\n  Advisory — expected until a slice writes their entities; ` +
+      `after that, every spec for a module that writes one should cite it.`);
   }
 }
 

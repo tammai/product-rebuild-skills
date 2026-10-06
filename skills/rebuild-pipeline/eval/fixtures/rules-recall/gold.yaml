@@ -1,0 +1,313 @@
+# The known answer for lane R on reference-src/. Read by eval/rules-recall.mjs; never shown to
+# the miner — a miner that has seen this file is being scored on copying, not mining.
+#
+# A card MATCHES a rule when one of its evidence entries points into one of the rule's
+# `locations` (path, and a `line` inside the range) AND its kind is one of `kinds`. More than
+# one kind is listed only where the schema's own definitions genuinely overlap for that rule;
+# a single kind means the others would be a misreading. `invariant` is not in the schema
+# before E13, so G-21 and G-22 are expected to show up as near misses until it is: that is
+# the gap the baseline exists to put a number on.
+#
+# `values` is for the strict score: every group must appear somewhere in the card's
+# given/when/then (case-insensitive, any one alternative per group). It is what separates a
+# `then` a test can assert on from one that restates the route.
+#
+# `hard` names why a rule is in the set when it is one of the classes the AgentModernize paper
+# reports as hardest to extract (defaults, error handlers, cross-module). Changing line
+# numbers in reference-src/ means changing them here — the two are one fixture.
+
+fixture: rules-recall
+domain: billing
+
+rules:
+  - id: G-01
+    kinds: [calculation, derivation]
+    path_kind: normal
+    rule: A line item's amount is quantity × unit_price, rounded half-even to 2 decimal places.
+    locations:
+      - { path: app/models/line_item.rb, lines: [21, 23] }
+    values: [["half-even", "half_even", "half even", "half: :even", "banker"]]
+
+  - id: G-02
+    kinds: [calculation]
+    path_kind: normal
+    rule: Tax is subtotal × the customer region's rate (EU 0.20, UK 0.20, SG 0.09), rounded half-even; total is subtotal + tax.
+    locations:
+      - { path: app/models/invoice.rb, lines: [20, 25] }
+      - { path: config/billing.rb, lines: [2, 6] }
+    values: [["0.20", "20%"], ["0.09", "9%"]]
+
+  - id: G-03
+    kinds: [calculation]
+    path_kind: normal
+    rule: Late fee is outstanding × 1.5% per full 30 days overdue, capped at 25.00; zero before the first full period.
+    locations:
+      - { path: app/services/late_fee_calculator.rb, lines: [7, 13] }
+      - { path: config/billing.rb, lines: [8, 10] }
+    values: [["1.5%", "0.015"], ["30"], ["25"]]
+
+  - id: G-04
+    kinds: [validation]
+    path_kind: normal
+    rule: Quantity must be an integer from 1 to 10,000, else rejected with "quantity out of range".
+    locations:
+      - { path: app/models/line_item.rb, lines: [5, 10] }
+    values: [["10000", "10,000", "10_000"], ["quantity out of range"]]
+
+  - id: G-05
+    kinds: [validation]
+    path_kind: normal
+    rule: A payment larger than the outstanding amount is rejected with 422 "overpayment".
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [13, 13] }
+      - { path: app/controllers/invoices_controller.rb, lines: [20, 21] }
+    values: [["422", "unprocessable"], ["overpayment"]]
+
+  - id: G-06
+    kinds: [validation, eligibility]
+    path_kind: normal
+    rule: Only an invoice in issued, partially_paid or overdue can take a payment.
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [4, 4] }
+      - { path: app/services/payment_recorder.rb, lines: [12, 12] }
+    values: [["issued"], ["partially_paid", "partially paid"], ["overdue"]]
+
+  - id: G-07
+    kinds: [eligibility]
+    path_kind: normal
+    rule: Only a user with role finance or owner may void, and only when the invoice has no succeeded payment; otherwise 403.
+    locations:
+      - { path: app/policies/invoice_policy.rb, lines: [2, 2] }
+      - { path: app/policies/invoice_policy.rb, lines: [13, 15] }
+      - { path: app/controllers/invoices_controller.rb, lines: [25, 25] }
+    values: [["finance"], ["owner"], ["403", "forbidden"]]
+
+  - id: G-08
+    kinds: [eligibility, validation]
+    path_kind: normal
+    rule: An invoice for a customer on credit hold cannot be issued (422 "customer is on credit hold").
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [12, 12] }
+    values: [["credit hold", "credit_hold"]]
+
+  - id: G-09
+    kinds: [validation]
+    path_kind: normal
+    rule: An invoice with no line items cannot be issued (422 "invoice has no line items").
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [13, 13] }
+    values: [["no line items"]]
+
+  - id: G-10
+    kinds: [state-transition]
+    path_kind: normal
+    rule: Issuing moves draft → issued and sets issued_at, number and due_date.
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [15, 24] }
+    values: [["draft"], ["issued"]]
+
+  - id: G-11
+    kinds: [state-transition]
+    path_kind: normal
+    rule: After a successful payment the invoice becomes paid when nothing is outstanding, else partially_paid.
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [22, 23] }
+      - { path: app/services/payment_recorder.rb, lines: [33, 35] }
+    values: [["paid"], ["partially_paid", "partially paid"]]
+
+  - id: G-12
+    kinds: [state-transition]
+    path_kind: normal
+    rule: The dunning job moves issued and partially_paid invoices whose due_date is before today to overdue.
+    locations:
+      - { path: app/jobs/dunning_job.rb, lines: [4, 6] }
+    values: [["overdue"], ["due_date", "due date"]]
+
+  - id: G-13
+    kinds: [state-transition]
+    path_kind: normal
+    rule: Voiding moves the invoice to void.
+    locations:
+      - { path: app/controllers/invoices_controller.rb, lines: [24, 29] }
+    values: [["void"]]
+
+  - id: G-14
+    kinds: [derivation]
+    path_kind: normal
+    rule: The invoice number is INV-<year>-<5-digit per-year sequence>.
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [36, 39] }
+    values: [["INV-"]]
+
+  - id: G-15
+    kinds: [derivation, calculation]
+    path_kind: default
+    rule: due_date is the issue date + the customer's payment_terms_days, and 30 days when the customer has none.
+    hard: default argument and a nil fallback, nowhere near a validation or a route
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [22, 22] }
+      - { path: app/services/invoice_issuer.rb, lines: [32, 34] }
+    values: [["30"]]
+
+  - id: G-16
+    kinds: [derivation, calculation]
+    path_kind: default
+    rule: A region missing from the tax table is taxed at 0.
+    hard: a Hash#fetch default — the rule is the second argument
+    locations:
+      - { path: config/billing.rb, lines: [15, 17] }
+    values: [["0", "zero", "no tax", "untaxed"]]
+
+  - id: G-17
+    kinds: [derivation]
+    path_kind: default
+    rule: A new invoice's currency is the customer's currency, and USD when the customer has none.
+    hard: a `||` fallback inside a create call
+    locations:
+      - { path: app/controllers/invoices_controller.rb, lines: [6, 6] }
+    values: [["USD"]]
+
+  - id: G-18
+    kinds: [state-transition]
+    path_kind: error
+    rule: A gateway decline marks the payment failed, leaves the invoice status unchanged, and the request answers 402.
+    hard: rescue block; the 402 lives in a different file from the decline
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [25, 28] }
+      - { path: app/controllers/invoices_controller.rb, lines: [19, 19] }
+    values: [["failed"], ["402", "payment_required", "payment required"]]
+
+  - id: G-19
+    kinds: [calculation]
+    path_kind: error
+    rule: A failed payment is retried after 5 × 2^(attempt−1) minutes — 5 after the first attempt, 10 after the second.
+    hard: error path, and its constant lives in a different file
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [43, 44] }
+      - { path: config/billing.rb, lines: [13, 13] }
+    values: [["5"], ["10", "2^", "2**", "doubl"]]
+
+  - id: G-20
+    kinds: [derivation, state-transition]
+    path_kind: error
+    rule: A PDF render failure is swallowed — the invoice stays issued and pdf_status is pending.
+    hard: a rescue that swallows the exception, so no test ever sees it fail
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [41, 46] }
+    values: [["pending"]]
+
+  - id: G-21
+    kinds: [invariant]
+    path_kind: normal
+    rule: An invoice's total always equals the sum of its line item amounts plus tax — recomputed on every line item save and destroy.
+    hard: cross-module (callbacks in one model, the arithmetic in another), and no kind for it before E13
+    locations:
+      - { path: app/models/line_item.rb, lines: [16, 17] }
+      - { path: app/models/line_item.rb, lines: [31, 33] }
+    values: [["sum", "subtotal"], ["tax"]]
+
+  - id: G-22
+    kinds: [invariant]
+    path_kind: normal
+    rule: The line items of an invoice that is not draft never change — save and destroy both raise.
+    hard: a callback guard rather than a validation, and no kind for it before E13
+    locations:
+      - { path: app/models/line_item.rb, lines: [13, 14] }
+      - { path: app/models/line_item.rb, lines: [25, 29] }
+    values: [["draft"]]
+
+  # --- Added after the first recorded run (2026-10-06), which carded these and found the set
+  # incomplete. Every one is a rule the source genuinely has; leaving them out scored correct
+  # cards as noise and put the miner's precision at 70% when the gold, not the miner, was short.
+
+  - id: G-23
+    kinds: [state-transition, derivation]
+    path_kind: normal
+    rule: A new invoice is created in draft.
+    locations:
+      - { path: app/controllers/invoices_controller.rb, lines: [6, 6] }
+    values: [["draft"]]
+
+  - id: G-24
+    kinds: [validation, eligibility, state-transition]
+    path_kind: normal
+    rule: Only a draft invoice can be issued; any other status is rejected with 422 "only draft invoices can be issued".
+    locations:
+      - { path: app/services/invoice_issuer.rb, lines: [11, 11] }
+    values: [["draft"], ["422", "unprocessable"]]
+
+  - id: G-25
+    kinds: [state-transition]
+    path_kind: error
+    rule: A payment that fails its third attempt is marked abandoned and no further retry is scheduled.
+    hard: error path, and the limit lives in a different file
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [38, 41] }
+      - { path: config/billing.rb, lines: [12, 12] }
+    values: [["3", "third"], ["abandoned"]]
+
+  - id: G-26
+    kinds: [validation]
+    path_kind: normal
+    rule: A line item's unit_price must be 0 or more.
+    locations:
+      - { path: app/models/line_item.rb, lines: [11, 11] }
+    values: [["0"]]
+
+  - id: G-27
+    kinds: [validation]
+    path_kind: normal
+    rule: A line item requires a description.
+    locations:
+      - { path: app/models/line_item.rb, lines: [4, 4] }
+    values: [["description"]]
+
+  - id: G-28
+    kinds: [validation]
+    path_kind: normal
+    rule: An invoice requires a currency.
+    locations:
+      - { path: app/models/invoice.rb, lines: [10, 10] }
+    values: [["currency"]]
+
+  - id: G-29
+    kinds: [eligibility]
+    path_kind: normal
+    rule: An invoice may be updated only while draft, and only by a user of the customer's own account.
+    locations:
+      - { path: app/policies/invoice_policy.rb, lines: [9, 11] }
+    values: [["draft"], ["account"]]
+
+  - id: G-30
+    kinds: [calculation, derivation]
+    path_kind: normal
+    rule: Outstanding is total minus the sum of succeeded payments; pending, failed and abandoned payments do not reduce it.
+    locations:
+      - { path: app/models/invoice.rb, lines: [16, 18] }
+    values: [["succeeded"]]
+
+  - id: G-31
+    kinds: [calculation, derivation]
+    path_kind: normal
+    rule: Days overdue is today − due_date in whole days, and 0 when there is no due_date or it has not passed.
+    locations:
+      - { path: app/models/invoice.rb, lines: [27, 31] }
+    values: [["0"]]
+
+  # --- Added after the E13/E14 run (2026-10-06), on the same grounds as the block above.
+
+  - id: G-32
+    kinds: [derivation, calculation]
+    path_kind: normal
+    rule: An invoice's subtotal is the sum of its line items' stored (already rounded) amounts, not quantity × unit_price recomputed.
+    locations:
+      - { path: app/models/invoice.rb, lines: [12, 14] }
+    values: [["sum"]]
+
+  - id: G-33
+    kinds: [state-transition]
+    path_kind: normal
+    rule: A new payment is created pending with 0 attempts and is attempted once immediately.
+    locations:
+      - { path: app/services/payment_recorder.rb, lines: [15, 16] }
+    values: [["pending"]]

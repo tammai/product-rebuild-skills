@@ -86,13 +86,24 @@ Read `findings/rules/*.yaml` against lane D's route and permission findings, and
   `then` names concrete values a test could assert on.
 - **3** — the obvious rules are carded and a recognisable class is missing — no
   `state-transition` cards for an entity whose lane-D findings clearly describe a state
-  machine, or a domain with routes and no rules at all.
+  machine, or a domain with routes and no rules at all. Also a 3 at most:
+  - a domain whose lane-D routes document error responses (non-2xx statuses, error codes)
+    but which has no `path_kind: error` card. `validate.mjs` prints the split per domain;
+  - a property the reference keeps true in application code across several writers, carded
+    only as per-operation rules and never as one `invariant`;
+  - a state machine in `validate.mjs`'s **state machines** block with an unreachable state
+    or no creation edge that the reference's source does not explain. Open the source and
+    decide before citing it: an orphaned legacy state is a fact about the reference, while a
+    missing edge is a missing card. A listed dead end is usually a terminal state. Cite it
+    only when the source shows a way out that no card records.
 - **1** — cards exist but restate the route rather than the rule ("then the invoice is
   validated"), so nothing downstream can test against them; or whole rule-bearing domains
   have no file.
 
 **Cite below 4:** rule ids and the lane-D finding or route each missing rule belongs to;
-for a weak `then`, quote it.
+for a weak `then`, quote it; for a missed invariant, the per-operation cards that share it.
+An `invariant` card that only restates a database constraint (a `CHECK`, unique index,
+foreign key or `NOT NULL`) belongs to lane D. Name it, whatever the score.
 
 **Citation integrity is reported regardless of the score.** Re-derivation (see your agent
 file) applies here with teeth: a card whose cited `path`/`commit`/`line` does not support

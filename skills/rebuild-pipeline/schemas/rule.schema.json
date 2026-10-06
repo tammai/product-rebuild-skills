@@ -6,8 +6,21 @@
   "type": "array",
   "items": {
     "type": "object",
-    "required": ["id", "kind", "given", "when", "then", "evidence", "features", "confidence"],
+    "required": ["id", "kind", "given", "then", "evidence", "features", "confidence"],
     "additionalProperties": false,
+    "allOf": [
+      {
+        "if": { "properties": { "kind": { "const": "invariant" } }, "required": ["kind"] },
+        "then": { "required": ["entities"], "properties": { "entities": { "type": "array", "minItems": 1 } } },
+        "else": { "required": ["when"] },
+        "description": "`when` is required for every kind but `invariant`, and `entities` is required for `invariant` alone. An invariant has no trigger — its writers are every operation that writes its entities — so a forced `when` would be a second list of those writers, drifting from the first."
+      },
+      {
+        "if": { "properties": { "kind": { "not": { "const": "state-transition" } } }, "required": ["kind"] },
+        "then": { "not": { "required": ["transition"] } },
+        "description": "`transition` belongs to `state-transition` cards only. On any other kind it would feed validate.mjs's state-machine assembly with an edge the card does not claim."
+      }
+    ],
     "properties": {
       "id": {
         "type": "string",
@@ -15,12 +28,29 @@
         "description": "R-<DOMAIN>-<NNN>. Same pattern family as F-<DOMAIN>-<NNN> on purpose: a spec's acceptance criterion cites both, and two id shapes that differ only in prefix are two things a reader can hold at once."
       },
       "kind": {
-        "enum": ["calculation", "validation", "eligibility", "state-transition", "derivation"],
-        "description": "Fixed enum. `calculation` produces a number, `validation` accepts or rejects an input, `eligibility` decides whether an actor may do a thing, `state-transition` moves an entity between states, `derivation` computes a field from others. A rule that needs a sixth kind is usually two rules."
+        "enum": ["calculation", "validation", "eligibility", "state-transition", "derivation", "invariant"],
+        "description": "Fixed enum. `calculation` produces a number, `validation` accepts or rejects an input, `eligibility` decides whether an actor may do a thing, `state-transition` moves an entity between states, `derivation` computes a field from others. Those five fire on a trigger, and one that seems to need a sixth trigger-kind is usually two rules. `invariant` is the one kind with no trigger: a property that holds after EVERY write to its entities (\"an invoice's total equals the sum of its line items plus tax\"). Before it existed, a miner split such a property into one card per operation that happened to preserve it; each card passed, the property itself was written down nowhere, and a rebuild could add a writer that broke it with no card to fail. A constraint the reference's database enforces (CHECK, unique index, foreign key, NOT NULL) is lane D's, transcribed into the schema findings and the ERD, and is not a card."
       },
-      "given": { "type": "string", "minLength": 1, "description": "The precondition. Executable-style Gherkin, concrete values over prose." },
-      "when": { "type": "string", "minLength": 1, "description": "The trigger. One behavior per card — an `and` in here usually means two cards." },
-      "then": { "type": "string", "minLength": 1, "description": "The observable outcome, with the concrete values a test could assert on. This is the sentence the judge re-derives against the cited line, so it has to be checkable against source rather than a paraphrase of intent." },
+      "path_kind": {
+        "enum": ["normal", "error", "default"],
+        "default": "normal",
+        "description": "Which side of the behavior the rule is on. `error`: what happens when an operation fails — a rescue, a rollback, a compensation, a retry, the error response. `default`: what happens when an input is missing — the fallback value, the implied setting. A field rather than a kind because it is a different axis: a state transition can be on the error path, and so can a validation. These are the rules a rebuild drops silently — a rescue that swallows an exception has no test, so nothing fails when it is gone — and before this field nothing asked a miner for them or counted how many were found. Named `path_kind`, not `path`, because an evidence entry's `path` already means a file."
+      },
+      "transition": {
+        "type": "object",
+        "required": ["entity", "field", "from", "to"],
+        "additionalProperties": false,
+        "description": "The edge a `state-transition` card describes, in a form a script can assemble. Each card is one edge, in prose, so an entity's state machine was N unrelated cards and a state no transition reached was invisible; validate.mjs now builds the machine per entity and field from these, and reports unreachable states, dead ends and a missing creation transition. Optional, not required: requiring it would fail every state-transition card mined before it existed, and past Gate 1 those cards sit under a locked path — adding a field nobody asked for at the time would take a gate reopen.",
+        "properties": {
+          "entity": { "type": "string", "minLength": 1, "description": "Must also appear in the card's `entities[]` — validate.mjs fails the card otherwise, since two fields on one card disagreeing is a defect, not a coverage question." },
+          "field": { "type": "string", "minLength": 1, "description": "The attribute holding the state (`status`). One entity can carry two machines, `status` and `pdf_status`; they are assembled separately." },
+          "from": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "Every state this edge leaves from. `(none)` for creation — the state a new record starts in." },
+          "to": { "type": "string", "minLength": 1, "description": "The state the edge arrives in." }
+        }
+      },
+      "given": { "type": "string", "minLength": 1, "description": "The precondition. Executable-style Gherkin, concrete values over prose. For an `invariant`, the scope the property holds over (\"for every INVOICE in status issued or later\")." },
+      "when": { "type": "string", "minLength": 1, "description": "The trigger. One behavior per card — an `and` in here usually means two cards. Omitted for an `invariant`." },
+      "then": { "type": "string", "minLength": 1, "description": "The observable outcome, with the concrete values a test could assert on. This is the sentence the judge re-derives against the cited line, so it has to be checkable against source rather than a paraphrase of intent. For an `invariant`, the property itself, with values." },
       "evidence": {
         "type": "array",
         "minItems": 1,
@@ -58,7 +88,7 @@
       "entities": {
         "type": "array",
         "items": { "type": "string", "minLength": 1 },
-        "description": "Entities the rule reads or writes. validate.mjs checks each against findings/ground-truth/reference-erd*.mermaid: a rule naming an entity the reference does not have is a rule that was inferred rather than mined."
+        "description": "Entities the rule reads or writes. validate.mjs checks each against findings/ground-truth/reference-erd*.mermaid: a rule naming an entity the reference does not have is a rule that was inferred rather than mined. Required for an `invariant`: these are the entities the property is OF, and G5 finds every module that must test it by the entities that module writes."
       },
       "confidence": { "enum": ["high", "medium", "low"] },
       "verification": {

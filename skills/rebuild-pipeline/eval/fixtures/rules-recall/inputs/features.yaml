@@ -1,0 +1,30 @@
+# Fixed input for the lane R run: the matrix entries every card's features[] resolves against.
+# Goes to matrix/features.yaml in the scratch workbench.
+- id: F-BILL-001
+  name: Invoices — create, line items, issue, void
+  domain: billing
+  ground_truth:
+    entities: [CUSTOMER, INVOICE, LINE_ITEM, INVOICE_SEQUENCE]
+    routes: ["POST /invoices", "POST /invoices/:id/issue", "POST /invoices/:id/void"]
+    permissions: [invoice.update, invoice.void]
+  status: planned
+  confidence: high
+
+- id: F-BILL-002
+  name: Payments and retries
+  domain: billing
+  ground_truth:
+    entities: [INVOICE, PAYMENT]
+    routes: ["POST /invoices/:id/pay"]
+    jobs: [PaymentRetryJob]
+  status: planned
+  confidence: high
+
+- id: F-BILL-003
+  name: Dunning and late fees
+  domain: billing
+  ground_truth:
+    entities: [INVOICE]
+    jobs: [DunningJob]
+  status: planned
+  confidence: high

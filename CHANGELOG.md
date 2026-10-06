@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-06
+
+Rule Cards get checked for completeness, not only precision, and lane R's recall becomes a
+measured number. Every card's citation was already re-derived by the judge, but nothing
+noticed a rule that was never carded. That covers invariants that held across several
+writers, error handlers and fallback defaults, and the states of a machine spread across
+unrelated cards. Adapted from AgentModernize's Behavioral Specification Graph, keeping our
+downstream `rule_id` → test → parity chain rather than adopting its graph. Spec:
+`specs/Spec Behavioral completeness of Rule Cards.md` (E13–E16).
+
+- **E16: a recall fixture for lane R.** `eval/fixtures/rules-recall/` is a ~250-line billing
+  domain written alongside `gold.yaml`, which lists all 33 rules in it with locations, kinds
+  and test values. `eval/rules-recall.mjs` scores a lane R output for recall, strict recall
+  (the card names the values a test asserts on) and precision, broken down by kind and by
+  path kind. It also lists near misses: the right code filed under a different kind.
+  `--self-test` checks the scorer against known answers, and `--record` logs to
+  `eval/runs/<local-date>/`. The gold set was written with 22 rules; the first two runs carded
+  11 genuine rules it lacked, and they were added before either run was scored for the record.
+- **E13: `invariant`, a sixth kind.** A property that holds after every write to its entities
+  becomes one card, with `when` omitted and `entities[]` required, instead of one card per
+  operation that preserves it. Constraints the database already enforces stay with lane D.
+  `spec-writer` cites an invariant from every module that writes its entities, and
+  `validate.mjs` lists invariants no criterion cites yet (advisory).
+- **E14: `path_kind: normal | error | default`.** The lane R brief now sends the miner to
+  error handlers, retries and fallback defaults on purpose. `validate.mjs` prints the split per
+  domain and flags a domain with no error-path cards. The field is named `path_kind`, not
+  `path`, because each evidence entry already has a `path` meaning a file.
+- **E15: state machines checked as a whole.** An optional `transition` (`entity`, `field`,
+  `from`, `to`, with `(none)` for creation) on state-transition cards. `validate.mjs`
+  assembles each entity's machine and reports unreachable states, dead ends and a missing
+  creation edge (advisory). The only failure is a `transition.entity` that is not in the
+  card's own `entities[]`. It is optional because past Gate 1 the existing cards are locked.
+- Gate 1 rubric D6 scores the three new gaps, and `g1-mining.md`'s lane R exit criterion
+  names a domain with no error-path cards.
+- Measured on the fixture with one sonnet run per condition. Baseline and new brief both
+  reach 91% recall and 88% strict recall. The new brief found an invariant (0/2 → 1/2) and
+  every default (2/3 → 3/3), and missed two plain rules it found before. One run per side
+  cannot separate that from noise.
+- Every new field is optional, so existing cards validate unchanged, and `schema_version`
+  stays 0.4.0. `CLAUDE.md` now says lane R changes are measured on the fixture before and
+  after.
+
 ## [0.27.0] - 2026-10-06
 
 Plugin updates now reach existing workbenches. Each workbench vendors its scripts and schemas,

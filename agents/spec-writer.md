@@ -54,6 +54,11 @@ assumed. Read them as locked input, the same way you read the contracts.
   against the reference's own source with a `path`, `commit` and `line`; your reading of
   the same behavior weeks later does not override it. Reconciling the two is the
   orchestrator's call and may be a gate reopen.
+- **An `invariant` card is cited by every module that writes its entities**, not by one. If
+  your module writes any entity in an invariant's `entities[]`, add a criterion that performs
+  that write and then asserts the property, citing the invariant's `rule_id`. An invariant
+  has no trigger, so it is never "another module's rule". Each new writer is a new way to
+  break it, and the criterion in that writer's spec is the only thing that would notice.
 - **A rule with no criterion is worth naming.** If a domain in your slice has cards that
   none of your criteria implement, list them under a short **Rules not covered by this
   module** heading with one line each on why — another module owns it, it is out of slice,

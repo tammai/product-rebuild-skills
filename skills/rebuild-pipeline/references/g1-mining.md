@@ -29,11 +29,24 @@ no evidence, no entry.
   schedule that verification explicitly with them.
 - **R Rules** (runs AFTER lane D, not in parallel with it): the reference's business rules
   as **Rule Cards** — `findings/rules/<domain>.yaml`, one array per domain, valid against
-  `schemas/rule.schema.json`. Five kinds: `calculation`, `validation`, `eligibility`,
-  `state-transition`, `derivation`. Each card is one `given`/`when`/`then` with concrete
+  `schemas/rule.schema.json`. Six kinds: `calculation`, `validation`, `eligibility`,
+  `state-transition`, `derivation`, and `invariant` (a property that holds after every write
+  to its entities, with no `when`). Each card is one `given`/`when`/`then` with concrete
   values, `evidence[]` carrying `basis` (and `line` wherever `transcribed`), `features[]`
   resolving against the matrix, and `entities[]` resolving against
   `reference-erd*.mermaid`.
+
+  **The failure side is a target, not an accident.** Error handlers, retries, rollbacks and
+  fallback defaults carry rules that a rebuild drops without any test failing. The brief
+  sends the miner to them on purpose, and `path_kind: error | default` marks the cards it
+  finds there. `validate.mjs` prints the split per domain, so a zero is visible at the gate.
+  An invariant the database already enforces is lane D's, not a card (`agents/miner.md`).
+
+  **State machines are checked as a whole.** Every `state-transition` card carries a
+  `transition` (`entity`, `field`, `from`, `to`), and `validate.mjs` assembles each entity's
+  machine and reports unreachable states, dead ends and a missing creation edge. This is
+  advisory and goes to the Gate 1 judge. The one failure is a `transition.entity` that is
+  not in the card's own `entities[]`.
 
   **Why it is its own lane and not part of D.** Lane D mines entities, routes, permissions,
   jobs and events — the *surface*. What makes a route do something, the interest
@@ -207,7 +220,8 @@ there is nothing to graph.
 Reference running locally (user-confirmed); lane D complete for schema/routes/permissions/
 jobs, including `reference-erd.mermaid`; lanes A–C complete; **lane R complete — every
 `calculation` and `eligibility` route lane D found has at least one Rule Card, and every card
-resolves its `features[]` and `entities[]`**; all findings validate; top-feature flows
+resolves its `features[]` and `entities[]`; a rule-bearing domain with zero `path_kind:
+error` cards is named in the Gate 1 review rather than passed over**; all findings validate; top-feature flows
 user-verified.
 
 For `client-only`: add the API call-site inventory, the on-device store inventory verified

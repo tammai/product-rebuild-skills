@@ -220,6 +220,13 @@ then resolves against the code repo's own remote, so a fresh
    rules in `billing` are green" rather than only counting features, and a criterion that
    drifts from the reference has a locked, cited card to be wrong against.
 
+   **An `invariant` card is cited from every module that writes its entities.** A module spec
+   that writes any entity in an invariant's `entities[]` carries a criterion that performs the
+   write and then asserts the property. One invariant is therefore cited from several slices,
+   and that is the point: each new writer is a new way to break it. `validate.mjs` lists the
+   invariants no criterion cites yet. That is advisory, because before the first slice that
+   writes the entity it is expected.
+
    **Name the `rule_id` in the test too.** The AC→test mapping is 1:1, so the test that
    implements a criterion carries that criterion's rule id in its name (or its `classname`).
    That string is the only thing the JUnit output carries, and it is what the per-rule column

@@ -1,0 +1,36 @@
+erDiagram
+  CUSTOMER ||--o{ INVOICE : billed
+  INVOICE ||--o{ LINE_ITEM : contains
+  INVOICE ||--o{ PAYMENT : settles
+  CUSTOMER {
+    string region
+    string currency
+    int payment_terms_days
+    boolean credit_hold
+  }
+  INVOICE {
+    string status
+    string number
+    string currency
+    decimal tax_amount
+    decimal total
+    date due_date
+    datetime issued_at
+    string pdf_status
+  }
+  LINE_ITEM {
+    string description
+    int quantity
+    decimal unit_price
+    decimal amount
+  }
+  PAYMENT {
+    decimal amount
+    string source
+    string status
+    int attempts
+  }
+  INVOICE_SEQUENCE {
+    int year
+    int last_value
+  }

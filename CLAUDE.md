@@ -1,5 +1,12 @@
 # product-rebuild-skills
 
+## Evals
+
+A change to lane R — its brief in `agents/miner.md`, or `schemas/rule.schema.json` — is
+measured on `skills/rebuild-pipeline/eval/fixtures/rules-recall/` before and after it ships;
+the fixture's README has the steps. Recall there is the only signal that a brief change made
+the miner find fewer rules: every other check on lane R measures precision.
+
 ## Code comments
 
 Match the surrounding code first. Where there is no precedent, follow what the scripts in
