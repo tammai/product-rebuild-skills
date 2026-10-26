@@ -53,7 +53,7 @@ import { readFileSync, existsSync, readdirSync, realpathSync, statSync } from "n
 import { dirname, resolve, join, isAbsolute } from "node:path";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
-import { hookShell, nativePath } from "./lib.mjs";
+import { hookShell, nativePath, isV1Workbench } from "./lib.mjs";
 
 const raw = (() => { try { return readFileSync(0, "utf8"); } catch { return ""; } })();
 let payload;
@@ -113,7 +113,7 @@ if (real(sessionRoot) === real(worktree)) process.exit(0); // Claude Code alread
 // fixed-subset regex as scripts/lanes-check.mjs and pause-check.mjs: copied, not imported, since
 // a hook cannot depend on a workbench's vendored scripts. If you change one, change all three.
 const workbenches = [];
-const isWorkbench = (d) => existsSync(join(d, "locks", "pipeline.yaml"));
+const isWorkbench = (d) => existsSync(join(d, "locks", "pipeline.yaml")) && !isV1Workbench(d); // a 1.x workbench is the other plugin's
 if (isWorkbench(sessionRoot)) workbenches.push(sessionRoot);
 try {
   for (const e of readdirSync(sessionRoot, { withFileTypes: true })) {

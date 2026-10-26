@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-10-27
+
+The last change to the 0.x line before 1.0.0 ships as a separate plugin, `product-rebuild`
+(`tammai/product-rebuild`). 1.x is not an update to this one and cannot be installed over it, but
+the two can be enabled in the same session, so each has to leave the other's workbenches alone.
+
+- **Guards skip a 1.x workbench.** A workbench whose `locks/pipeline.yaml` carries `rebuild_major: 1`
+  was made by 1.x. `gate-guard`, `flows-guard`, `autopilot-guard`, `runbook-guard` and `repo-hooks.mjs`
+  now do nothing for it. A workbench without the key, which is every workbench this line has made, is
+  guarded exactly as before.
+- `eval/v1-fence.mjs` covers both sides.
+- Nothing else changes. 0.x still requires `bigin-skills` for repo creation and the lane agents; that is
+  not this release's concern.
+
 ## [0.33.0] - 2026-10-06
 
 Windows fixes for `repo-hooks.mjs`, the forwarder that runs a code repo's own guards. Issue #3.

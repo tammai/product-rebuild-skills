@@ -6,6 +6,16 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 
+// True for a workbench a 1.x release made: locks/pipeline.yaml says `rebuild_major: 1` or more.
+// 1.x is a different plugin (`product-rebuild`) with its own guards, and with both enabled in one
+// session each must leave the other's workbenches alone. This is the only change 0.33.1 makes.
+export const isV1Workbench = (dir) => {
+  try {
+    const m = readFileSync(join(dir, "locks", "pipeline.yaml"), "utf8").replace(/\r\n?/g, "\n").match(/^rebuild_major:\s*(\d+)/m);
+    return !!m && Number(m[1]) >= 1;
+  } catch { return false; }
+};
+
 export const readPayload = () => {
   try { return JSON.parse(readFileSync(0, "utf8")); } catch { return process.exit(0); }
 };
@@ -22,6 +32,7 @@ export const locate = () => {
     root = dirname(root);
   }
   if (!existsSync(join(root, "locks", "pipeline.yaml"))) process.exit(0); // not in a workbench
+  if (isV1Workbench(root)) process.exit(0); // a 1.x workbench: the other plugin's, not ours
   return { payload, abs, root };
 };
 
